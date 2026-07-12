@@ -16,6 +16,7 @@ db.exec(`
     url TEXT NOT NULL,
     filename TEXT,
     size_bytes INTEGER DEFAULT 0,
+    downloaded_bytes INTEGER DEFAULT 0,
     status TEXT DEFAULT 'queued',
     progress REAL DEFAULT 0,
     speed_bps INTEGER DEFAULT 0,

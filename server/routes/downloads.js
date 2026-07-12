@@ -51,16 +51,41 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
   try {
     const { id } = req.params;
-    const { filename, status } = req.body;
+    const { filename, status, progress, speed, total, downloaded } = req.body;
     const deviceId = req.headers['x-device-id'] || 'anonymous';
 
-    if (filename) {
-      db.prepare('UPDATE downloads SET filename = ? WHERE id = ? AND device_id = ?')
-        .run(filename, id, deviceId);
+    const updates = [];
+    const values = [];
+
+    if (filename !== undefined) {
+      updates.push('filename = ?');
+      values.push(filename);
     }
-    if (status) {
-      db.prepare('UPDATE downloads SET status = ? WHERE id = ? AND device_id = ?')
-        .run(status, id, deviceId);
+    if (status !== undefined) {
+      updates.push('status = ?');
+      values.push(status);
+    }
+    if (progress !== undefined) {
+      updates.push('progress = ?');
+      values.push(progress);
+    }
+    if (speed !== undefined) {
+      updates.push('speed_bps = ?');
+      values.push(speed);
+    }
+    if (total !== undefined) {
+      updates.push('size_bytes = ?');
+      values.push(total);
+    }
+    if (downloaded !== undefined) {
+      updates.push('downloaded_bytes = ?');
+      values.push(downloaded);
+    }
+
+    if (updates.length > 0) {
+      values.push(id, deviceId);
+      db.prepare(`UPDATE downloads SET ${updates.join(', ')} WHERE id = ? AND device_id = ?`)
+        .run(...values);
     }
 
     const download = db.prepare('SELECT * FROM downloads WHERE id = ?').get(id);
@@ -101,22 +126,16 @@ function detectPlatform(url) {
 }
 
 function formatDownload(d) {
-  const formatBytes = (bytes) => {
-    if (!bytes) return '0 B';
-    const k = 1024, sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
   return {
     id: d.id,
     url: d.url,
-    filename: d.filename,
-    sizeBytes: d.size_bytes,
-    sizeFormatted: formatBytes(d.size_bytes),
-    status: d.status,
-    progress: d.progress,
-    platform: d.platform,
-    format: d.format,
+    filename: d.filename || 'Unknown',
+    total: d.size_bytes || 0,
+    downloaded: d.downloaded_bytes || 0,
+    speed: d.speed_bps || 0,
+    progress: d.progress || 0,
+    status: d.status || 'queued',
+    error: d.error,
     createdAt: d.created_at,
     completedAt: d.completed_at,
   };
