@@ -19,13 +19,27 @@ export const api = {
     return handleResponse(response);
   },
 
-  async addDownloads(urls, options = {}) {
+  async addDownload(url) {
     const response = await fetch(`${API_BASE}/downloads`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ urls, options })
+      body: JSON.stringify({ url })
     });
     return handleResponse(response);
+  },
+
+  async addDownloads(urls) {
+    // Add multiple downloads
+    const results = [];
+    for (const url of urls) {
+      try {
+        const result = await this.addDownload(url);
+        results.push(result);
+      } catch (e) {
+        console.error('Failed to add download:', url, e);
+      }
+    }
+    return { downloads: results.map(r => r.download) };
   },
 
   async pauseDownload(id) {
