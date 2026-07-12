@@ -8,10 +8,7 @@ import { dirname, join } from 'path';
 import { DownloadManager } from './downloadManager.js';
 import { SettingsManager } from './settingsManager.js';
 import mediaService from './mediaService.js';
-import authRoutes from './routes/auth.js';
-import adminRoutes from './routes/admin.js';
 import downloadRoutes from './routes/downloads.js';
-import { apiLimiter } from './middleware/rateLimiter.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -36,43 +33,13 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Apply rate limiting to API routes
-app.use('/api', apiLimiter);
-
 const downloadManager = new DownloadManager(io);
 const settingsManager = new SettingsManager();
 
-// Auth routes (public)
-app.use('/api/auth', authRoutes);
-
-// Admin routes (protected)
-app.use('/api/admin', adminRoutes);
-
-// Download routes (protected)
+// Download routes (no auth required)
 app.use('/api/downloads', downloadRoutes);
 
-// Legacy API routes (for backward compatibility)
-app.get('/api/downloads', (req, res) => {
-  res.json({ downloads: downloadManager.getDownloads() });
-});
-
-app.post('/api/downloads', async (req, res) => {
-  try {
-    const { urls, options = {} } = req.body;
-    if (!urls || !Array.isArray(urls)) {
-      return res.status(400).json({ error: 'urls array is required' });
-    }
-    const settings = settingsManager.getSettings();
-    const downloads = await downloadManager.addDownloads(urls, {
-      ...settings,
-      ...options
-    });
-    res.json({ downloads });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
+// Settings routes
 app.get('/api/settings', (req, res) => {
   res.json(settingsManager.getSettings());
 });
@@ -209,34 +176,14 @@ app.get('/health', (req, res) => {
 // API documentation
 app.get('/api/docs', (req, res) => {
   res.json({
-    name: 'Turbo Downloader Enterprise API',
+    name: 'Turbo Downloader API',
     version: '1.0.0',
     endpoints: {
-      auth: {
-        'POST /api/auth/register': 'Register new user',
-        'POST /api/auth/login': 'Login user',
-        'POST /api/auth/refresh': 'Refresh token',
-        'GET /api/auth/me': 'Get current user',
-        'PUT /api/auth/profile': 'Update profile',
-      },
       downloads: {
-        'GET /api/downloads': 'Get user downloads',
+        'GET /api/downloads': 'Get downloads',
         'POST /api/downloads': 'Create download',
-        'GET /api/downloads/:id': 'Get download details',
         'PUT /api/downloads/:id': 'Update download',
         'DELETE /api/downloads/:id': 'Delete download',
-        'POST /api/downloads/:id/retry': 'Retry failed download',
-        'GET /api/downloads/folders/list': 'Get folders',
-        'POST /api/downloads/folders': 'Create folder',
-      },
-      admin: {
-        'GET /api/admin/dashboard': 'Get dashboard stats',
-        'GET /api/admin/users': 'Get all users',
-        'POST /api/admin/users': 'Create user',
-        'PUT /api/admin/users/:id': 'Update user',
-        'DELETE /api/admin/users/:id': 'Delete user',
-        'GET /api/admin/audit-logs': 'Get audit logs',
-        'GET /api/admin/organizations': 'Get organizations',
       },
       media: {
         'GET /api/media/info': 'Get media info',
