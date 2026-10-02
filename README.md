@@ -181,6 +181,90 @@ Settings are validated and persisted in SQLite. Defaults:
 Environment variables (see `server/.env.example`): `PORT`, `TURBO_DATA_DIR`,
 `CORS_ORIGIN`, `YT_DLP_PATH`.
 
+## Hosting / deployment
+
+Turbo Downloader is a **long-running server with persistent state**, not a
+static site or a serverless function. It needs two things anywhere you host it:
+
+1. **A long-lived process** — a background download engine with timers and
+   WebSockets. Serverless platforms (Vercel, Netlify, Cloudflare Workers, AWS
+   Lambda) will not work: requests time out and there is no persistent disk.
+2. **A persistent disk** — the SQLite database and the downloaded files must
+   survive restarts and redeploys.
+
+Anything that runs a Docker container with a mounted volume works well.
+
+### Docker (any VPS, home server, NAS, or cloud VM)
+
+The repo ships a `Dockerfile` and `docker-compose.yml` that bundle yt-dlp and
+ffmpeg, so media downloads work with no extra setup.
+
+```bash
+docker compose up -d --build
+# UI on http://localhost:3001, files in ./downloads, DB in the turbo-data volume
+```
+
+To expose it to the internet, put a reverse proxy (Caddy, Nginx, Traefik) in
+front and terminate TLS there.
+
+### Render (easiest managed option)
+
+`render.yaml` is a ready-to-use blueprint. It provisions a Docker web service
+with a persistent disk mounted at `/data`.
+
+1. Push the repo to GitHub.
+2. In Render: **New → Blueprint**, pick the repo, apply.
+3. The service builds the image and deploys; health checks use `/health`.
+
+Note: Render's free tier has no persistent disks — use the **Starter** plan (as
+set in the blueprint) so the database and files persist.
+
+### Fly.io
+
+`fly.toml` is included.
+
+```bash
+fly launch --no-deploy
+fly volumes create turbo_data --size 3
+fly deploy
+```
+
+The volume is mounted at both `/data` (database) and `/downloads` (files).
+
+### Railway / Heroku-style platforms
+
+These build from a `Dockerfile` or `Procfile` and support volumes:
+
+- **Railway**: New Project → Deploy from GitHub. Railway detects the
+  `Dockerfile`. Add a volume mounted at `/data` and set `TURBO_DATA_DIR=/data`.
+- **Heroku**: container-based dynos only; add a persistent store (e.g. a
+  mounted volume is not available, so use S3-backed storage or a database
+  add-on). Generally Render/Fly/Railway are a better fit.
+
+### Environment variables for hosting
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `PORT` | HTTP port | `3001` |
+| `TURBO_DATA_DIR` | SQLite database directory | `/data` |
+| `DOWNLOAD_DIR` | Default download folder | `/downloads` |
+| `CORS_ORIGIN` | Allowed origin(s), or `*` | `https://app.example.com` |
+| `YT_DLP_PATH` | Path to yt-dlp binary | `/usr/local/bin/yt-dlp` |
+
+### Two things to plan for
+
+- **Storage growth**: downloaded files accumulate. Mount a large enough disk and
+  clean up from the UI, or point `DOWNLOAD_DIR` at a volume you manage.
+- **Egress**: multi-connection downloads and media streams consume bandwidth.
+  Check your provider's egress pricing before exposing it publicly.
+
+### Security when hosting publicly
+
+This app has no authentication. If you expose it on the internet, protect it —
+put it behind a reverse proxy with HTTP basic auth, an SSO proxy (e.g.
+oauth2-proxy, Cloudflare Access), or a VPN/Tailscale. Also set `CORS_ORIGIN`
+to your real origin instead of `*`.
+
 ## Tech stack
 
 - **Frontend**: React 18, Vite, TailwindCSS, Zustand, Socket.IO Client, Lucide

@@ -1,0 +1,30 @@
+# Render blueprint — deploys Turbo Downloader as a Docker web service.
+# Persistent disks keep the SQLite database and downloaded files across deploys.
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: turbo-downloader
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: TURBO_DATA_DIR
+        value: /data
+      - key: DOWNLOAD_DIR
+        value: /downloads
+      - key: CORS_ORIGIN
+        value: "*"
+    disk:
+      name: turbo-data
+      mountPath: /data
+      sizeGB: 1
+    # A second disk can be attached for downloaded files:
+    # - name: turbo-downloads
+    #   mountPath: /downloads
+    #   sizeGB: 20

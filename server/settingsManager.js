@@ -7,7 +7,7 @@ export const DEFAULT_SETTINGS = {
   connections: 8,
   concurrentDownloads: 3,
   split: 8,
-  defaultDir: path.join(os.homedir(), 'TurboDownloads'),
+  defaultDir: process.env.DOWNLOAD_DIR || path.join(os.homedir(), 'TurboDownloads'),
   duplicateHandling: 'rename', // skip | rename | overwrite
   notifications: true,
   bandwidthLimit: 0, // KB/s, 0 = unlimited
