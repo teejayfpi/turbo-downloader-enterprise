@@ -358,6 +358,17 @@ function DownloadItem({ download, onDragStart, onDropOn, isDragged, run }) {
                 <Play className="w-4 h-4" />
               </ActionButton>
             )}
+            {download.status === 'completed' && download.filepath && (
+              <a
+                href={api.fileUrl(download.id)}
+                download
+                title="Download file"
+                className="p-2 rounded-lg bg-accent/15 text-accent hover:bg-accent/25 transition-colors focus-ring"
+                aria-label="Download file"
+              >
+                <DownloadCloud className="w-4 h-4" />
+              </a>
+            )}
 
             <div className="relative">
               <button
@@ -372,9 +383,14 @@ function DownloadItem({ download, onDragStart, onDropOn, isDragged, run }) {
                   <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
                   <div className="absolute right-0 top-full mt-1 z-20 bg-bg-secondary border border-border-subtle rounded-xl shadow-xl py-1 min-w-[190px] animate-slide-down">
                     {download.filepath && (
-                      <MenuItem icon={Copy} onClick={() => { copyPath(); setMenuOpen(false); }}>
-                        Copy file path
-                      </MenuItem>
+                      <>
+                        <MenuItem icon={Download} onClick={() => { window.location.href = api.fileUrl(download.id); setMenuOpen(false); }}>
+                          Download file
+                        </MenuItem>
+                        <MenuItem icon={Copy} onClick={() => { copyPath(); setMenuOpen(false); }}>
+                          Copy file path
+                        </MenuItem>
+                      </>
                     )}
                     {download.status !== 'completed' && (
                       <MenuItem

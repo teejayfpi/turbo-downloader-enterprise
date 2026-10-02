@@ -35,6 +35,7 @@ export const api = {
   removeDownload: (id, deleteFile = false) =>
     fetch(`${API_BASE}/downloads/${id}?deleteFile=${deleteFile}`, { method: 'DELETE' }).then(handleResponse),
   updateDownload: (id, patch) => jsonRequest(`${API_BASE}/downloads/${id}`, 'PUT', patch),
+  fileUrl: (id) => `${API_BASE}/downloads/${id}/file`,
 
   pauseAll: () => jsonRequest(`${API_BASE}/downloads/pause-all`, 'POST'),
   resumeAll: () => jsonRequest(`${API_BASE}/downloads/resume-all`, 'POST'),

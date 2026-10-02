@@ -1,9 +1,28 @@
 import express from 'express';
+import fs from 'fs';
+import path from 'path';
 import { engine, settingsManager } from '../context.js';
 
 const router = express.Router();
 
 const asyncHandler = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+/**
+ * Resolves a download's stored filepath, refusing anything that escapes the
+ * configured download directory. Records are created from remote input, so the
+ * path is treated as untrusted and confined before it is ever opened.
+ */
+function resolveStoredFile(download) {
+  if (!download?.filepath) return null;
+
+  const root = path.resolve(settingsManager.getSettings().defaultDir || '.');
+  const target = path.resolve(download.filepath);
+
+  if (target !== root && !target.startsWith(root + path.sep)) return null;
+  if (!fs.existsSync(target) || !fs.statSync(target).isFile()) return null;
+
+  return target;
+}
 
 // List downloads
 router.get('/', (req, res) => {
@@ -64,6 +83,24 @@ router.get('/:id', (req, res) => {
   const download = engine.getDownload(req.params.id);
   if (!download) return res.status(404).json({ error: 'Download not found' });
   res.json({ download });
+});
+
+// Stream a completed file back to the browser. Without this the UI can only
+// show a container path, which is useless on a hosted instance where the user
+// has no shell access.
+router.get('/:id/file', (req, res, next) => {
+  const download = engine.getDownload(req.params.id);
+  if (!download) return res.status(404).json({ error: 'Download not found' });
+
+  const file = resolveStoredFile(download);
+  if (!file) {
+    return res.status(404).json({ error: 'File is not available (it may have been deleted or moved)' });
+  }
+
+  const name = path.basename(file);
+  res.download(file, name, (error) => {
+    if (error && !res.headersSent) next(error);
+  });
 });
 
 router.post('/:id/pause', asyncHandler(async (req, res) => {
