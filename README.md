@@ -108,40 +108,56 @@ specific binary. Media downloads are disabled cleanly when it is missing.
 ### YouTube on a hosted server
 
 YouTube blocks video downloads from datacenter IPs — the same thing that
-happens on Render, Fly, Railway and most cloud hosts. The symptom is:
+happens on Render, Fly, Railway and most cloud hosts. The symptoms are:
 
 ```
 Sign in to confirm you're not a bot
 unable to download video data: HTTP Error 403: Forbidden
 ```
 
-Metadata (title, thumbnail, formats) often still works; only the media stream
-is refused. This is YouTube's anti-bot policy, not a bug in Turbo. Fixes, in
-order of reliability:
+Two independent things must both be true for a hosted YouTube download:
 
-1. **Pass cookies** (recommended). Export your YouTube cookies in Netscape
-   format, put the file on the server, and point Turbo at it:
+**1. yt-dlp needs a JavaScript runtime.** YouTube's signature challenges are
+solved by the `yt-dlp-ejs` scripts running inside an external JS runtime. The
+Docker image installs `yt-dlp[default]` and passes `--js-runtimes node`; set
+`YT_DLP_JS_RUNTIME` to override. Without this, every media URL returns 403 no
+matter what else you do. Confirm it took effect:
 
-   ```bash
-   YT_DLP_COOKIES=/path/to/cookies.txt
-   ```
+```bash
+curl -s http://localhost:3001/health | jq .media
+# { "available": true, "ffmpeg": true, "jsRuntime": "node" }
+```
 
-   On a desktop machine you can instead read them from an installed browser:
+**2. The account must be signed in.** Even with a JS runtime, a datacenter IP
+is treated as a bot until cookies prove a real session. Export them from a
+browser that is **actually signed in to YouTube**:
 
-   ```bash
-   YT_DLP_COOKIES_FROM_BROWSER=chrome   # or firefox, edge, brave
-   ```
+```bash
+YT_DLP_COOKIES=/path/to/cookies.txt        # or
+YT_DLP_COOKIES_DATA="$(cat cookies.txt)"   # contents, for ephemeral filesystems
+```
 
-   Use a throwaway account — cookies grant full access to that session.
+A cookie file that is missing `LOGIN_INFO` is not a signed-in YouTube session
+and will not clear the gate. You can check before deploying:
 
-2. **Run Turbo on a residential connection.** Self-hosting at home, or a
-   residential proxy, avoids the datacenter block entirely.
+```bash
+grep -c LOGIN_INFO cookies.txt    # must be >= 1
+```
 
-3. **Download elsewhere and add by direct URL.** A URL that already points at
-   a media file is fetched as a normal HTTP download and is unaffected.
+Verify the session is live (a redirect to the sign-in page means it is not):
 
-Other platforms are not blocked the same way. SoundCloud, Bandcamp, Mixcloud,
-archive.org and Reddit generally work from cloud hosts without cookies.
+```bash
+curl -s -b cookies.txt -o /dev/null -w '%{url_effective}\n' -L https://myaccount.google.com/
+```
+
+Use a throwaway account — cookies grant full access to that session. They also
+expire, typically within weeks to months.
+
+If both are in place and downloads still fail, the remaining causes are a
+residential-connection requirement (self-host or use a residential proxy) or a
+stale yt-dlp. Other platforms are not gated the same way: SoundCloud, Bandcamp,
+Mixcloud, archive.org and Reddit generally work from cloud hosts without
+cookies.
 
 ### Install it on your phone
 
