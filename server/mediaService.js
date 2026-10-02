@@ -199,23 +199,26 @@ class MediaService {
   /**
    * Turns a stored format choice into a yt-dlp format selector.
    *
-   * "best" and bare selectors that require merging fall back to a progressive
-   * stream when ffmpeg is missing, otherwise yt-dlp aborts with
-   * "Requested format is not available" (YouTube serves no combined stream
-   * above 360p). An explicit format id is always honoured as-is.
+   * An explicit single format id ("18", "251", "139-drc") is an exact request
+   * and passes through untouched. Everything else is flexible, and gets a
+   * combined-stream fallback: YouTube withholds the separate video and audio
+   * streams from datacenter IPs, and a hard "Requested format is not available"
+   * is worse for the user than a lower-resolution file that actually plays.
+   * Without ffmpeg there is no merging at all, so flexible requests collapse to
+   * a progressive stream (YouTube serves no combined stream above 360p).
    */
   resolveFormat(formatId) {
     const requested = (formatId || 'best').trim();
-    const needsMerge = requested === 'best'
-      || /bestvideo|bestaudio|\+/.test(requested);
 
-    if (needsMerge && !this.hasFfmpeg()) {
-      return 'best[ext=mp4]/best';
-    }
-    if (requested === 'best') {
-      return 'bestvideo+bestaudio/best';
-    }
-    return requested;
+    if (/^\d+[\w-]*$/.test(requested)) return requested;
+
+    if (!this.hasFfmpeg()) return 'best[ext=mp4]/best';
+
+    const flexible = requested === 'best' || /bestvideo|bestaudio|\+/.test(requested);
+    if (!flexible) return requested;
+
+    const base = requested === 'best' ? 'bestvideo+bestaudio' : requested;
+    return `${base}/best[ext=mp4]/best`;
   }
 
   /** Downloads media, streaming progress back via onProgress. Resolves with the filepath. */
