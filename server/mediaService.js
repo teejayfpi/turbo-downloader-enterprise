@@ -16,6 +16,21 @@ const JS_RUNTIME = process.env.YT_DLP_JS_RUNTIME === undefined
   ? 'node'
   : process.env.YT_DLP_JS_RUNTIME.trim();
 
+const MEDIA_EXT = /\.(mp4|mkv|webm|mp3|m4a|opus|ogg|flac|wav)$/i;
+
+/** Non-fragment media files in a directory. */
+function listMediaFragments(dir) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((name) => MEDIA_EXT.test(name) && !/\.f\d+\./.test(name) && !/\.part$/i.test(name))
+    .map((name) => path.join(dir, name));
+}
+
 function which(bin) {
   const cmd = process.platform === 'win32' ? 'where' : 'which';
   const result = spawnSync(cmd, [bin], { encoding: 'utf8' });
@@ -218,15 +233,23 @@ class MediaService {
         '--no-playlist',
         '--newline',
         '--no-warnings',
+      ];
+      // yt-dlp looks ffmpeg up on PATH; a configured FFMPEG_PATH is only
+      // visible to us, so it must be handed over explicitly or merging fails.
+      if (this.hasFfmpeg()) args.push('--ffmpeg-location', FFMPEG);
+      args.push(
         ...this.authArgs(),
         '--print', 'after_move:filepath',
         url,
-      ];
+      );
 
       const child = spawn(this.path, args);
       let filepath = null;
       let stderr = '';
       let settled = false;
+      // Snapshot before yt-dlp writes anything, so recovery only ever considers
+      // files this download produced rather than an unrelated older file.
+      const preexisting = new Set(listMediaFragments(outputPath));
 
       const handleLine = (line) => {
         const text = line.toString();
@@ -242,14 +265,12 @@ class MediaService {
           });
         }
 
-        const destMatch = text.match(/\[download\]\s+Destination:\s+(.+)/);
-        if (destMatch) filepath = destMatch[1].trim();
-
-        // --print after_move:filepath emits the final absolute path on its own line
+        // --print after_move:filepath emits the final path on its own line, but
+        // only when ffmpeg actually merged. Without a merger yt-dlp prints
+        // nothing and the separate streams stay on disk, so the path alone is
+        // not trusted — existence is checked before reporting success.
         const trimmed = text.trim();
-        if (trimmed && path.isAbsolute(trimmed) && /\.(mp4|mkv|webm|mp3|m4a|opus|ogg|flac|wav)$/i.test(trimmed)) {
-          filepath = trimmed;
-        }
+        if (trimmed && path.isAbsolute(trimmed)) filepath = trimmed;
       };
 
       child.stdout.on('data', (data) => data.toString().split('\n').forEach(handleLine));
@@ -268,11 +289,32 @@ class MediaService {
           reject(new Error(cleanError(stderr) || `yt-dlp exited with code ${code}`));
           return;
         }
-        if (!filepath) {
-          reject(new Error('Download finished but no output file was reported'));
+
+        // yt-dlp can exit 0 while leaving a video and an audio fragment behind.
+        // Reporting that as a completed download hands the user a broken file,
+        // so fall back to recovering the merged output and fail loudly if the
+        // media never came together.
+        let finalPath = filepath && fs.existsSync(filepath) ? filepath : null;
+
+        if (!finalPath) {
+          const produced = listMediaFragments(outputPath).filter((f) => !preexisting.has(f));
+          finalPath = produced.length === 1 ? produced[0] : null;
+        }
+
+        if (!finalPath) {
+          const produced = listMediaFragments(outputPath).filter((f) => !preexisting.has(f));
+          if (produced.length > 1) {
+            reject(new Error(
+              `Downloaded ${produced.length} separate streams but they could not be merged `
+              + '(ffmpeg is unavailable or failed). Install ffmpeg, or choose a single-format option.',
+            ));
+            return;
+          }
+          reject(new Error('Download finished but no output file was produced'));
           return;
         }
-        resolve({ success: true, filepath });
+
+        resolve({ success: true, filepath: finalPath });
       });
     });
   }
