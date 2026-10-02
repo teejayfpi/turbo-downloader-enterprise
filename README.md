@@ -105,6 +105,44 @@ sudo apt-get install ffmpeg # Debian/Ubuntu
 The server detects yt-dlp automatically at startup. Set `YT_DLP_PATH` to use a
 specific binary. Media downloads are disabled cleanly when it is missing.
 
+### YouTube on a hosted server
+
+YouTube blocks video downloads from datacenter IPs — the same thing that
+happens on Render, Fly, Railway and most cloud hosts. The symptom is:
+
+```
+Sign in to confirm you're not a bot
+unable to download video data: HTTP Error 403: Forbidden
+```
+
+Metadata (title, thumbnail, formats) often still works; only the media stream
+is refused. This is YouTube's anti-bot policy, not a bug in Turbo. Fixes, in
+order of reliability:
+
+1. **Pass cookies** (recommended). Export your YouTube cookies in Netscape
+   format, put the file on the server, and point Turbo at it:
+
+   ```bash
+   YT_DLP_COOKIES=/path/to/cookies.txt
+   ```
+
+   On a desktop machine you can instead read them from an installed browser:
+
+   ```bash
+   YT_DLP_COOKIES_FROM_BROWSER=chrome   # or firefox, edge, brave
+   ```
+
+   Use a throwaway account — cookies grant full access to that session.
+
+2. **Run Turbo on a residential connection.** Self-hosting at home, or a
+   residential proxy, avoids the datacenter block entirely.
+
+3. **Download elsewhere and add by direct URL.** A URL that already points at
+   a media file is fetched as a normal HTTP download and is unaffected.
+
+Other platforms are not blocked the same way. SoundCloud, Bandcamp, Mixcloud,
+archive.org and Reddit generally work from cloud hosts without cookies.
+
 ### Install it on your phone
 
 Turbo is a PWA, so the hosted URL installs like a native app. The site must be
