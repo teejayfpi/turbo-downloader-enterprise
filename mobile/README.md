@@ -28,6 +28,30 @@ need yt-dlp and ffmpeg, which do not run on the phone.
 
 ## Build
 
+### In CI (GitHub Actions)
+
+`.github/workflows/android.yml` runs on every push or pull request that touches
+`mobile/`, and can be started by hand from the Actions tab. It runs
+`flutter analyze` and `flutter test`, then builds the release APK and AAB and
+uploads them as the `turbo-apk` and `turbo-aab` artifacts. Download them from
+the run summary. This is the easiest way to get an installable APK without a
+local Android toolchain.
+
+The build is signed with the debug key unless you add these repository secrets
+(Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 turbo-release.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore password |
+| `ANDROID_KEY_PASSWORD` | key password |
+| `ANDROID_KEY_ALIAS` | key alias (e.g. `turbo`) |
+
+With them set, the workflow writes `android/key.properties` and signs the
+release build properly, so the AAB is Play-ready.
+
+### Locally
+
 ```bash
 cd mobile
 flutter pub get
