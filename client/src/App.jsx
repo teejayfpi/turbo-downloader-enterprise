@@ -10,6 +10,7 @@ import SettingsModal from './components/SettingsModal';
 import ToastContainer from './components/ToastContainer';
 import ErrorBoundary from './components/ErrorBoundary';
 import SplashScreen from './components/SplashScreen';
+import InstallBanner from './components/InstallBanner';
 import { DESIGNER, APP_VERSION } from './credits';
 
 function App() {
@@ -24,6 +25,20 @@ function App() {
   const addNotification = useDownloadStore((s) => s.addNotification);
   const [loading, setLoading] = useState(true);
   const [fatal, setFatal] = useState(null);
+  const setFilter = useDownloadStore((s) => s.setFilter);
+
+  // PWA shortcut: /?filter=completed opens the list pre-filtered.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const filter = params.get('filter');
+    if (filter) {
+      setFilter(filter);
+      params.delete('filter');
+      params.delete('source');
+      const query = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (query ? `?${query}` : ''));
+    }
+  }, [setFilter]);
 
   const removeBootSplash = useCallback(() => {
     document.getElementById('boot-splash')?.remove();
@@ -164,6 +179,7 @@ function App() {
 
       <SettingsModal />
       <ToastContainer />
+      <InstallBanner />
     </div>
   );
 }

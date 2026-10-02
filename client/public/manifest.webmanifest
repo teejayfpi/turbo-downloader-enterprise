@@ -1,4 +1,5 @@
 {
+  "id": "/",
   "name": "Turbo — Blazing Fast Download Manager",
   "short_name": "Turbo",
   "description": "Enterprise-grade download manager. Multi-connection, resumable, blazing fast.",
@@ -6,18 +7,42 @@
     "name": "Olatunji Ayobami Ayanlowo",
     "email": "ayanlowo89@gmail.com"
   },
-  "start_url": "/",
+  "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
   "orientation": "any",
   "background_color": "#07080f",
   "theme_color": "#0a0a0f",
   "categories": ["utilities", "productivity"],
+  "lang": "en",
+  "dir": "ltr",
+  "prefer_related_applications": false,
   "icons": [
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
     { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "screenshots": [
+    { "src": "/screenshots/app-wide.png", "sizes": "1280x720", "type": "image/png", "form_factor": "wide" },
+    { "src": "/screenshots/app-narrow.png", "sizes": "720x1280", "type": "image/png", "form_factor": "narrow" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Add a download",
+      "short_name": "Add",
+      "description": "Jump straight to the URL box",
+      "url": "/?action=add",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Completed downloads",
+      "short_name": "Completed",
+      "description": "View finished downloads",
+      "url": "/?filter=completed",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
   ]
 }

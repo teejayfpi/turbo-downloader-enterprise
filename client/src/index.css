@@ -51,8 +51,32 @@ body {
   background-color: rgb(var(--bg-primary));
   color: rgb(var(--text-primary));
   min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: hidden;
   transition: background-color 0.25s ease, color 0.25s ease;
+  /* Avoid the grey flash Android/iOS paint over tapped links. */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* ---- installed-app / mobile shell ---------------------------------------- */
+
+/* Respect notches and the Android gesture bar when running standalone. */
+.safe-top { padding-top: env(safe-area-inset-top, 0px); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.safe-x {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+header.sticky {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+@media (display-mode: standalone) {
+  /* Nothing to pull-to-refresh against inside the installed app. */
+  body { overscroll-behavior-y: contain; }
 }
 
 ::-webkit-scrollbar { width: 9px; height: 9px; }
@@ -350,6 +374,14 @@ input[type='range']::-moz-range-thumb {
   border-color: rgba(0, 230, 255, 0.6);
 }
 .splash-credit-dot { color: #46536a; }
+
+/* Short/landscape phones: compress the stack so the credit stays visible. */
+@media (max-height: 720px) {
+  .splash-mark { width: clamp(88px, 20vmin, 140px); height: clamp(88px, 20vmin, 140px); }
+  .splash-wordmark { margin-top: 16px; }
+  .splash-rail { margin-top: 26px; }
+  .splash-credit { margin-top: 18px; padding-top: 14px; }
+}
 
 @keyframes splash-rise {
   0% { opacity: 0; transform: translateY(22px); }

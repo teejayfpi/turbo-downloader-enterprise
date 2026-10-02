@@ -34,6 +34,9 @@ export const useDownloadStore = create((set, get) => ({
   settingsModalOpen: false,
   connected: false,
   filter: 'all',
+  canInstall: false,
+  installedApp: false,
+  installDismissed: false,
 
   setDownloads: (downloads) => set({ downloads }),
   setStats: (stats) => set({ stats }),
@@ -42,6 +45,7 @@ export const useDownloadStore = create((set, get) => ({
   setSystem: (system) => set({ system }),
   setConnected: (connected) => set({ connected }),
   setFilter: (filter) => set({ filter }),
+  setInstall: (patch) => set((state) => ({ ...state, ...patch })),
 
   updateFromServer: (data) => {
     set((state) => ({

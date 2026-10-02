@@ -170,7 +170,20 @@ app.get('/api/docs', (req, res) => {
 
 const clientDist = join(__dirname, '../client/dist');
 if (fs.existsSync(clientDist)) {
-  app.use(express.static(clientDist));
+  app.use(
+    express.static(clientDist, {
+      setHeaders(res, filePath) {
+        // The worker and manifest must never be served stale, or installs and
+        // updates break. Hashed /assets/* stay immutable and long-cached.
+        if (filePath.endsWith('sw.js')) {
+          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Service-Worker-Allowed', '/');
+        } else if (filePath.endsWith('manifest.webmanifest')) {
+          res.setHeader('Cache-Control', 'no-cache');
+        }
+      },
+    })
+  );
   app.get('/{*splat}', (req, res, next) => {
     if (req.path.startsWith('/api')) return next();
     res.sendFile(join(clientDist, 'index.html'));
