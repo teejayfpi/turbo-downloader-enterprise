@@ -3,7 +3,6 @@
 FROM node:22-slim
 
 ENV NODE_ENV=production \
-    PORT=3001 \
     TURBO_DATA_DIR=/data \
     DOWNLOAD_DIR=/downloads \
     YT_DLP_PATH=/usr/local/bin/yt-dlp
@@ -37,6 +36,6 @@ EXPOSE 3001
 VOLUME ["/data", "/downloads"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -fsS http://localhost:${PORT}/health || exit 1
+  CMD curl -fsS http://localhost:${PORT:-3001}/health || exit 1
 
 CMD ["node", "server/index.js"]
