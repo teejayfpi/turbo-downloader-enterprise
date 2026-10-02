@@ -1,9 +1,12 @@
 import { spawn, spawnSync } from 'child_process';
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 const YTDLP = process.env.YT_DLP_PATH || 'yt-dlp';
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
 const COOKIES = process.env.YT_DLP_COOKIES || '';
+const COOKIES_DATA = process.env.YT_DLP_COOKIES_DATA || '';
 const COOKIES_FROM_BROWSER = process.env.YT_DLP_COOKIES_FROM_BROWSER || '';
 
 function which(bin) {
@@ -23,12 +26,29 @@ class MediaService {
    * Extra yt-dlp flags shared by metadata and download calls. Cookies are the
    * documented workaround for YouTube's "Sign in to confirm you're not a bot"
    * gate, which datacenter IPs hit on every request.
+   *
+   * YT_DLP_COOKIES_DATA holds the file contents directly, for hosts with an
+   * ephemeral filesystem (Render, Fly, Railway) where a path would not survive
+   * a deploy. It is written to a private temp file once per process.
    */
   authArgs() {
     const args = [];
-    if (COOKIES) args.push('--cookies', COOKIES);
+    const cookieFile = this.cookieFile();
+    if (cookieFile) args.push('--cookies', cookieFile);
     if (COOKIES_FROM_BROWSER) args.push('--cookies-from-browser', COOKIES_FROM_BROWSER);
     return args;
+  }
+
+  cookieFile() {
+    if (COOKIES) return COOKIES;
+    if (!COOKIES_DATA) return '';
+
+    if (!this._cookieFilePath) {
+      const target = path.join(os.tmpdir(), `turbo-cookies-${process.pid}.txt`);
+      fs.writeFileSync(target, COOKIES_DATA, { mode: 0o600 });
+      this._cookieFilePath = target;
+    }
+    return this._cookieFilePath;
   }
 
   isAvailable() {
