@@ -8,10 +8,13 @@ ENV NODE_ENV=production \
     YT_DLP_PATH=/usr/local/bin/yt-dlp
 
 # System deps: python3/pip for yt-dlp, ffmpeg for stream merging, curl for healthchecks.
+# yt-dlp is installed with its "default" extras so the yt-dlp-ejs challenge
+# scripts ship with it; Node (already present in this base image) is used as
+# the JS runtime to solve YouTube's signature challenges.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        python3 python3-pip ffmpeg curl ca-certificates \
-    && pip3 install --no-cache-dir --break-system-packages -U yt-dlp \
+    && pip3 install --no-cache-dir --break-system-packages -U "yt-dlp[default]" \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

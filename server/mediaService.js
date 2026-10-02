@@ -9,6 +9,13 @@ const COOKIES = process.env.YT_DLP_COOKIES || '';
 const COOKIES_DATA = process.env.YT_DLP_COOKIES_DATA || '';
 const COOKIES_FROM_BROWSER = process.env.YT_DLP_COOKIES_FROM_BROWSER || '';
 
+// YouTube signature challenges are solved by yt-dlp-ejs running inside an
+// external JS runtime. Without one, media URLs come back as HTTP 403.
+// Override or disable with YT_DLP_JS_RUNTIME (e.g. "deno", "node:/path/to/node", "").
+const JS_RUNTIME = process.env.YT_DLP_JS_RUNTIME === undefined
+  ? 'node'
+  : process.env.YT_DLP_JS_RUNTIME.trim();
+
 function which(bin) {
   const cmd = process.platform === 'win32' ? 'where' : 'which';
   const result = spawnSync(cmd, [bin], { encoding: 'utf8' });
@@ -36,6 +43,7 @@ class MediaService {
     const cookieFile = this.cookieFile();
     if (cookieFile) args.push('--cookies', cookieFile);
     if (COOKIES_FROM_BROWSER) args.push('--cookies-from-browser', COOKIES_FROM_BROWSER);
+    if (JS_RUNTIME) args.push('--js-runtimes', JS_RUNTIME);
     return args;
   }
 
@@ -80,6 +88,7 @@ class MediaService {
       version: this.version || null,
       path: this.path,
       ffmpeg: this.hasFfmpeg(),
+      jsRuntime: JS_RUNTIME || null,
     };
   }
 
