@@ -44,3 +44,6 @@ build/
 *.so
 *.dylib
 *.dll
+
+# Rendered asset scratch
+client/.asset-tmp

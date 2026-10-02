@@ -9,6 +9,7 @@ import DownloadList from './components/DownloadList';
 import SettingsModal from './components/SettingsModal';
 import ToastContainer from './components/ToastContainer';
 import ErrorBoundary from './components/ErrorBoundary';
+import SplashScreen from './components/SplashScreen';
 
 function App() {
   useSocket();
@@ -22,6 +23,10 @@ function App() {
   const addNotification = useDownloadStore((s) => s.addNotification);
   const [loading, setLoading] = useState(true);
   const [fatal, setFatal] = useState(null);
+
+  const removeBootSplash = useCallback(() => {
+    document.getElementById('boot-splash')?.remove();
+  }, []);
 
   // Apply theme + accent to the document root.
   useEffect(() => {
@@ -63,6 +68,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-bg-primary">
+      <SplashScreen ready={!loading} onMounted={removeBootSplash} />
       <div className="fixed inset-0 bg-gradient-to-br from-accent/5 via-transparent to-success/5 pointer-events-none" />
       <div
         className="fixed inset-0 opacity-[0.025] pointer-events-none"

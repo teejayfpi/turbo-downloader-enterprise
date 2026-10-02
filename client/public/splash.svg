@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1290 2796" width="1290" height="2796" role="img" aria-label="Turbo Downloader splash screen">
+  <defs>
+    <linearGradient id="sbg" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#0b1020"/>
+      <stop offset="0.42" stop-color="#07080f"/>
+      <stop offset="1" stop-color="#030409"/>
+    </linearGradient>
+    <radialGradient id="sglow" cx="0.5" cy="0.36" r="0.62">
+      <stop offset="0" stop-color="#1fd8ff" stop-opacity="0.26"/>
+      <stop offset="0.45" stop-color="#0a7bd6" stop-opacity="0.09"/>
+      <stop offset="1" stop-color="#0a7bd6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="smark" x1="0.1" y1="0.05" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#7af6ff"/>
+      <stop offset="0.42" stop-color="#00d4ff"/>
+      <stop offset="1" stop-color="#00ffc2"/>
+    </linearGradient>
+    <linearGradient id="sarc" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#5ef2ff" stop-opacity="0.55"/>
+      <stop offset="0.55" stop-color="#00ffc2" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#00ffc2" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="sword" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.55" stop-color="#cfefff"/>
+      <stop offset="1" stop-color="#8fe6ff"/>
+    </linearGradient>
+    <linearGradient id="sline" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#00d4ff" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#00ffc2" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#00d4ff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="ssoft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="26"/>
+    </filter>
+    <clipPath id="ssq"><rect width="1024" height="1024" rx="232"/></clipPath>
+  </defs>
+
+  <rect width="1290" height="2796" fill="url(#sbg)"/>
+  <rect width="1290" height="2796" fill="url(#sglow)"/>
+
+  <g opacity="0.045" stroke="#6ff0ff" stroke-width="2" fill="none">
+    <path d="M215 0V2796M430 0V2796M645 0V2796M860 0V2796M1075 0V2796"/>
+    <path d="M0 330H1290M0 660H1290M0 990H1290M0 1320H1290M0 1650H1290M0 1980H1290M0 2310H1290M0 2640H1290"/>
+  </g>
+
+  <!-- app icon -->
+  <g transform="translate(133 604)">
+    <rect width="1024" height="1024" rx="232" fill="#05070d"/>
+    <g clip-path="url(#ssq)">
+      <rect width="1024" height="1024" fill="url(#sglow)"/>
+    </g>
+    <circle cx="512" cy="512" r="340" fill="none" stroke="url(#sarc)" stroke-width="26"
+            stroke-linecap="round" pathLength="100" stroke-dasharray="64 36"
+            transform="rotate(-140 512 512)"/>
+    <path d="M462 258H562V534H688L512 736L336 534H462Z" fill="#00d4ff" opacity="0.4" filter="url(#ssoft)"/>
+    <path d="M462 258H562V534H688L512 736L336 534H462Z" fill="url(#smark)"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="645" y="1930" text-anchor="middle" fill="url(#sword)"
+        font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+        font-size="196" font-weight="800" letter-spacing="34">TURBO</text>
+  <text x="645" y="2032" text-anchor="middle" fill="#00d4ff" opacity="0.85"
+        font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+        font-size="52" font-weight="600" letter-spacing="26">DOWNLOAD MANAGER</text>
+
+  <text x="645" y="2210" text-anchor="middle" fill="#93a0b8"
+        font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+        font-size="46" font-weight="400">Multi-connection · Resumable · Blazing fast</text>
+
+  <!-- loading rail -->
+  <rect x="405" y="2510" width="480" height="6" rx="3" fill="#ffffff" opacity="0.08"/>
+  <rect x="405" y="2510" width="210" height="6" rx="3" fill="url(#sline)"/>
+
+  <text x="645" y="2634" text-anchor="middle" fill="#6b7890"
+        font-family="Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+        font-size="36" font-weight="500" letter-spacing="6">v2.0.0</text>
+</svg>
