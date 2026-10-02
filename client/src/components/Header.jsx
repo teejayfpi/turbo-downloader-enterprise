@@ -1,7 +1,8 @@
-import { Settings, Zap, Activity, ListOrdered, Wifi, WifiOff, Sun, Moon } from 'lucide-react';
+import { Settings, Zap, Activity, ListOrdered, Wifi, WifiOff, Sun, Moon, Download } from 'lucide-react';
 import { useDownloadStore } from '../stores/downloadStore';
 import { api } from '../hooks/useApi';
 import { formatSpeed } from '../lib/format';
+import { usePWA } from '../hooks/usePWA';
 
 export default function Header() {
   const stats = useDownloadStore((s) => s.stats);
@@ -10,6 +11,7 @@ export default function Header() {
   const setSettings = useDownloadStore((s) => s.setSettings);
   const connected = useDownloadStore((s) => s.connected);
   const toggleSettingsModal = useDownloadStore((s) => s.toggleSettingsModal);
+  const pwa = usePWA();
 
   const queued = downloads.filter((d) => d.status === 'queued' || d.status === 'scheduled').length;
 
@@ -67,6 +69,18 @@ export default function Header() {
               {connected ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
               {connected ? 'Live' : 'Offline'}
             </span>
+
+            {pwa.canPrompt && (
+              <button
+                onClick={pwa.promptInstall}
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-accent text-bg-primary text-xs font-semibold hover:bg-accent/90 transition-colors focus-ring"
+                aria-label="Install app"
+                title="Install app"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Install
+              </button>
+            )}
 
             <button
               onClick={toggleTheme}

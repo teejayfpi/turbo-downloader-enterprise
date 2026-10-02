@@ -55,6 +55,13 @@ modules. Nothing is simulated:
 - Toast notifications (in-app and desktop)
 - Responsive layout, keyboard-accessible controls, error boundaries
 
+### Installable app (PWA)
+- Installable on Android, iOS, Windows, macOS and Linux from the browser
+- Standalone full-screen window with maskable icons and splash theming
+- Offline shell: the interface loads and renders without a connection
+- Home-screen shortcuts straight to *Add a download* or *Completed*
+- Service worker keeps the shell cached and pushes updates on reload
+
 ### Security
 - SSRF protection: private, loopback, link-local and metadata addresses are
   blocked, including across redirects
@@ -97,6 +104,38 @@ sudo apt-get install ffmpeg # Debian/Ubuntu
 
 The server detects yt-dlp automatically at startup. Set `YT_DLP_PATH` to use a
 specific binary. Media downloads are disabled cleanly when it is missing.
+
+### Install it on your phone
+
+Turbo is a PWA, so the hosted URL installs like a native app. The site must be
+served over **HTTPS** (or `localhost`) for the browser to offer installation.
+
+**Android (Chrome, Edge, Samsung Internet, Brave)**
+1. Open the Turbo URL.
+2. Tap the **Install** button in the header or the **Install Turbo** banner.
+   If neither is shown, open the browser menu (⋮) and choose
+   **Install app** / **Add to Home screen**.
+3. Confirm — Turbo appears in the app drawer and opens full-screen.
+
+**iPhone / iPad (Safari)**
+1. Open the Turbo URL in Safari.
+2. Tap **Share** → **Add to Home Screen** → **Add**.
+
+**Desktop (Chrome / Edge)**
+1. Click the install icon in the address bar, or use the header **Install**
+   button.
+
+The first load caches the app shell, so the interface opens instantly and still
+renders when the phone is offline. Downloads themselves still need the server
+reachable, since the files live on the server.
+
+To verify installability locally:
+
+```bash
+cd client
+npm run pwa:verify -- https://your-turbo-url   # SW state, manifest, caches
+npm run mobile:check -- https://your-turbo-url # overflow at phone widths
+```
 
 ## Architecture
 

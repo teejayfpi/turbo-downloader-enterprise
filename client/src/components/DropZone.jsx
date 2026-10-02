@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   Upload, Link as LinkIcon, Loader2, X, Plus, Zap, Clock,
   SlidersHorizontal, ShieldCheck, Film, ChevronDown,
@@ -25,6 +25,15 @@ export default function DropZone({ onAdded }) {
 
   const urls = parseUrlList(text);
   const validUrls = urls.filter(isLikelyUrl);
+
+  // PWA shortcut: /?action=add lands here with the URL box focused.
+  useEffect(() => {
+    const action = new URLSearchParams(window.location.search).get('action');
+    if (action === 'add') {
+      inputRef.current?.focus();
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   const buildOptions = () => {
     const opts = {};

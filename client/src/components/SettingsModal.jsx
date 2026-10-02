@@ -6,6 +6,8 @@ import {
 import { api } from '../hooks/useApi';
 import { useDownloadStore } from '../stores/downloadStore';
 import { DESIGNER, APP_VERSION } from '../credits';
+import { usePWA } from '../hooks/usePWA';
+import { InstallCard } from './InstallApp';
 
 
 export default function SettingsModal() {
@@ -391,9 +393,12 @@ function SystemInfo({ system, settings }) {
 }
 
 function AboutPanel({ system }) {
+  const pwa = usePWA();
   return (
     <div className="space-y-6">
       <Header title="About" subtitle="Application info and credits" />
+
+      <InstallCard pwa={pwa} />
 
       <div className="rounded-xl border border-border-subtle bg-bg-primary p-5 text-center">
         <p className="text-[11px] uppercase tracking-[0.3em] text-text-muted">Designed by</p>
