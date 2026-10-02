@@ -191,6 +191,21 @@ npm run pwa:verify -- https://your-turbo-url   # SW state, manifest, caches
 npm run mobile:check -- https://your-turbo-url # overflow at phone widths
 ```
 
+### Android app (Play Store)
+
+A native Flutter client lives in `mobile/`. It can download **on the device**
+(segmented, resumable, stored in the phone's Downloads folder, no server
+needed) or against the same API as the web UI (start jobs on the server, watch
+live progress, and pull finished files onto the phone). Build it with:
+
+```bash
+cd mobile && flutter pub get
+flutter build appbundle --release   # upload this to Play
+```
+
+See [`mobile/README.md`](mobile/README.md) for signing, configuration, and the
+Play Store content-policy caveat for media downloaders.
+
 ## Architecture
 
 ```

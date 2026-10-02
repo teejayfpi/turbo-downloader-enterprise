@@ -13,3 +13,5 @@ client/dist
 .vscode
 .DS_Store
 downloads
+# The Flutter app ships through the Play Store, not the server image.
+mobile

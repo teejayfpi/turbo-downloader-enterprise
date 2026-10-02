@@ -8,11 +8,17 @@ Repository knowledge for agents working on Turbo Downloader.
   `downloadEngine.js` handles HTTP downloads (segmented/resumable) and delegates
   media URLs to `mediaService.js`, which shells out to `yt-dlp`.
 - `client/` — Vite + React SPA, built to `client/dist` and served by the server.
+- `mobile/` — Flutter Android client packaged for the Play Store. It has two
+  download modes: **device** (a real on-device segmented/resumable engine in
+  `lib/local_downloader.dart`, stored via MediaStore) and **server** (a remote
+  control for the REST API and `downloads:update` Socket.IO event). See
+  `mobile/README.md`.
 - Deployed on Render from `main` via `Dockerfile`. `main` is the production branch.
+  `mobile/` is excluded in `.dockerignore` so it never enters the server image.
 
 ## Verifying a change
 
-There is no test suite. Verify by exercising the real path end to end:
+Server: no test suite; exercise the real path end to end:
 
 ```bash
 # run the server locally against a throwaway data dir
@@ -24,6 +30,11 @@ curl -X POST localhost:12000/api/downloads -H 'Content-Type: application/json' \
 curl localhost:12000/api/downloads/<id>           # poll status
 curl -OJ localhost:12000/api/downloads/<id>/file  # fetch the artifact
 ```
+
+Mobile: `cd mobile && flutter analyze && flutter test`. The device engine has
+real tests in `mobile/test/local_downloader_test.dart`; they bind a loopback
+`HttpServer` and check exact bytes for segmented, non-range, lying-server,
+unknown-length, and resume cases. Run them before touching `local_downloader.dart`.
 
 `npm run build` builds the client. After pushing to `main`, confirm the Render
 deploy reaches `live` and re-check `GET /health`.
@@ -53,6 +64,38 @@ These caused real, user-visible bugs. Do not regress them.
 - **A download's stored `filepath` is untrusted.** It is confined to the
   configured download directory before any read (`resolveStoredFile`), because a
   naive `startsWith` also matches sibling dirs like `<root>-evil/`.
+
+## Android client (`mobile/`)
+
+- **Build with JDK 17, not 21.** JDK 21 makes the Android Gradle Plugin's
+  `JdkImageTransform` fail with a `jlink` error on `core-for-system-modules.jar`.
+  Set `JAVA_HOME` to a JDK 17 before `flutter build`.
+- **`socket_io_client` 2.x talks to the server's Socket.IO 4.x fine**, but the
+  payload is the whole queue (`{downloads, stats, speedHistory}`) — replace the
+  list wholesale rather than reconciling per task.
+- **The app has no baked-in server URL.** It asks on first run and stores the
+  address in `shared_preferences`; a wrong default is worse than none.
+- **Saved files go through MediaStore** (`publishDownload` in `MainActivity.kt`),
+  not a raw path, so they land in the public Downloads collection under scoped
+  storage.
+- **Play policy risk.** A YouTube/yt-dlp downloader can be pulled under IP/DMCA
+  rules; see `mobile/README.md`.
+
+## Mobile engine gotchas
+
+- **`HttpClientResponse.contentLength` is `-1`, not null, when unknown.** Treating
+  it as nullable silently produces a `-1` total and a broken progress bar.
+- **A server can advertise `Accept-Ranges: bytes` and still ignore `Range`.**
+  The engine re-opens the part file for writing (rather than appending) whenever
+  the response is a full `200`, otherwise a resumed download grows a duplicate
+  copy.
+- **`autoUncompress = false` is required.** Content-encoding changes byte offsets
+  and corrupts ranged/resumed transfers.
+- **Plans must be reused on resume.** Rebuilding segments from zero after a pause
+  appends duplicates. `_planSegments` keeps a matching plan and only rebuilds
+  when the segment count or total length changed.
+- **Media (YouTube) is server-only.** yt-dlp/ffmpeg do not run on the phone, so
+  device mode never offers media formats or `/api/media/info`.
 
 ## Environment
 
