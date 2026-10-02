@@ -1,112 +1,57 @@
 const API_BASE = '/api';
 
 async function handleResponse(response) {
-  const data = await response.json();
+  const contentType = response.headers.get('content-type') || '';
+  const data = contentType.includes('application/json')
+    ? await response.json()
+    : await response.text();
   if (!response.ok) {
-    throw new Error(data.error || 'Request failed');
+    throw new Error((data && data.error) || `Request failed (${response.status})`);
   }
   return data;
 }
 
+function jsonRequest(url, method, body) {
+  return fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }).then(handleResponse);
+}
+
 export const api = {
-  async getDownloads() {
-    const response = await fetch(`${API_BASE}/downloads`);
-    return handleResponse(response);
-  },
+  getDownloads: () => fetch(`${API_BASE}/downloads`).then(handleResponse),
+  getDownload: (id) => fetch(`${API_BASE}/downloads/${id}`).then(handleResponse),
 
-  async getDownload(id) {
-    const response = await fetch(`${API_BASE}/downloads/${id}`);
-    return handleResponse(response);
-  },
+  addDownload: (url, options = {}) =>
+    jsonRequest(`${API_BASE}/downloads`, 'POST', { url, ...options }),
+  addDownloads: (urls, options = {}) =>
+    jsonRequest(`${API_BASE}/downloads`, 'POST', { urls, ...options }),
 
-  async addDownload(url) {
-    const response = await fetch(`${API_BASE}/downloads`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url })
-    });
-    return handleResponse(response);
-  },
+  pauseDownload: (id) => jsonRequest(`${API_BASE}/downloads/${id}/pause`, 'POST'),
+  resumeDownload: (id) => jsonRequest(`${API_BASE}/downloads/${id}/resume`, 'POST'),
+  retryDownload: (id) => jsonRequest(`${API_BASE}/downloads/${id}/retry`, 'POST'),
+  startDownload: (id) => jsonRequest(`${API_BASE}/downloads/${id}/start`, 'POST'),
+  removeDownload: (id, deleteFile = false) =>
+    fetch(`${API_BASE}/downloads/${id}?deleteFile=${deleteFile}`, { method: 'DELETE' }).then(handleResponse),
+  updateDownload: (id, patch) => jsonRequest(`${API_BASE}/downloads/${id}`, 'PUT', patch),
 
-  async addDownloads(urls) {
-    // Add multiple downloads
-    const results = [];
-    for (const url of urls) {
-      try {
-        const result = await this.addDownload(url);
-        results.push(result);
-      } catch (e) {
-        console.error('Failed to add download:', url, e);
-      }
-    }
-    return { downloads: results.map(r => r.download) };
-  },
+  pauseAll: () => jsonRequest(`${API_BASE}/downloads/pause-all`, 'POST'),
+  resumeAll: () => jsonRequest(`${API_BASE}/downloads/resume-all`, 'POST'),
+  clearCompleted: () => jsonRequest(`${API_BASE}/downloads/clear-completed`, 'POST'),
+  reorder: (ids) => jsonRequest(`${API_BASE}/downloads/reorder`, 'POST', { ids }),
 
-  async pauseDownload(id) {
-    const response = await fetch(`${API_BASE}/downloads/${id}/pause`, {
-      method: 'POST'
-    });
-    return handleResponse(response);
-  },
+  getSettings: () => fetch(`${API_BASE}/settings`).then(handleResponse),
+  updateSettings: (settings) => jsonRequest(`${API_BASE}/settings`, 'PUT', settings),
+  resetSettings: () => jsonRequest(`${API_BASE}/settings/reset`, 'POST'),
 
-  async resumeDownload(id) {
-    const response = await fetch(`${API_BASE}/downloads/${id}/resume`, {
-      method: 'POST'
-    });
-    return handleResponse(response);
-  },
+  getStats: () => fetch(`${API_BASE}/stats`).then(handleResponse),
+  getSystem: () => fetch(`${API_BASE}/system`).then(handleResponse),
 
-  async retryDownload(id) {
-    const response = await fetch(`${API_BASE}/downloads/${id}/retry`, {
-      method: 'POST'
-    });
-    return handleResponse(response);
-  },
+  getMediaInfo: (url) =>
+    fetch(`${API_BASE}/media/info?url=${encodeURIComponent(url)}`).then(handleResponse),
+  getSupportedPlatforms: () => fetch(`${API_BASE}/media/supported`).then(handleResponse),
 
-  async removeDownload(id) {
-    const response = await fetch(`${API_BASE}/downloads/${id}`, {
-      method: 'DELETE'
-    });
-    return handleResponse(response);
-  },
-
-  async pauseAll() {
-    const response = await fetch(`${API_BASE}/downloads/pause-all`, {
-      method: 'POST'
-    });
-    return handleResponse(response);
-  },
-
-  async resumeAll() {
-    const response = await fetch(`${API_BASE}/downloads/resume-all`, {
-      method: 'POST'
-    });
-    return handleResponse(response);
-  },
-
-  async clearCompleted() {
-    const response = await fetch(`${API_BASE}/downloads/clear-completed`, {
-      method: 'POST'
-    });
-    return handleResponse(response);
-  },
-
-  async getSettings() {
-    const response = await fetch(`${API_BASE}/settings`);
-    return handleResponse(response);
-  },
-
-  async updateSettings(settings) {
-    const response = await fetch(`${API_BASE}/settings`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(settings)
-    });
-    return handleResponse(response);
-  },
-
-  async getStats() {
-    const response = await fetch(`${API_BASE}/stats`);
-    return handleResponse(response);
-  }
+  importDownloads: (payload) => jsonRequest(`${API_BASE}/import`, 'POST', payload),
+  exportUrl: `${API_BASE}/export`,
 };

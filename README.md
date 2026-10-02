@@ -1,195 +1,199 @@
 # 🚀 Turbo Downloader
 
-Enterprise-grade download manager with blazing-fast multi-threaded downloads.
+An enterprise-grade download manager with real multi-connection, resumable
+downloads, media support (yt-dlp), scheduling, checksums, and a modern
+real-time UI.
 
-![Turbo Downloader](https://img.shields.io/badge/Version-1.0.0-00d4ff?style=for-the-badge)
-![License](https://img.shields.io/badge/License-MIT-00ff88?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-2.0.0-00d4ff?style=for-the-badge)
+![License](https://img.shields.io/badge/license-MIT-00ff88?style=for-the-badge)
+
+---
+
+## What makes it real
+
+The download engine is a first-party implementation built on Node's `http`/`https`
+modules. Nothing is simulated:
+
+- **Multi-connection segmented downloads** — files are split into ranges and
+  fetched in parallel, then merged and verified byte-for-byte.
+- **True pause / resume** — active transfers are cancelled cleanly, partial
+  progress is kept on disk, and resuming continues from the exact byte offset
+  using HTTP `Range` requests.
+- **Live progress** — byte counts, speed, ETA, and per-download state stream to
+  the UI over Socket.IO in real time.
+- **Persistence** — every download and setting is stored in SQLite, so the queue
+  survives restarts and resumes automatically.
+- **Media downloads** — optional yt-dlp integration for YouTube, SoundCloud,
+  Vimeo, TikTok and hundreds more, with metadata preview and format selection.
 
 ## Features
 
-### ⚡ Speed Optimization
-- **Multi-threaded downloading** - Up to 32 connections per file
-- **Segmented downloading** - Split files into multiple chunks
-- **Parallel downloads** - Download multiple files simultaneously
-- **Resume support** - Continue interrupted downloads
+### Speed
+- Up to 32 connections per file, configurable globally or per download
+- Parallel downloads with a configurable concurrency limit
+- Bandwidth throttling (global token-bucket pacer)
+- Automatic retry with exponential backoff
+- Range support detection with graceful fallback to a single stream
 
-### 🎛️ Enterprise Features
-- **Download queue management** - Priority ordering, drag to reorder
-- **Bandwidth throttling** - Control download speeds
-- **Download scheduling** - Schedule downloads for later
-- **Real-time monitoring** - Live speed graphs and statistics
+### Management
+- Persistent queue with drag-to-reorder priority
+- Scheduling (start at a future time)
+- Duplicate handling: skip / rename / overwrite
+- Pause all, resume all, clear completed
+- Search and filter by status
+- Export / import the download list as JSON
+- SHA-256 / SHA-1 / MD5 checksum verification
 
-### 🎨 Beautiful UI
-- **Dark theme** - Easy on the eyes
-- **Responsive design** - Works on all devices
-- **Smooth animations** - 60fps transitions
-- **Progress tracking** - Per-file and overall progress
+### Media
+- Metadata preview (title, thumbnail, duration, uploader)
+- Format selection before download
+- Graceful degradation when yt-dlp is not installed
 
-### 🛠️ Advanced
-- **URL validation** - Automatic file type detection
-- **Duplicate handling** - Skip, rename, or overwrite
-- **System notifications** - Get notified when downloads complete
-- **Export/Import** - Save and load download lists
+### UI
+- Dark and light themes with four accent colours
+- Live speed graph and session statistics
+- Toast notifications (in-app and desktop)
+- Responsive layout, keyboard-accessible controls, error boundaries
 
-## Quick Start
+### Security
+- SSRF protection: private, loopback, link-local and metadata addresses are
+  blocked, including across redirects
+- Helmet security headers and API rate limiting
+- Strict input validation and settings whitelisting
+
+## Quick start
 
 ### Prerequisites
 - Node.js 18+
-- npm or yarn
-- aria2 (optional, for production use)
+- npm
 
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/turbo-downloader.git
-cd turbo-downloader
-
-# Install all dependencies
-npm run install:all
-
-# Start the application
-npm run dev
-```
-
-### Manual Installation
+### Install & run
 
 ```bash
-# Install root dependencies
-npm install
+git clone https://github.com/teejayfpi/turbo-downloader-enterprise.git
+cd turbo-downloader-enterprise
 
-# Install server dependencies
-cd server
-npm install
-
-# Install client dependencies
-cd ../client
-npm install
+npm run install:all   # root + server + client dependencies
+npm run build         # build the client
+npm start             # start the server (serves the built UI)
 ```
 
-### Running
+Open <http://localhost:3001>.
+
+### Development
 
 ```bash
-# Development mode (runs both server and client)
-npm run dev
-
-# Or run separately:
-# Terminal 1 - Server
-cd server && npm start
-
-# Terminal 2 - Client
-cd client && npm run dev
+npm run dev   # server on :3001, Vite dev server on :5173 with proxy
 ```
 
-### Optional: Install aria2
+### Optional: media downloads
 
-For production use, install aria2 for maximum speed:
+Install `yt-dlp` (and `ffmpeg` for merging separate audio/video streams):
 
 ```bash
-# macOS
-brew install aria2
-
-# Ubuntu/Debian
-sudo apt-get install aria2
-
-# Windows
-# Download from https://github.com/aria2/aria2/releases
+pipx install yt-dlp        # or: pip install -U yt-dlp
+sudo apt-get install ffmpeg # Debian/Ubuntu
 ```
 
-Start aria2 daemon:
-```bash
-aria2c --enable-rpc --rpc-listen-all=true --rpc-allow-origin-all
-```
+The server detects yt-dlp automatically at startup. Set `YT_DLP_PATH` to use a
+specific binary. Media downloads are disabled cleanly when it is missing.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Frontend                              │
-│  React + Vite + TailwindCSS + Zustand + Socket.IO Client    │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              │ HTTP + WebSocket
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                         Backend                              │
-│  Node.js + Express + Socket.IO + aria2                      │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    Download Engine                           │
-│  aria2 (multi-threaded, resumable downloads)                  │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  Frontend — React 18 · Vite · TailwindCSS · Zustand · Socket.IO│
+└──────────────────────────────────────────────────────────────┘
+                             │  HTTP + WebSocket
+                             ▼
+┌──────────────────────────────────────────────────────────────┐
+│  Backend — Node.js · Express 5 · Socket.IO · Helmet           │
+│  ├─ downloadEngine.js  segmented HTTP engine + scheduler      │
+│  ├─ mediaService.js    yt-dlp wrapper                         │
+│  ├─ settingsManager.js validated, persisted settings          │
+│  └─ database.js        SQLite (better-sqlite3, WAL)           │
+└──────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+        Real HTTP/HTTPS range requests → files on disk
 ```
 
-## API Reference
-
-### Downloads
+## API reference
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/downloads` | List all downloads |
-| POST | `/api/downloads` | Add new downloads |
-| POST | `/api/downloads/:id/pause` | Pause a download |
-| POST | `/api/downloads/:id/resume` | Resume a download |
-| POST | `/api/downloads/:id/retry` | Retry failed download |
-| DELETE | `/api/downloads/:id` | Remove download |
+| GET | `/api/downloads` | List downloads |
+| POST | `/api/downloads` | Add one (`url`) or many (`urls`) |
+| GET | `/api/downloads/:id` | Get a single download |
+| PUT | `/api/downloads/:id` | Update priority / format |
+| DELETE | `/api/downloads/:id?deleteFile=true` | Remove entry (and file) |
+| POST | `/api/downloads/:id/pause` | Pause |
+| POST | `/api/downloads/:id/resume` | Resume |
+| POST | `/api/downloads/:id/retry` | Retry a failed download |
+| POST | `/api/downloads/:id/start` | Start a queued/scheduled download now |
+| POST | `/api/downloads/pause-all` | Pause everything |
+| POST | `/api/downloads/resume-all` | Resume everything |
+| POST | `/api/downloads/clear-completed` | Remove completed entries |
+| POST | `/api/downloads/reorder` | Reorder by `ids` array |
+| GET | `/api/settings` | Get settings |
+| PUT | `/api/settings` | Update settings (whitelisted keys) |
+| POST | `/api/settings/reset` | Restore defaults |
+| GET | `/api/stats` | Aggregate statistics |
+| GET | `/api/system` | Runtime capabilities |
+| GET | `/api/media/info?url=` | Media metadata |
+| GET | `/api/media/supported` | yt-dlp availability |
+| GET | `/api/export` | Export the download list |
+| POST | `/api/import` | Import a download list |
+| GET | `/health` | Health check |
+| GET | `/api/docs` | Machine-readable endpoint list |
 
-### Settings
+### Adding a download
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/settings` | Get current settings |
-| PUT | `/api/settings` | Update settings |
+```bash
+curl -X POST http://localhost:3001/api/downloads \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "url": "https://example.com/big.iso",
+    "connections": 16,
+    "checksum": "…",
+    "checksumAlgo": "sha256",
+    "scheduledAt": "2026-01-01T00:00:00Z"
+  }'
+```
 
 ## Configuration
 
-Settings are stored in `~/.turbo-downloader-settings.json`:
+Settings are validated and persisted in SQLite. Defaults:
 
-```json
-{
-  "connections": 16,
-  "concurrentDownloads": 3,
-  "split": 16,
-  "defaultDir": "~/TurboDownloads",
-  "duplicateHandling": "rename",
-  "notifications": true,
-  "bandwidthLimit": 0,
-  "autoStart": true,
-  "maxRetries": 5,
-  "retryWait": 30,
-  "theme": "dark"
-}
-```
+| Key | Default | Range |
+|-----|---------|-------|
+| `connections` | 8 | 1–32 |
+| `concurrentDownloads` | 3 | 1–10 |
+| `split` | 8 | 1–32 |
+| `defaultDir` | `~/TurboDownloads` | writable path |
+| `duplicateHandling` | `rename` | skip / rename / overwrite |
+| `bandwidthLimit` | 0 (unlimited) | 0–1,000,000 KB/s |
+| `maxRetries` | 5 | 0–20 |
+| `retryWait` | 5s | 0–600 |
+| `theme` | `dark` | dark / light |
+| `accentColor` | `cyan` | cyan / green / purple / orange |
 
-## Tech Stack
+Environment variables (see `server/.env.example`): `PORT`, `TURBO_DATA_DIR`,
+`CORS_ORIGIN`, `YT_DLP_PATH`.
 
-- **Frontend**: React 18, Vite, TailwindCSS, Zustand, Socket.IO Client
-- **Backend**: Node.js, Express, Socket.IO
-- **Download Engine**: aria2 (optional, falls back to simulation mode)
-- **Icons**: Lucide React
+## Tech stack
 
-## Screenshots
-
-*Coming soon*
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+- **Frontend**: React 18, Vite, TailwindCSS, Zustand, Socket.IO Client, Lucide
+- **Backend**: Node.js, Express 5, Socket.IO, Helmet, express-rate-limit
+- **Storage**: SQLite via better-sqlite3
+- **Media**: yt-dlp + ffmpeg (optional)
 
 ## License
 
-MIT License - see LICENSE file for details
-
-## Acknowledgments
-
-- [aria2](https://aria2.github.io/) - Lightweight multi-protocol download utility
-- [TailwindCSS](https://tailwindcss.com/) - Utility-first CSS framework
-- [Lucide](https://lucide.dev/) - Beautiful open source icons
+MIT — see `LICENSE`.
 
 ---
 
 <div align="center">
-  <p>Made with ❤️ by Turbo</p>
+  <p>Built for speed.</p>
 </div>

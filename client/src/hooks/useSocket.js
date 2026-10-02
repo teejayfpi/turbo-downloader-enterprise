@@ -4,51 +4,45 @@ import { useDownloadStore } from '../stores/downloadStore';
 
 export function useSocket() {
   const socketRef = useRef(null);
-  const updateFromServer = useDownloadStore((state) => state.updateFromServer);
-  const addNotification = useDownloadStore((state) => state.addNotification);
+  const updateFromServer = useDownloadStore((s) => s.updateFromServer);
+  const addNotification = useDownloadStore((s) => s.addNotification);
+  const setConnected = useDownloadStore((s) => s.setConnected);
 
   useEffect(() => {
-    socketRef.current = io({
+    const socket = io({
       transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 8000,
     });
+    socketRef.current = socket;
 
-    socketRef.current.on('connect', () => {
-      console.log('Socket connected');
-    });
+    socket.on('connect', () => setConnected(true));
+    socket.on('disconnect', () => setConnected(false));
+    socket.on('downloads:update', updateFromServer);
 
-    socketRef.current.on('disconnect', () => {
-      console.log('Socket disconnected');
-    });
-
-    socketRef.current.on('downloads:update', (data) => {
-      updateFromServer(data);
-    });
-
-    socketRef.current.on('notification', (notification) => {
+    socket.on('notification', (notification) => {
       addNotification(notification);
-      
-      // Browser notification if permitted
-      if (Notification.permission === 'granted') {
-        new Notification(notification.title, {
-          body: notification.message,
-          icon: '/favicon.svg'
-        });
+      if (
+        notification.type !== 'warning' &&
+        'Notification' in window &&
+        Notification.permission === 'granted'
+      ) {
+        try {
+          new Notification(notification.title, {
+            body: notification.message,
+            icon: '/favicon.svg',
+            tag: `${notification.title}-${notification.message}`,
+          });
+        } catch {
+          /* notifications unavailable */
+        }
       }
     });
 
-    socketRef.current.on('error', (error) => {
-      console.error('Socket error:', error);
-    });
-
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-      }
-    };
-  }, [updateFromServer, addNotification]);
+    return () => socket.disconnect();
+  }, [updateFromServer, addNotification, setConnected]);
 
   return socketRef.current;
 }

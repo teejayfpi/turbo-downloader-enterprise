@@ -1,5 +1,20 @@
 import { create } from 'zustand';
 
+export const DEFAULT_SETTINGS = {
+  connections: 8,
+  concurrentDownloads: 3,
+  split: 8,
+  defaultDir: '',
+  duplicateHandling: 'rename',
+  notifications: true,
+  bandwidthLimit: 0,
+  autoStart: true,
+  maxRetries: 5,
+  retryWait: 5,
+  theme: 'dark',
+  accentColor: 'cyan',
+};
+
 export const useDownloadStore = create((set, get) => ({
   downloads: [],
   stats: {
@@ -8,75 +23,70 @@ export const useDownloadStore = create((set, get) => ({
     peakSpeed: 0,
     activeCount: 0,
     completedCount: 0,
-    failedCount: 0
+    failedCount: 0,
+    queuedCount: 0,
+    totalCount: 0,
   },
   speedHistory: [],
-  settings: {
-    connections: 16,
-    concurrentDownloads: 3,
-    split: 16,
-    defaultDir: '',
-    duplicateHandling: 'rename',
-    notifications: true,
-    bandwidthLimit: 0,
-    autoStart: true,
-    maxRetries: 5,
-    retryWait: 30,
-    theme: 'dark'
-  },
+  settings: DEFAULT_SETTINGS,
+  system: { media: { available: false }, downloadDir: '' },
   notifications: [],
   settingsModalOpen: false,
-  
+  connected: false,
+  filter: 'all',
+
   setDownloads: (downloads) => set({ downloads }),
-  
   setStats: (stats) => set({ stats }),
-  
   setSpeedHistory: (speedHistory) => set({ speedHistory }),
-  
   setSettings: (settings) => set({ settings }),
-  
+  setSystem: (system) => set({ system }),
+  setConnected: (connected) => set({ connected }),
+  setFilter: (filter) => set({ filter }),
+
   updateFromServer: (data) => {
-    if (data.downloads) set({ downloads: data.downloads });
-    if (data.stats) set({ stats: data.stats });
-    if (data.speedHistory) set({ speedHistory: data.speedHistory });
+    set((state) => ({
+      downloads: data.downloads ?? state.downloads,
+      stats: data.stats ?? state.stats,
+      speedHistory: data.speedHistory ?? state.speedHistory,
+    }));
   },
-  
+
   addNotification: (notification) => {
-    const id = Date.now();
-    set((state) => ({
-      notifications: [...state.notifications, { ...notification, id }]
-    }));
-    setTimeout(() => {
-      get().removeNotification(id);
-    }, 5000);
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    set((state) => ({ notifications: [...state.notifications, { ...notification, id }] }));
+    const ttl = notification.persistent ? 12000 : 5000;
+    setTimeout(() => get().removeNotification(id), ttl);
   },
-  
+
   removeNotification: (id) => {
-    set((state) => ({
-      notifications: state.notifications.filter((n) => n.id !== id)
-    }));
+    set((state) => ({ notifications: state.notifications.filter((n) => n.id !== id) }));
   },
-  
-  toggleSettingsModal: () => {
-    set((state) => ({ settingsModalOpen: !state.settingsModalOpen }));
-  },
-  
-  getActiveDownloads: () => {
-    return get().downloads.filter((d) => d.status === 'active');
-  },
-  
-  getCompletedDownloads: () => {
-    return get().downloads.filter((d) => d.status === 'completed');
-  },
-  
-  getQueuedDownloads: () => {
-    return get().downloads.filter((d) => d.status === 'queued');
-  },
-  
-  getTotalProgress: () => {
-    const downloads = get().downloads.filter((d) => d.status === 'active');
-    if (downloads.length === 0) return 0;
-    const total = downloads.reduce((sum, d) => sum + (d.progress || 0), 0);
-    return Math.round(total / downloads.length);
-  }
+
+  toggleSettingsModal: () =>
+    set((state) => ({ settingsModalOpen: !state.settingsModalOpen })),
 }));
+
+export const selectors = {
+  filtered: (state) => {
+    const { downloads, filter } = state;
+    if (filter === 'all') return downloads;
+    if (filter === 'active') {
+      return downloads.filter((d) => d.status === 'active' || d.status === 'paused');
+    }
+    if (filter === 'queued') {
+      return downloads.filter((d) => d.status === 'queued' || d.status === 'scheduled');
+    }
+    return downloads.filter((d) => d.status === filter);
+  },
+  counts: (state) => {
+    const downloads = state.downloads;
+    return {
+      all: downloads.length,
+      active: downloads.filter((d) => d.status === 'active').length,
+      paused: downloads.filter((d) => d.status === 'paused').length,
+      queued: downloads.filter((d) => d.status === 'queued' || d.status === 'scheduled').length,
+      completed: downloads.filter((d) => d.status === 'completed').length,
+      failed: downloads.filter((d) => d.status === 'failed').length,
+    };
+  },
+};

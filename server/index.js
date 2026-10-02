@@ -1,14 +1,17 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { DownloadManager } from './downloadManager.js';
-import { SettingsManager } from './settingsManager.js';
+import fs from 'fs';
+
+import { engine, settingsManager, attachSocket } from './context.js';
 import mediaService from './mediaService.js';
 import downloadRoutes from './routes/downloads.js';
+import { validateHttpUrl, assertPublicHost } from './utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -16,200 +19,205 @@ const __dirname = dirname(__filename);
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE']
-  }
+  cors: { origin: process.env.CORS_ORIGIN || '*', methods: ['GET', 'POST', 'PUT', 'DELETE'] },
 });
 
-// Security middleware
-app.use(helmet({
-  contentSecurityPolicy: false,
-}));
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
-  credentials: true,
-}));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+app.use(cors({ origin: process.env.CORS_ORIGIN || '*', credentials: true }));
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
-const downloadManager = new DownloadManager(io);
-const settingsManager = new SettingsManager();
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api', apiLimiter);
 
-// Download routes (no auth required)
+// ------------------------------------------------------------------ API routes
+
 app.use('/api/downloads', downloadRoutes);
 
-// Settings routes
 app.get('/api/settings', (req, res) => {
   res.json(settingsManager.getSettings());
 });
 
 app.put('/api/settings', (req, res) => {
   try {
-    settingsManager.updateSettings(req.body);
-    res.json(settingsManager.getSettings());
+    res.json(settingsManager.updateSettings(req.body || {}));
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(400).json({ error: error.message });
   }
+});
+
+app.post('/api/settings/reset', (req, res) => {
+  res.json(settingsManager.resetSettings());
 });
 
 app.get('/api/stats', (req, res) => {
-  res.json(downloadManager.getStats());
+  res.json(engine.getStats());
 });
 
-// Media API Routes (YouTube, streaming platforms, etc.)
+app.get('/api/system', (req, res) => {
+  res.json({
+    version: '2.0.0',
+    media: mediaService.info(),
+    downloadDir: settingsManager.getSettings().defaultDir,
+    uptime: process.uptime(),
+    node: process.version,
+  });
+});
+
+// Media (yt-dlp) endpoints
 app.get('/api/media/info', async (req, res) => {
   try {
     const { url } = req.query;
-    if (!url) {
-      return res.status(400).json({ error: 'URL is required' });
-    }
-    
+    if (!url) return res.status(400).json({ error: 'URL is required' });
+    const parsed = validateHttpUrl(url);
+    await assertPublicHost(parsed.hostname);
     const info = await mediaService.getMediaInfo(url);
     res.json(info);
   } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/media/download', async (req, res) => {
-  try {
-    const { url, formatId, isAudioOnly } = req.body;
-    if (!url) {
-      return res.status(400).json({ error: 'URL is required' });
-    }
-    
-    const settings = settingsManager.getSettings();
-    const outputPath = settings.defaultDir || './downloads';
-    
-    let downloadPromise;
-    if (isAudioOnly) {
-      downloadPromise = mediaService.downloadAudio(url, {
-        outputPath,
-        onProgress: (progress) => {
-          io.emit('media:progress', { url, ...progress });
-        }
-      });
-    } else {
-      downloadPromise = mediaService.downloadMedia(url, {
-        formatId: formatId || 'best',
-        outputPath,
-        onProgress: (progress) => {
-          io.emit('media:progress', { url, ...progress });
-        }
-      });
-    }
-    
-    const result = await downloadPromise;
-    
-    // Create download entry
-    const downloads = await downloadManager.addDownloads([url], {
-      ...settings,
-      filename: result.filepath ? result.filepath.split('/').pop() : undefined
-    });
-    
-    res.json({
-      success: true,
-      filepath: result.filepath,
-      download: downloads[0]
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(400).json({ error: error.message });
   }
 });
 
 app.get('/api/media/supported', (req, res) => {
   res.json({
-    supported: true,
+    available: mediaService.isAvailable(),
+    version: mediaService.version || null,
     platforms: [
-      // Video Platforms
-      'YouTube',
-      'Vimeo',
-      'Dailymotion',
-      'TikTok',
-      'Instagram',
-      'Facebook',
-      'Twitter/X',
-      'Twitch',
-      // Streaming Services
-      'Netflix',
-      'Prime Video',
-      'Disney+',
-      'HBO Max',
-      'Hulu',
-      'Peacock',
-      'Paramount+',
-      'Apple TV+',
-      'ESPN',
-      // Anime
-      'Crunchyroll',
-      'Funimation',
-      // Music
-      'SoundCloud',
-      'Spotify',
-      'Bandcamp',
-      'Mixcloud',
-      // Other
-      'VK',
-      'Reddit',
-      'Bilibili',
+      'YouTube', 'Vimeo', 'Dailymotion', 'TikTok', 'Instagram', 'Facebook',
+      'Twitter/X', 'Twitch', 'SoundCloud', 'Bandcamp', 'Mixcloud', 'Reddit',
+      'Bilibili', 'VK', 'Netflix', 'Prime Video', 'Disney+', 'HBO Max',
+      'Hulu', 'Peacock', 'Paramount+', 'Crunchyroll', 'Spotify',
     ],
-    categories: {
-      video: ['YouTube', 'Vimeo', 'TikTok', 'Instagram', 'Facebook', 'Twitter/X', 'Twitch', 'Bilibili'],
-      streaming: ['Netflix', 'Prime Video', 'Disney+', 'HBO Max', 'Hulu', 'Peacock', 'Paramount+', 'Apple TV+'],
-      anime: ['Crunchyroll', 'Funimation'],
-      music: ['SoundCloud', 'Spotify', 'Bandcamp', 'Mixcloud'],
-    }
   });
 });
 
-// Health check endpoint
+// Export / import of the download list
+app.get('/api/export', (req, res) => {
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    version: '2.0.0',
+    downloads: engine.getDownloads().map((d) => ({
+      url: d.url,
+      filename: d.filename,
+      status: d.status,
+      format: d.format,
+      platform: d.platform,
+    })),
+  };
+  res.setHeader('Content-Disposition', 'attachment; filename="turbo-downloads.json"');
+  res.setHeader('Content-Type', 'application/json');
+  res.send(JSON.stringify(payload, null, 2));
+});
+
+app.post('/api/import', async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const items = Array.isArray(body) ? body : body.downloads || [];
+    const urls = items
+      .map((item) => (typeof item === 'string' ? item : item?.url))
+      .filter(Boolean);
+    if (!urls.length) return res.status(400).json({ error: 'No URLs found in import' });
+    const created = await engine.add({ urls, options: {} });
+    res.status(201).json({ imported: created.length, downloads: created });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
-    version: '1.0.0',
+    version: '2.0.0',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+    media: mediaService.info(),
   });
 });
 
-// API documentation
 app.get('/api/docs', (req, res) => {
   res.json({
     name: 'Turbo Downloader API',
-    version: '1.0.0',
+    version: '2.0.0',
     endpoints: {
-      downloads: {
-        'GET /api/downloads': 'Get downloads',
-        'POST /api/downloads': 'Create download',
-        'PUT /api/downloads/:id': 'Update download',
-        'DELETE /api/downloads/:id': 'Delete download',
-      },
-      media: {
-        'GET /api/media/info': 'Get media info',
-        'POST /api/media/download': 'Download media',
-        'GET /api/media/supported': 'Get supported platforms',
-      },
+      'GET /api/downloads': 'List downloads + stats',
+      'POST /api/downloads': 'Add one or many downloads',
+      'POST /api/downloads/:id/pause': 'Pause a download',
+      'POST /api/downloads/:id/resume': 'Resume a download',
+      'POST /api/downloads/:id/retry': 'Retry a download',
+      'DELETE /api/downloads/:id': 'Remove a download (?deleteFile=true)',
+      'POST /api/downloads/pause-all': 'Pause all',
+      'POST /api/downloads/resume-all': 'Resume all',
+      'POST /api/downloads/clear-completed': 'Clear completed',
+      'POST /api/downloads/reorder': 'Reorder by priority',
+      'GET /api/settings': 'Get settings',
+      'PUT /api/settings': 'Update settings',
+      'GET /api/media/info': 'Media metadata via yt-dlp',
+      'GET /api/media/supported': 'Supported platforms + availability',
+      'GET /api/export': 'Export download list',
+      'POST /api/import': 'Import download list',
+      'GET /api/system': 'System + engine info',
     },
   });
 });
 
-// Serve static files in production (MUST be last)
-app.use(express.static(join(__dirname, '../client/dist')));
-app.get('/{*splat}', (req, res) => {
-  res.sendFile(join(__dirname, '../client/dist/index.html'));
-});
+// ------------------------------------------------------------------ static SPA
 
-// Socket.IO connection handling
+const clientDist = join(__dirname, '../client/dist');
+if (fs.existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+  app.get('/{*splat}', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
+    res.sendFile(join(clientDist, 'index.html'));
+  });
+}
+
+// ------------------------------------------------------------------ sockets
+
+attachSocket(io);
+
 io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
-  
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
+  socket.emit('downloads:update', {
+    downloads: engine.getDownloads(),
+    stats: engine.getStats(),
+    speedHistory: engine.speedHistory,
   });
 });
 
+// ------------------------------------------------------------------ errors
+
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+// eslint-disable-next-line no-unused-vars
+app.use((error, req, res, next) => {
+  console.error('API error:', error);
+  const status = /not found/i.test(error.message) ? 404 : 400;
+  res.status(status).json({ error: error.message || 'Internal server error' });
+});
+
+// ------------------------------------------------------------------ bootstrap
+
 const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
-  console.log(`🚀 Turbo Downloader running on port ${PORT}`);
+  console.log(`🚀 Turbo Downloader API on port ${PORT}`);
+  console.log(`   Download dir: ${settingsManager.getSettings().defaultDir}`);
+  console.log(`   yt-dlp: ${mediaService.isAvailable() ? `available (${mediaService.version})` : 'not installed (media downloads disabled)'}`);
 });
+
+function shutdown() {
+  console.log('\nShutting down Turbo Downloader...');
+  engine.shutdown();
+  httpServer.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 3000).unref();
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+
+export { app, httpServer, io };
