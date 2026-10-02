@@ -1,5 +1,10 @@
 {
   "name": "turbo-downloader",
+  "author": {
+    "name": "Olatunji Ayobami Ayanlowo",
+    "email": "ayanlowo89@gmail.com",
+    "url": "tel:+2347038193753"
+  },
   "version": "1.0.0",
   "description": "Turbo - Enterprise Grade Download Manager",
   "private": true,

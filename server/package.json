@@ -13,7 +13,11 @@
     "manager",
     "aria2"
   ],
-  "author": "Turbo",
+  "author": {
+    "name": "Olatunji Ayobami Ayanlowo",
+    "email": "ayanlowo89@gmail.com",
+    "url": "tel:+2347038193753"
+  },
   "license": "MIT",
   "dependencies": {
     "better-sqlite3": "^12.11.1",

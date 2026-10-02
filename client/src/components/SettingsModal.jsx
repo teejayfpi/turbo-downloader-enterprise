@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
   X, Settings, Zap, Folder, Bell, Palette, Save, RotateCcw,
-  Film, Server, CheckCircle2, AlertTriangle, Check,
+  Film, Server, CheckCircle2, AlertTriangle, Check, Mail, Phone, Info,
 } from 'lucide-react';
 import { api } from '../hooks/useApi';
 import { useDownloadStore } from '../stores/downloadStore';
+import { DESIGNER, APP_VERSION } from '../credits';
 
 
 export default function SettingsModal() {
@@ -61,6 +62,7 @@ export default function SettingsModal() {
     { id: 'notifications', label: 'Alerts', icon: Bell },
     { id: 'appearance', label: 'Appearance', icon: Palette },
     { id: 'system', label: 'System', icon: Server },
+    { id: 'about', label: 'About', icon: Info },
   ];
 
   return (
@@ -112,6 +114,7 @@ export default function SettingsModal() {
             {tab === 'notifications' && <NotificationSettings settings={local} onChange={change} />}
             {tab === 'appearance' && <AppearanceSettings settings={local} onChange={change} />}
             {tab === 'system' && <SystemInfo system={system} settings={local} />}
+            {tab === 'about' && <AboutPanel system={system} />}
           </div>
         </div>
 
@@ -383,6 +386,50 @@ function SystemInfo({ system, settings }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function AboutPanel({ system }) {
+  return (
+    <div className="space-y-6">
+      <Header title="About" subtitle="Application info and credits" />
+
+      <div className="rounded-xl border border-border-subtle bg-bg-primary p-5 text-center">
+        <p className="text-[11px] uppercase tracking-[0.3em] text-text-muted">Designed by</p>
+        <p className="mt-2 text-lg font-bold text-text-primary">{DESIGNER.name}</p>
+        <div className="mt-3 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 text-sm">
+          <a
+            href={`mailto:${DESIGNER.email}`}
+            className="inline-flex items-center gap-2 text-text-secondary hover:text-accent transition-colors"
+          >
+            <Mail className="w-4 h-4 text-accent" />
+            {DESIGNER.email}
+          </a>
+          <a
+            href={`tel:${DESIGNER.phoneHref}`}
+            className="inline-flex items-center gap-2 text-text-secondary hover:text-accent transition-colors"
+          >
+            <Phone className="w-4 h-4 text-accent" />
+            {DESIGNER.phone}
+          </a>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <InfoRow
+          icon={Info}
+          label="Application"
+          value={`Turbo Downloader v${APP_VERSION}`}
+          ok
+        />
+        <InfoRow
+          icon={Server}
+          label="Server"
+          value={`v${system?.version || APP_VERSION} · Node ${system?.node || '—'}`}
+          ok
+        />
+      </div>
     </div>
   );
 }

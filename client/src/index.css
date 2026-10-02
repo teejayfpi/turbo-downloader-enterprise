@@ -191,7 +191,8 @@ input[type='range']::-moz-range-thumb {
   z-index: 100;
   display: grid;
   place-items: center;
-  overflow: hidden;
+  overflow-y: auto;
+  padding: 24px 0;
   background:
     radial-gradient(120% 80% at 50% 30%, rgba(31, 216, 255, 0.16), transparent 60%),
     linear-gradient(180deg, #0b1020 0%, #07080f 45%, #030409 100%);
@@ -302,6 +303,54 @@ input[type='range']::-moz-range-thumb {
   animation: splash-rise 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.5s both;
 }
 
+.splash-credit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-top: 30px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  animation: splash-rise 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.6s both;
+}
+.splash-credit-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  padding-left: 0.3em;
+  color: #5c6980;
+}
+.splash-credit-name {
+  font-size: clamp(15px, 2.2vmin, 18px);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: linear-gradient(180deg, #ffffff, #b9e9ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.splash-credit-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: clamp(11px, 1.5vmin, 13px);
+}
+.splash-credit-links a {
+  color: #7fb6d6;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(127, 182, 214, 0.3);
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+.splash-credit-links a:hover,
+.splash-credit-links a:focus-visible {
+  color: #00e6ff;
+  border-color: rgba(0, 230, 255, 0.6);
+}
+.splash-credit-dot { color: #46536a; }
+
 @keyframes splash-rise {
   0% { opacity: 0; transform: translateY(22px); }
   100% { opacity: 1; transform: translateY(0); }
@@ -337,6 +386,7 @@ input[type='range']::-moz-range-thumb {
   .splash-sub,
   .splash-rail,
   .splash-version,
+  .splash-credit,
   .splash-arrow { animation: none !important; }
   .splash-arc,
   .splash-halo,

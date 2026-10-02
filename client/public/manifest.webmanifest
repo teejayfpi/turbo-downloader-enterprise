@@ -2,6 +2,10 @@
   "name": "Turbo — Blazing Fast Download Manager",
   "short_name": "Turbo",
   "description": "Enterprise-grade download manager. Multi-connection, resumable, blazing fast.",
+  "author": {
+    "name": "Olatunji Ayobami Ayanlowo",
+    "email": "ayanlowo89@gmail.com"
+  },
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

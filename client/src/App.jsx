@@ -10,6 +10,7 @@ import SettingsModal from './components/SettingsModal';
 import ToastContainer from './components/ToastContainer';
 import ErrorBoundary from './components/ErrorBoundary';
 import SplashScreen from './components/SplashScreen';
+import { DESIGNER, APP_VERSION } from './credits';
 
 function App() {
   useSocket();
@@ -137,10 +138,26 @@ function App() {
           </div>
         </main>
 
-        <footer className="border-t border-border-subtle py-6 mt-12">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-2 text-text-muted text-sm">
-            <p>Turbo Downloader · Built for speed</p>
-            <p className="font-mono text-xs">v2.0.0</p>
+        <footer className="border-t border-border-subtle py-8 mt-12">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-text-muted text-sm">
+            <div className="text-center sm:text-left">
+              <p>Turbo Downloader · Built for speed</p>
+              <p className="text-xs mt-1">
+                Designed by <span className="text-text-secondary font-medium">{DESIGNER.name}</span>
+              </p>
+            </div>
+            <div className="flex flex-col sm:items-end gap-1 text-center sm:text-right">
+              <p className="font-mono text-xs">v{APP_VERSION}</p>
+              <p className="text-xs flex flex-wrap items-center justify-center sm:justify-end gap-x-2 gap-y-1">
+                <a href={`mailto:${DESIGNER.email}`} className="hover:text-accent transition-colors">
+                  {DESIGNER.email}
+                </a>
+                <span className="text-border-subtle" aria-hidden="true">·</span>
+                <a href={`tel:${DESIGNER.phoneHref}`} className="hover:text-accent transition-colors">
+                  {DESIGNER.phone}
+                </a>
+              </p>
+            </div>
           </div>
         </footer>
       </div>

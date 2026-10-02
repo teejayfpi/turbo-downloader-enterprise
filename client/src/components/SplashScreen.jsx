@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { DESIGNER, APP_VERSION } from '../credits';
 
 const SPLASH_KEY = 'turbo-splash-shown';
 
@@ -107,7 +108,17 @@ export default function SplashScreen({ ready, onMounted }) {
         <div className="splash-rail" aria-hidden="true">
           <span className="splash-rail-fill" />
         </div>
-        <p className="splash-version">v2.0.0</p>
+        <p className="splash-version">v{APP_VERSION}</p>
+
+        <div className="splash-credit">
+          <span className="splash-credit-label">Designed by</span>
+          <span className="splash-credit-name">{DESIGNER.name}</span>
+          <span className="splash-credit-links">
+            <a href={`mailto:${DESIGNER.email}`}>{DESIGNER.email}</a>
+            <span className="splash-credit-dot" aria-hidden="true">·</span>
+            <a href={`tel:${DESIGNER.phoneHref}`}>{DESIGNER.phone}</a>
+          </span>
+        </div>
       </div>
     </div>
   );

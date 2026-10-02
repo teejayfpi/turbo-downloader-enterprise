@@ -279,5 +279,10 @@ MIT — see `LICENSE`.
 ---
 
 <div align="center">
+  <p><strong>Designed by Olatunji Ayobami Ayanlowo</strong></p>
+  <p>
+    <a href="mailto:ayanlowo89@gmail.com">ayanlowo89@gmail.com</a> ·
+    <a href="tel:+2347038193753">+234 703 819 3753</a>
+  </p>
   <p>Built for speed.</p>
 </div>
