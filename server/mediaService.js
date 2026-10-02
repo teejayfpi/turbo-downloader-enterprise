@@ -2,6 +2,9 @@ import { spawn, spawnSync } from 'child_process';
 import path from 'path';
 
 const YTDLP = process.env.YT_DLP_PATH || 'yt-dlp';
+const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
+const COOKIES = process.env.YT_DLP_COOKIES || '';
+const COOKIES_FROM_BROWSER = process.env.YT_DLP_COOKIES_FROM_BROWSER || '';
 
 function which(bin) {
   const cmd = process.platform === 'win32' ? 'where' : 'which';
@@ -13,6 +16,19 @@ class MediaService {
   constructor() {
     this.path = YTDLP;
     this._available = null;
+    this._ffmpeg = null;
+  }
+
+  /**
+   * Extra yt-dlp flags shared by metadata and download calls. Cookies are the
+   * documented workaround for YouTube's "Sign in to confirm you're not a bot"
+   * gate, which datacenter IPs hit on every request.
+   */
+  authArgs() {
+    const args = [];
+    if (COOKIES) args.push('--cookies', COOKIES);
+    if (COOKIES_FROM_BROWSER) args.push('--cookies-from-browser', COOKIES_FROM_BROWSER);
+    return args;
   }
 
   isAvailable() {
@@ -26,11 +42,24 @@ class MediaService {
     return this._available;
   }
 
+  /**
+   * ffmpeg is required to merge separate video and audio streams. Without it we
+   * must fall back to progressive formats, since YouTube no longer serves
+   * combined streams above 360p.
+   */
+  hasFfmpeg() {
+    if (this._ffmpeg === null) {
+      this._ffmpeg = which(FFMPEG);
+    }
+    return this._ffmpeg;
+  }
+
   info() {
     return {
       available: this.isAvailable(),
       version: this.version || null,
       path: this.path,
+      ffmpeg: this.hasFfmpeg(),
     };
   }
 
@@ -38,7 +67,7 @@ class MediaService {
     if (!this.isAvailable()) {
       throw new Error('yt-dlp is not installed on the server');
     }
-    const stdout = await this.exec(['--dump-single-json', '--no-playlist', '--no-warnings', url]);
+    const stdout = await this.exec(['--dump-single-json', '--no-playlist', '--no-warnings', ...this.authArgs(), url]);
     let info;
     try {
       info = JSON.parse(stdout.trim());
@@ -123,6 +152,28 @@ class MediaService {
     });
   }
 
+  /**
+   * Turns a stored format choice into a yt-dlp format selector.
+   *
+   * "best" and bare selectors that require merging fall back to a progressive
+   * stream when ffmpeg is missing, otherwise yt-dlp aborts with
+   * "Requested format is not available" (YouTube serves no combined stream
+   * above 360p). An explicit format id is always honoured as-is.
+   */
+  resolveFormat(formatId) {
+    const requested = (formatId || 'best').trim();
+    const needsMerge = requested === 'best'
+      || /bestvideo|bestaudio|\+/.test(requested);
+
+    if (needsMerge && !this.hasFfmpeg()) {
+      return 'best[ext=mp4]/best';
+    }
+    if (requested === 'best') {
+      return 'bestvideo+bestaudio/best';
+    }
+    return requested;
+  }
+
   /** Downloads media, streaming progress back via onProgress. Resolves with the filepath. */
   download(url, { formatId = 'best', outputPath = './downloads', onProgress } = {}) {
     if (!this.isAvailable()) {
@@ -132,12 +183,13 @@ class MediaService {
     return new Promise((resolve, reject) => {
       const template = path.join(outputPath, '%(title)s.%(ext)s');
       const args = [
-        '-f', formatId === 'best' ? 'bestvideo+bestaudio/best' : formatId,
+        '-f', this.resolveFormat(formatId),
         '--merge-output-format', 'mp4',
         '-o', template,
         '--no-playlist',
         '--newline',
         '--no-warnings',
+        ...this.authArgs(),
         '--print', 'after_move:filepath',
         url,
       ];
