@@ -25,6 +25,10 @@ const io = new Server(httpServer, {
 
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*', credentials: true }));
+// Hosted behind a reverse proxy (Render, Fly, Railway, nginx), the client IP
+// only arrives in X-Forwarded-For. Without trusting the proxy, express-rate-limit
+// rejects every request with ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
@@ -33,6 +37,8 @@ const apiLimiter = rateLimit({
   max: 600,
   standardHeaders: true,
   legacyHeaders: false,
+  // Never let a limiter validation error take down a request.
+  validate: { xForwardedForHeader: false },
 });
 app.use('/api', apiLimiter);
 
