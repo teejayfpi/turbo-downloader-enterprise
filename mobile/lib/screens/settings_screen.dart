@@ -16,6 +16,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _urlController;
+  late final TextEditingController _tokenController;
   bool _testing = false;
   bool? _reachable;
   String? _serverInfo;
@@ -23,13 +24,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _urlController =
-        TextEditingController(text: context.read<TurboState>().baseUrl);
+    final state = context.read<TurboState>();
+    _urlController = TextEditingController(text: state.baseUrl);
+    _tokenController = TextEditingController(text: state.apiToken);
   }
 
   @override
   void dispose() {
     _urlController.dispose();
+    _tokenController.dispose();
     super.dispose();
   }
 
@@ -40,7 +43,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _serverInfo = null;
     });
 
-    final probe = TurboApi(TurboState.normalizeUrl(_urlController.text));
+    final probe = TurboApi(
+      TurboState.normalizeUrl(_urlController.text),
+      apiToken: _tokenController.text.trim(),
+    );
     final ok = await probe.ping();
     String? info;
     if (ok) {
@@ -62,6 +68,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _save() async {
     final state = context.read<TurboState>();
+    await state.setApiToken(_tokenController.text);
     await state.setBaseUrl(_urlController.text);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -189,6 +196,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Text(
               'Optional. Only needed to browse and start downloads on a Turbo '
               'server. Leave blank to use this device only.',
+              style: TextStyle(
+                fontFamily: TurboFonts.body,
+                color: TurboColors.textMuted,
+                fontSize: 11,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _tokenController,
+              obscureText: true,
+              style: const TextStyle(
+                  fontFamily: TurboFonts.mono,
+                  color: TurboColors.textPrimary,
+                  fontSize: 13),
+              decoration: const InputDecoration(
+                hintText: 'Access token (if the server requires one)',
+                prefixIcon: Icon(Icons.key_rounded,
+                    color: TurboColors.textMuted, size: 20),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Only needed when the server was started with a TURBO_API_TOKEN. '
+              'Leave blank for open servers.',
               style: TextStyle(
                 fontFamily: TurboFonts.body,
                 color: TurboColors.textMuted,

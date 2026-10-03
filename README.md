@@ -357,6 +357,7 @@ These build from a `Dockerfile` or `Procfile` and support volumes:
 | `TURBO_DATA_DIR` | SQLite database directory | `/data` |
 | `DOWNLOAD_DIR` | Default download folder | `/downloads` |
 | `CORS_ORIGIN` | Allowed origin(s), or `*` | `https://app.example.com` |
+| `TURBO_API_TOKEN` | Optional shared secret; locks `/api` and sockets | `a-long-random-string` |
 | `YT_DLP_PATH` | Path to yt-dlp binary | `/usr/local/bin/yt-dlp` |
 
 ### Two things to plan for
@@ -368,10 +369,14 @@ These build from a `Dockerfile` or `Procfile` and support volumes:
 
 ### Security when hosting publicly
 
-This app has no authentication. If you expose it on the internet, protect it —
-put it behind a reverse proxy with HTTP basic auth, an SSO proxy (e.g.
-oauth2-proxy, Cloudflare Access), or a VPN/Tailscale. Also set `CORS_ORIGIN`
-to your real origin instead of `*`.
+Turbo ships with an optional shared-secret gate. Set `TURBO_API_TOKEN` to a long
+random string and every API call and socket connection must present it; the web
+app and Android client prompt for it once and remember it. Leave it unset and
+the server stays open, which is fine for a LAN or device-only setup.
+
+For stronger protection, also put the app behind a reverse proxy with HTTP basic
+auth, an SSO proxy (e.g. oauth2-proxy, Cloudflare Access), or a VPN/Tailscale,
+and set `CORS_ORIGIN` to your real origin instead of `*`.
 
 ## Tech stack
 

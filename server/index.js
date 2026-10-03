@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import { timingSafeEqual } from 'crypto';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { fileURLToPath } from 'url';
@@ -31,6 +32,33 @@ app.use(cors({ origin: process.env.CORS_ORIGIN || '*', credentials: true }));
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
+
+// Optional shared-secret gate. When TURBO_API_TOKEN is set, every /api request
+// must present the token (Authorization: Bearer, X-Api-Token, or ?token=). The
+// query form exists for direct file/export links opened by the browser, which
+// cannot set headers. Left unset the server stays open, so existing local and
+// private deployments keep working unchanged.
+const API_TOKEN = (process.env.TURBO_API_TOKEN || '').trim();
+
+function tokenMatches(candidate) {
+  if (!candidate) return false;
+  const a = Buffer.from(String(candidate));
+  const b = Buffer.from(API_TOKEN);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function presentedToken(req) {
+  const header = req.get('authorization') || '';
+  if (/^Bearer\s+/i.test(header)) return header.replace(/^Bearer\s+/i, '').trim();
+  return req.get('x-api-token') || req.query.token || '';
+}
+
+function requireToken(req, res, next) {
+  if (!API_TOKEN || tokenMatches(presentedToken(req))) return next();
+  res.status(401).json({ error: 'Unauthorized' });
+}
+
+app.use('/api', requireToken);
 
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -73,6 +101,7 @@ app.get('/api/system', (req, res) => {
     downloadDir: settingsManager.getSettings().defaultDir,
     uptime: process.uptime(),
     node: process.version,
+    authRequired: Boolean(API_TOKEN),
   });
 });
 
@@ -197,6 +226,19 @@ if (fs.existsSync(clientDist)) {
 }
 
 // ------------------------------------------------------------------ sockets
+
+// Socket.IO cannot set an Authorization header from the browser, so the token
+// is also accepted from the handshake auth payload, query string, or header.
+io.use((socket, next) => {
+  if (!API_TOKEN) return next();
+  const handshake = socket.handshake || {};
+  const candidate =
+    (handshake.auth && handshake.auth.token) ||
+    handshake.query?.token ||
+    handshake.headers?.['x-api-token'];
+  if (tokenMatches(candidate)) return next();
+  next(new Error('Unauthorized'));
+});
 
 attachSocket(io);
 

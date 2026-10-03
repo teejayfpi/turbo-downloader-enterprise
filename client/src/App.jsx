@@ -12,6 +12,7 @@ import ToastContainer from './components/ToastContainer';
 import ErrorBoundary from './components/ErrorBoundary';
 import SplashScreen from './components/SplashScreen';
 import InstallBanner from './components/InstallBanner';
+import AuthGate from './components/AuthGate';
 import { DESIGNER, APP_VERSION } from './credits';
 
 function App() {
@@ -26,6 +27,7 @@ function App() {
   const addNotification = useDownloadStore((s) => s.addNotification);
   const [loading, setLoading] = useState(true);
   const [fatal, setFatal] = useState(null);
+  const [locked, setLocked] = useState(false);
   const setFilter = useDownloadStore((s) => s.setFilter);
 
   // PWA shortcut: /?filter=completed opens the list pre-filtered.
@@ -62,8 +64,14 @@ function App() {
       setSettings(settingsData);
       setSystem(systemData);
       setFatal(null);
+      setLocked(false);
     } catch (error) {
-      setFatal(error.message);
+      if (error.status === 401) {
+        setLocked(true);
+        setFatal(null);
+      } else {
+        setFatal(error.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -85,6 +93,10 @@ function App() {
 
   // Background weight shifts toward the accent while transfers are running.
   const engaged = counts.active > 0;
+
+  if (locked) {
+    return <AuthGate onUnlock={() => window.location.reload()} />;
+  }
 
   return (
     <div className="min-h-screen bg-bg-primary relative">
