@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:turbo_downloader/credits.dart';
 import 'package:turbo_downloader/screens/add_screen.dart';
 import 'package:turbo_downloader/screens/downloads_screen.dart';
 import 'package:turbo_downloader/screens/home_shell.dart';
@@ -75,7 +76,7 @@ void main() {
   });
 
   group('splash screen', () {
-    testWidgets('shows the brand and hands off to the home shell',
+    testWidgets('shows the brand and designer, then hands off to home',
         (tester) async {
       final state = TurboState()..loading = false;
       addTearDown(state.dispose);
@@ -89,10 +90,11 @@ void main() {
         ),
       );
 
-      expect(find.text('TURBO'), findsOneWidget);
-      expect(find.text('OFFLINE DOWNLOAD MANAGER'), findsOneWidget);
+      expect(find.text('Turbo Downloader'), findsOneWidget);
+      expect(find.text('Offline download manager'), findsOneWidget);
+      expect(find.text(Designer.name), findsOneWidget);
 
-      // Wait out the minimum reveal, then let the transition settle.
+      // Wait out the minimum display, then let the transition settle.
       await tester.pump(SplashScreen.minimumDisplay);
       await tester.pumpAndSettle();
 

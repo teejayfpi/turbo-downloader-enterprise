@@ -72,7 +72,8 @@ These caused real, user-visible bugs. Do not regress them.
 ## Android & desktop client (`mobile/`)
 
 - **The app is device-only.** It never asks for a server URL, token, or account.
-  `Mobile` boots straight into a splash screen and then the three tabs
+  `Mobile` boots straight into a standard splash screen (mark, name, spinner,
+  designer credit) and then the three tabs
   (`lib/screens/home_shell.dart`). Do not reintroduce a setup/server mode.
 - **Build with JDK 17, not 21.** JDK 21 makes the Android Gradle Plugin's
   `JdkImageTransform` fail with a `jlink` error on `core-for-system-modules.jar`.
@@ -85,6 +86,18 @@ These caused real, user-visible bugs. Do not regress them.
   below** the Android path first calls `ensureStorage`, which requests legacy
   `WRITE_EXTERNAL_STORAGE` at runtime; if the user declines, the file stays
   app-private instead of being lost. Android 10+ needs no permission.
+- **Everything is filed under `Downloads/Turbo/<kind>`.** `FileStore.subfolderFor`
+  maps a filename to a subfolder (`Videos`, `Music`, `Pictures`, `Archives`,
+  `Documents`, `Apps`, `Other`) so media and documents are easy to tell apart.
+  Android passes the folder as MediaStore's `RELATIVE_PATH`; desktop creates the
+  real directories. Add a new kind in `folderNameFor` rather than hard-coding a
+  folder name anywhere else.
+- **Finished files can be shared.** `FileStore.share` opens the Android share
+  sheet through the `shareFile` method channel, which exposes the file as a
+  `content://` URI via the app's `FileProvider` (see `res/xml/file_paths.xml`);
+  desktop platforms reveal the file in the file manager instead. The designer's
+  WhatsApp link lives in `lib/credits.dart` and is opened with `url_launcher`
+  through `WhatsAppTile` (`lib/contact.dart`).
 - **Keep desktop green too.** `flutter create --platforms=windows,linux,macos`
   generated the runner folders; the in-app splash and the file store are
   cross-platform, and `flutter analyze && flutter test` cover them. CI runs the

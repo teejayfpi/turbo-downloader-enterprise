@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../contact.dart';
 import '../credits.dart';
 import '../format.dart';
 import '../media_extractor.dart';
@@ -379,6 +380,11 @@ class _AddScreenState extends State<AddScreen> {
             const Center(
               child: Kicker('Eng. by ${Designer.name}',
                   size: 9, letterSpacing: 1.4),
+            ),
+            const SizedBox(height: 12),
+            const WhatsAppTile(
+              label: 'Need help? Chat with the designer',
+              compact: true,
             ),
           ],
         ),

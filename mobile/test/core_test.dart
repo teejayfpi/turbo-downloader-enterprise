@@ -83,6 +83,25 @@ void main() {
     });
   });
 
+  group('FileStore download folders', () {
+    test('files each kind into its own subfolder under Turbo', () {
+      expect(FileStore.subfolderFor('clip.mp4'), 'Turbo/Videos');
+      expect(FileStore.subfolderFor('song.mp3'), 'Turbo/Music');
+      expect(FileStore.subfolderFor('photo.png'), 'Turbo/Pictures');
+      expect(FileStore.subfolderFor('report.pdf'), 'Turbo/Documents');
+      expect(FileStore.subfolderFor('bundle.zip'), 'Turbo/Archives');
+      expect(FileStore.subfolderFor('setup.exe'), 'Turbo/Apps');
+      expect(FileStore.subfolderFor('unknown.xyz'), 'Turbo/Other');
+    });
+
+    test('keeps videos and documents apart', () {
+      expect(
+        FileStore.subfolderFor('movie.mkv'),
+        isNot(FileStore.subfolderFor('contract.docx')),
+      );
+    });
+  });
+
   group('platform detection', () {
     test('recognises a broad set of media platforms', () {
       for (final url in [

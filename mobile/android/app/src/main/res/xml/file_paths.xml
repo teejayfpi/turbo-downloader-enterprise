@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Files the app can hand to other apps through the share sheet. The
+     external-path covers the public Downloads folder where finished files
+     live; the others cover app storage used as a fallback. -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <external-path name="external" path="." />
+    <external-files-path name="external_files" path="." />
+    <files-path name="files" path="." />
+    <cache-path name="cache" path="." />
+</paths>

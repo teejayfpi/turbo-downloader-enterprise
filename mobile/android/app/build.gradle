@@ -72,3 +72,9 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // FileProvider, used to hand a finished file to the share sheet as a
+    // content:// URI without exposing storage.
+    implementation "androidx.core:core-ktx:1.13.1"
+}

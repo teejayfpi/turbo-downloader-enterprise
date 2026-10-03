@@ -131,14 +131,15 @@ ChakraPetch for the display face, JetBrains Mono for numbers and identifiers).
 | `lib/main.dart` | App entry: state provider + `MaterialApp` |
 | `lib/theme.dart` | Palette, type families, `TurboPanel`/`TurboButton`/`Kicker` primitives |
 | `lib/widgets.dart` | Shared UI: stat tiles, status pills, section labels, notices, progress bar |
-| `lib/credits.dart` | Designer attribution + app version |
+| `lib/credits.dart` | Designer attribution, WhatsApp link + app version |
+| `lib/contact.dart` | WhatsApp contact tile (opens a chat via `url_launcher`) |
 | `lib/state.dart` | `ChangeNotifier` holding settings, engines, and the device queue |
 | `lib/media_url.dart` | Detects media pages vs files and classifies file kinds |
 | `lib/local_downloader.dart` | On-device engine: ranged/segmented fetch, resume, persistence, yt-dlp routing |
 | `lib/media_extractor.dart` | Resolves a YouTube page to a direct stream on-device |
 | `lib/ytdlp.dart` | Finds and drives the yt-dlp binary for other platforms and HD merge |
 | `lib/file_store.dart` | Publishes a finished file per platform and opens it |
-| `lib/screens/splash_screen.dart` | Animated branded splash shown on launch |
+| `lib/screens/splash_screen.dart` | Standard splash: mark, name, spinner, designer credit |
 | `lib/screens/home_shell.dart` | Bottom-nav shell: Downloads / Add / Settings |
 | `lib/screens/` | Downloads, Add, Settings |
 | `android/…/MainActivity.kt` | `publishDownload` + `ensureStorage` method channel |
@@ -149,14 +150,40 @@ Downloads run entirely on the device and are written to app-private staging,
 then published to the user-visible Downloads location by `lib/file_store.dart`:
 
 - **Android 10+ (API 29+):** the finished file is inserted through MediaStore
-  into `Downloads/`, so it shows in the Files app and in any other app. No
-  permission is required.
+  into `Downloads/Turbo/<kind>/`, so it shows in the Files app and in any other
+  app. No permission is required.
 - **Android 9 and below (API 23–28):** the shared `Downloads/` folder needs
   legacy `WRITE_EXTERNAL_STORAGE`, requested at runtime the first time a file is
   published. If the user declines, the file is kept in the app's external files
   directory instead of being lost.
-- **Desktop:** the finished file is moved into the OS Downloads directory. Name
+- **Desktop:** the finished file is moved into `Downloads/Turbo/<kind>/`. Name
   collisions get a ` (n)` suffix, so an existing file is never clobbered.
+
+The `<kind>` subfolder separates media from documents:
+
+| Kind | Folder | Examples |
+| --- | --- | --- |
+| Video | `Turbo/Videos` | `.mp4`, `.mkv`, `.webm` |
+| Audio | `Turbo/Music` | `.mp3`, `.m4a`, `.flac` |
+| Image | `Turbo/Pictures` | `.jpg`, `.png`, `.gif` |
+| Archive | `Turbo/Archives` | `.zip`, `.rar`, `.7z` |
+| Document | `Turbo/Documents` | `.pdf`, `.docx`, `.csv` |
+| App | `Turbo/Apps` | `.apk`, `.exe`, `.dmg` |
+| Other | `Turbo/Other` | anything unrecognised |
+
+## Sharing a downloaded file
+
+Completed downloads can be handed to another app:
+
+- **Android:** the card's share button (or the ⋮ menu → *Share*) opens the system
+  share sheet — WhatsApp, Bluetooth, Drive, and so on. The file is exposed as a
+  `content://` URI through the app's `FileProvider`, so the receiving app never
+  gets broad storage access.
+- **Desktop:** there is no share sheet, so *Share* reveals the file in the file
+  manager (`explorer /select,`, `open -R`, `xdg-open`), ready to attach.
+
+The designer credit (settings *About* and the Add screen footer) is a tappable
+tile that opens a WhatsApp chat with the designer via `url_launcher`.
 
 ## Verifying
 

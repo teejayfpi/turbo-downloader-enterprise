@@ -5,14 +5,28 @@ import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'media_url.dart';
+
 /// Where finished downloads are stored, per platform.
 ///
-/// - Android hands the file to MediaStore so it lands in the shared Downloads
-///   collection and is visible to every app.
-/// - Desktop platforms copy it into the OS Downloads directory.
+/// Everything is filed under a single `Turbo` folder inside the device's shared
+/// Downloads folder, split into a subfolder per kind (Videos, Music, Documents,
+/// …) so media and documents are easy to tell apart.
+///
+/// - Android hands the file to MediaStore with a relative path so it lands in
+///   `Downloads/Turbo/<kind>` and is visible to every app.
+/// - Desktop platforms copy it into the OS Downloads directory the same way.
 /// - Anything else falls back to the app's own storage so a file is never lost.
 class FileStore {
   static const _channel = MethodChannel('turbo_downloader/files');
+
+  /// The single top-level folder all downloads live under.
+  static const turboFolder = 'Turbo';
+
+  /// The subfolder (relative to the Downloads root) a file of this name goes
+  /// into, e.g. `Turbo/Videos`.
+  static String subfolderFor(String filename) =>
+      '$turboFolder/${folderNameFor(kindOf(filename))}';
 
   /// Moves a finished temp file into its final, user-visible location and
   /// returns it. The temp file is consumed.
@@ -56,6 +70,55 @@ class FileStore {
     }
   }
 
+  /// Hands a saved file to another app.
+  ///
+  /// On Android this opens the system share sheet (WhatsApp, Bluetooth, Drive,
+  /// …). Desktop platforms have no share sheet, so they reveal the file in the
+  /// file manager instead, which is where a share would start from anyway.
+  /// Returns true when a hand-off was triggered.
+  static Future<bool> share(String path, {String? filename}) async {
+    try {
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        final ok = await _channel.invokeMethod<bool>('shareFile', {
+          'path': path,
+          'filename': filename ?? path.split(Platform.pathSeparator).last,
+        });
+        return ok ?? false;
+      }
+      await reveal(path);
+      return true;
+    } on MissingPluginException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Opens the file's containing folder with the file selected where the
+  /// platform supports it.
+  static Future<void> reveal(String path) async {
+    try {
+      final dir = File(path).parent.path;
+      if (defaultTargetPlatform == TargetPlatform.windows) {
+        await Process.start('explorer.exe', ['/select,', path],
+            mode: ProcessStartMode.detached);
+        return;
+      }
+      if (defaultTargetPlatform == TargetPlatform.macOS) {
+        await Process.start('open', ['-R', path],
+            mode: ProcessStartMode.detached);
+        return;
+      }
+      if (defaultTargetPlatform == TargetPlatform.linux) {
+        await Process.start('xdg-open', [dir],
+            mode: ProcessStartMode.detached);
+        return;
+      }
+    } catch (_) {
+      // No file manager available; nothing else to do.
+    }
+  }
+
   static Future<File> _publishAndroid(File tempFile, String filename) async {
     try {
       // Android 9 and below need legacy storage to write into the shared
@@ -73,6 +136,7 @@ class FileStore {
       final path = await _channel.invokeMethod<String>('publishDownload', {
         'path': tempFile.path,
         'filename': filename,
+        'subfolder': subfolderFor(filename),
       });
       if (path != null && path.isNotEmpty) {
         // MediaStore copied the bytes; the temp copy is no longer needed.
@@ -91,10 +155,15 @@ class FileStore {
   }
 
   static Future<File> _publishDesktop(File tempFile, String filename) async {
-    final dir = await _downloadsDir();
-    if (dir == null) return _appPrivate(tempFile, filename);
+    final downloads = await _downloadsDir();
+    if (downloads == null) return _appPrivate(tempFile, filename);
+    // File into Downloads/Turbo/<kind>, creating the folders as needed.
+    final dir = Directory(
+      '${downloads.path}${Platform.pathSeparator}'
+      '${subfolderFor(filename).replaceAll('/', Platform.pathSeparator)}',
+    );
     if (!await dir.exists()) await dir.create(recursive: true);
-    final dest = _unique(File('${dir.path}/$filename'));
+    final dest = _unique(File('${dir.path}${Platform.pathSeparator}$filename'));
     return tempFile.rename(dest.path);
   }
 
@@ -137,3 +206,14 @@ class FileStore {
     return cleaned.isEmpty ? 'turbo-download' : cleaned;
   }
 }
+
+/// The subfolder name a [FileKind] is filed under.
+String folderNameFor(FileKind kind) => switch (kind) {
+      FileKind.video => 'Videos',
+      FileKind.audio => 'Music',
+      FileKind.image => 'Pictures',
+      FileKind.archive => 'Archives',
+      FileKind.document => 'Documents',
+      FileKind.app => 'Apps',
+      FileKind.other => 'Other',
+    };

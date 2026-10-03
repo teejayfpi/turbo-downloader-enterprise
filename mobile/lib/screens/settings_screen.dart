@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../contact.dart';
 import '../credits.dart';
 import '../state.dart';
 import '../theme.dart';
@@ -183,11 +184,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               value: Designer.email,
               copyValue: Designer.email,
             ),
-            _ContactRow(
-              icon: Icons.phone_outlined,
-              value: Designer.phone,
-              copyValue: Designer.phoneHref,
-            ),
+            SizedBox(height: 12),
+            WhatsAppTile(),
           ],
         ),
       ],
