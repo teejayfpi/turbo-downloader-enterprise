@@ -29,14 +29,16 @@ jobs:
             target: linux
             artifact: turbo-linux
             bundle: mobile/build/linux/x64/release/bundle
-          - os: windows-latest
+          # windows-2022 ships the VS2022 C++ workload; windows-latest (2025)
+          # no longer lets Flutter's VS discovery find it, so pin to 2022.
+          - os: windows-2022
             target: windows
             artifact: turbo-windows
             bundle: mobile/build/windows/x64/runner/Release
           - os: macos-latest
             target: macos
             artifact: turbo-macos
-            bundle: mobile/build/macos/Build/Products/Release/turbo_downloader.app
+            bundle: mobile/build/macos/Build/Products/Release/Turbo.app
 
     runs-on: ${{ matrix.os }}
     defaults:
