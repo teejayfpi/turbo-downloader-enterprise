@@ -1,179 +1,47 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:socket_io_client/socket_io_client.dart' as io;
 
-import 'api.dart';
 import 'local_downloader.dart';
-import 'models.dart';
 
+/// Application state for the on-device download manager.
+///
+/// Everything runs on the device: the phone or computer opens the connections,
+/// writes the bytes to its own storage, and needs no server, account, or key.
 class TurboState extends ChangeNotifier {
-  static const _kBaseUrl = 'turbo.baseUrl';
   static const _kAccent = 'turbo.accent';
-  static const _kMode = 'turbo.mode';
   static const _kConnections = 'turbo.connections';
-  static const _kToken = 'turbo.apiToken';
+  static const _kPlaySound = 'turbo.playSound';
 
-  String baseUrl = '';
   String accentKey = 'cyan';
 
-  /// Shared secret for servers started with TURBO_API_TOKEN.
-  String apiToken = '';
-
-  /// Default segment count applied to new device downloads.
+  /// Default segment count applied to new downloads.
   int defaultConnections = 4;
 
-  /// Where downloads happen: `device` stores them on the phone, `server`
-  /// leaves them on the Turbo server for later retrieval.
-  String mode = 'device';
-  List<DownloadTask> downloads = const [];
-  TurboStats stats = const TurboStats();
-  bool connected = false;
-  bool loading = true;
-  String? lastError;
+  /// Play the system completion sound when a download finishes.
+  bool playSound = true;
 
-  /// Whether a server address has been chosen. Until it has, the app shows
-  /// setup rather than a screen full of connection errors. Device mode does
-  /// not require a server at all.
-  bool get configured => baseUrl.isNotEmpty || mode == 'device';
-  bool get serverConfigured => baseUrl.isNotEmpty;
+  bool loading = true;
 
   final local = LocalDownloadManager();
 
-  late TurboApi api;
-  io.Socket? _socket;
   bool _disposed = false;
 
   TurboState() {
-    api = TurboApi(baseUrl, apiToken: apiToken);
     local.addListener(_safeNotify);
   }
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    baseUrl = prefs.getString(_kBaseUrl) ?? '';
     accentKey = prefs.getString(_kAccent) ?? 'cyan';
-    mode = prefs.getString(_kMode) ?? 'device';
     defaultConnections = prefs.getInt(_kConnections) ?? 4;
-    apiToken = prefs.getString(_kToken) ?? '';
-    api = TurboApi(baseUrl, apiToken: apiToken);
+    playSound = prefs.getBool(_kPlaySound) ?? true;
     await local.init();
-    if (serverConfigured) {
-      _connect();
-      await refresh();
-    }
     loading = false;
     _safeNotify();
   }
 
-  Future<void> setMode(String value) async {
-    if (value == mode) return;
-    mode = value;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kMode, value);
-    if (value == 'server' && serverConfigured && _socket == null) {
-      _connect();
-      await refresh();
-    }
-    _safeNotify();
-  }
-
-  // ------------------------------------------------------------------ socket
-
-  void _connect() {
-    _socket?.dispose();
-    _socket = io.io(
-      baseUrl,
-      io.OptionBuilder()
-          .setTransports(['websocket'])
-          .setAuth({'token': apiToken})
-          .enableReconnection()
-          .enableForceNew()
-          .build(),
-    );
-
-    _socket!.onConnect((_) {
-      connected = true;
-      _safeNotify();
-      refresh();
-    });
-    _socket!.onDisconnect((_) {
-      connected = false;
-      _safeNotify();
-    });
-    _socket!.onConnectError((_) {
-      connected = false;
-      _safeNotify();
-    });
-    // The server pushes the full list on every change, so there is no
-    // per-task reconciliation to get wrong.
-    _socket!.on('downloads:update', (payload) {
-      if (payload is! Map) return;
-      final list = ((payload['downloads'] as List?) ?? const [])
-          .whereType<Map>()
-          .map((e) => DownloadTask.fromJson(Map<String, dynamic>.from(e)))
-          .toList();
-      downloads = list;
-      if (payload['stats'] is Map) {
-        stats = TurboStats.fromJson(Map<String, dynamic>.from(payload['stats']));
-      }
-      _safeNotify();
-    });
-  }
-
   void _safeNotify() {
     if (!_disposed) notifyListeners();
-  }
-
-  // ------------------------------------------------------------------ actions
-
-  Future<void> refresh() async {
-    if (!serverConfigured) {
-      loading = false;
-      _safeNotify();
-      return;
-    }
-    try {
-      final result = await api.getDownloads();
-      downloads = result.downloads;
-      stats = result.stats;
-      lastError = null;
-    } on ApiException catch (e) {
-      lastError = e.message;
-    } finally {
-      loading = false;
-      _safeNotify();
-    }
-  }
-
-  Future<void> setBaseUrl(String url) async {
-    baseUrl = normalizeUrl(url);
-    api = TurboApi(baseUrl, apiToken: apiToken);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kBaseUrl, baseUrl);
-    loading = true;
-    _safeNotify();
-    _connect();
-    await refresh();
-  }
-
-  /// Stores the shared secret and reconnects so REST and socket calls pick it
-  /// up immediately. Passing an empty string clears it.
-  Future<void> setApiToken(String token) async {
-    apiToken = token.trim();
-    api = TurboApi(baseUrl, apiToken: apiToken);
-    final prefs = await SharedPreferences.getInstance();
-    if (apiToken.isEmpty) {
-      await prefs.remove(_kToken);
-    } else {
-      await prefs.setString(_kToken, apiToken);
-    }
-    if (serverConfigured) {
-      _connect();
-      await refresh();
-    }
-    _safeNotify();
   }
 
   Future<void> setAccent(String key) async {
@@ -190,48 +58,23 @@ class TurboState extends ChangeNotifier {
     _safeNotify();
   }
 
-  Future<String?> add(String url, {String? formatId, int? connections}) async {
-    try {
-      await api.addDownload(
-          url: url.trim(), formatId: formatId, connections: connections);
-      await refresh();
-      return null;
-    } on ApiException catch (e) {
-      return e.message;
-    }
+  Future<void> setPlaySound(bool value) async {
+    playSound = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kPlaySound, value);
+    _safeNotify();
   }
 
-  /// Queues a download that runs and is stored on this device. Media pages
-  /// are resolved on-device by the extractor, so they are queued with
-  /// `kind: 'media'` and never sent to the server.
-  void addToDevice(String url, {String? filename, int connections = 4, String kind = 'http'}) {
+  /// Queues a download that runs and is stored on this device. Media pages are
+  /// resolved on-device by the extractor, so they are queued with
+  /// `kind: 'media'`; everything else is fetched as a direct file.
+  void addToDevice(
+    String url, {
+    String? filename,
+    int connections = 4,
+    String kind = 'http',
+  }) {
     local.add(url, filename: filename, connections: connections, kind: kind);
-  }
-
-  Future<String?> run(Future<void> Function() action) async {
-    try {
-      await action();
-      await refresh();
-      return null;
-    } on ApiException catch (e) {
-      lastError = e.message;
-      _safeNotify();
-      return e.message;
-    }
-  }
-
-  /// Strips a trailing slash and adds a scheme when the user types a bare host,
-  /// which is the common case when pasting an address from a browser.
-  static String normalizeUrl(String input) {
-    var url = input.trim();
-    if (url.isEmpty) return '';
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      url = 'https://$url';
-    }
-    while (url.endsWith('/')) {
-      url = url.substring(0, url.length - 1);
-    }
-    return url;
   }
 
   @override
@@ -239,7 +82,6 @@ class TurboState extends ChangeNotifier {
     _disposed = true;
     local.removeListener(_safeNotify);
     local.dispose();
-    _socket?.dispose();
     super.dispose();
   }
 }

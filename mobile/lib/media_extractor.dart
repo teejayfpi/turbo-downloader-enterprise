@@ -54,8 +54,9 @@ class MediaExtractor {
   ///
   /// Combined (muxed) streams are preferred because they play standalone.
   /// Separate high-resolution video and audio streams cannot be merged without
-  /// an on-device muxer, so they are deliberately not offered; the fallbacks
-  /// are an HLS combined stream and, last, audio-only.
+  /// an on-device muxer, and an HLS manifest is a playlist rather than a file,
+  /// so neither is offered; when no muxed stream exists the fallback is
+  /// audio-only rather than a broken download.
   Future<ResolvedMedia> resolve(String pageUrl) async {
     final client = yt.YoutubeExplode();
     try {
@@ -87,23 +88,9 @@ class MediaExtractor {
         );
       }
 
-      // HLS carries combined audio+video as fragments the client concatenates
-      // into one stream. It is the next best standalone file.
-      final hls = manifest.hls;
-      if (hls.isNotEmpty) {
-        final stream = hls.first;
-        return ResolvedMedia(
-          url: stream.url.toString(),
-          title: video.title,
-          extension: 'ts',
-          size: stream.size.totalBytes,
-          qualityLabel: '${stream.qualityLabel} (combined)',
-          kind: 'video',
-        );
-      }
-
       final audio = manifest.audioOnly.toList()
-        ..sort((a, b) => b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond));
+        ..sort(
+            (a, b) => b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond));
       if (audio.isNotEmpty) {
         final stream = audio.first;
         final ext = stream.container.name == 'webm' ? 'webm' : 'm4a';

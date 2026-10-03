@@ -1,0 +1,78 @@
+name: Desktop build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/desktop.yml'
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/desktop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux
+            artifact: turbo-linux
+            bundle: mobile/build/linux/x64/release/bundle
+          - os: windows-latest
+            target: windows
+            artifact: turbo-windows
+            bundle: mobile/build/windows/x64/runner/Release
+          - os: macos-latest
+            target: macos
+            artifact: turbo-macos
+            bundle: mobile/build/macos/Build/Products/Release/turbo_downloader.app
+
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Linux desktop dependencies
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Build ${{ matrix.target }}
+        run: flutter build ${{ matrix.target }} --release
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.bundle }}
+          if-no-files-found: error

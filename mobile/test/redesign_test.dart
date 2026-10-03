@@ -2,68 +2,60 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
-import 'package:turbo_downloader/main.dart';
-import 'package:turbo_downloader/media_url.dart';
 import 'package:turbo_downloader/screens/add_screen.dart';
 import 'package:turbo_downloader/screens/downloads_screen.dart';
+import 'package:turbo_downloader/screens/home_shell.dart';
 import 'package:turbo_downloader/screens/settings_screen.dart';
+import 'package:turbo_downloader/screens/splash_screen.dart';
 import 'package:turbo_downloader/state.dart';
 import 'package:turbo_downloader/theme.dart';
 
 void main() {
-  group('media detection drives the UI guard', () {
-    test('media pages are flagged so device mode can route them on-device', () {
-      expect(isMediaUrl('https://www.youtube.com/watch?v=abc'), isTrue);
-      expect(isYouTubeUrl('https://www.youtube.com/watch?v=abc'), isTrue);
-      expect(isYouTubeUrl('https://soundcloud.com/a/b'), isFalse);
-      // A host merely ending in the name must not be treated as YouTube.
-      expect(isMediaUrl('https://notyoutube.com/watch'), isFalse);
-      expect(isMediaUrl('https://example.com/file.zip'), isFalse);
-    });
-  });
-
-  group('redesigned screens', () {
-    Future<void> pumpScreen(WidgetTester tester, Widget screen) async {
-      final state = TurboState()
-        ..mode = 'device'
-        ..loading = false;
-      addTearDown(state.dispose);
-      await tester.pumpWidget(
-        ChangeNotifierProvider<TurboState>.value(
-          value: state,
-          child: MaterialApp(
-            theme: buildTurboTheme(TurboColors.accent),
-            home: Scaffold(body: screen),
-          ),
+  Future<void> pumpScreen(WidgetTester tester, Widget screen) async {
+    final state = TurboState()..loading = false;
+    addTearDown(state.dispose);
+    await tester.pumpWidget(
+      ChangeNotifierProvider<TurboState>.value(
+        value: state,
+        child: MaterialApp(
+          theme: buildTurboTheme(TurboColors.accent),
+          home: Scaffold(body: screen),
         ),
-      );
-      await tester.pump();
-    }
+      ),
+    );
+    await tester.pump();
+  }
 
+  group('device-only screens', () {
     testWidgets('downloads screen shows the empty state', (tester) async {
       await pumpScreen(tester, const DownloadsScreen());
       expect(find.text('QUEUE EMPTY'), findsOneWidget);
       expect(find.text('ACTIVE'), findsOneWidget);
     });
 
-    testWidgets('add screen defaults to device mode and renders', (tester) async {
+    testWidgets('add screen has no server switch and renders the device form',
+        (tester) async {
       await pumpScreen(tester, const AddScreen());
       expect(find.text('Target URL'.toUpperCase()), findsOneWidget);
       expect(find.text('Parallel connections'.toUpperCase()), findsOneWidget);
       expect(find.text('DOWNLOAD TO THIS DEVICE'.toUpperCase()), findsWidgets);
+      // The old device/server segmented control is gone.
+      expect(find.text('Server'), findsNothing);
     });
 
-    testWidgets('settings screen renders engine and about panels',
+    testWidgets('settings screen has engine, accent, and about panels',
         (tester) async {
       await pumpScreen(tester, const SettingsScreen());
-      expect(find.text('DOWNLOAD LOCATION'.toUpperCase()), findsOneWidget);
       expect(find.text('DEVICE ENGINE'.toUpperCase()), findsOneWidget);
       expect(find.text('Default connections'.toUpperCase()), findsOneWidget);
+      expect(find.text('ACCENT COLOUR'.toUpperCase()), findsOneWidget);
+      // No server or token fields any more.
+      expect(find.text('SERVER'.toUpperCase()), findsNothing);
     });
 
-    testWidgets('app boots into the home shell in device mode',
+    testWidgets('home shell boots with three tabs and a ready chip',
         (tester) async {
-      final state = TurboState()..mode = 'device';
+      final state = TurboState()..loading = false;
       addTearDown(state.dispose);
       await tester.pumpWidget(
         ChangeNotifierProvider<TurboState>.value(
@@ -78,6 +70,33 @@ void main() {
       expect(find.text('Downloads'), findsWidgets);
       expect(find.text('Add'), findsOneWidget);
       expect(find.text('Settings'), findsOneWidget);
+      expect(find.text('READY'), findsOneWidget);
+    });
+  });
+
+  group('splash screen', () {
+    testWidgets('shows the brand and hands off to the home shell',
+        (tester) async {
+      final state = TurboState()..loading = false;
+      addTearDown(state.dispose);
+      await tester.pumpWidget(
+        ChangeNotifierProvider<TurboState>.value(
+          value: state,
+          child: MaterialApp(
+            theme: buildTurboTheme(TurboColors.accent),
+            home: const SplashScreen(),
+          ),
+        ),
+      );
+
+      expect(find.text('TURBO'), findsOneWidget);
+      expect(find.text('OFFLINE DOWNLOAD MANAGER'), findsOneWidget);
+
+      // Wait out the minimum reveal, then let the transition settle.
+      await tester.pump(SplashScreen.minimumDisplay);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(HomeShell), findsOneWidget);
     });
   });
 }

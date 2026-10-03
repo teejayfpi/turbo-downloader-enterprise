@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../api.dart';
 import '../credits.dart';
 import '../state.dart';
 import '../theme.dart';
@@ -15,71 +14,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late final TextEditingController _urlController;
-  late final TextEditingController _tokenController;
-  bool _testing = false;
-  bool? _reachable;
-  String? _serverInfo;
-
-  @override
-  void initState() {
-    super.initState();
-    final state = context.read<TurboState>();
-    _urlController = TextEditingController(text: state.baseUrl);
-    _tokenController = TextEditingController(text: state.apiToken);
-  }
-
-  @override
-  void dispose() {
-    _urlController.dispose();
-    _tokenController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _test() async {
-    setState(() {
-      _testing = true;
-      _reachable = null;
-      _serverInfo = null;
-    });
-
-    final probe = TurboApi(
-      TurboState.normalizeUrl(_urlController.text),
-      apiToken: _tokenController.text.trim(),
-    );
-    final ok = await probe.ping();
-    String? info;
-    if (ok) {
-      try {
-        final system = await probe.getSystem();
-        final media = system['media'] as Map?;
-        info = 'Server ${system['version'] ?? ''}'
-            '${media != null && media['available'] == true ? ' · media engine ready' : ''}';
-      } catch (_) {}
-    }
-
-    if (!mounted) return;
-    setState(() {
-      _testing = false;
-      _reachable = ok;
-      _serverInfo = info;
-    });
-  }
-
-  Future<void> _save() async {
-    final state = context.read<TurboState>();
-    await state.setApiToken(_tokenController.text);
-    await state.setBaseUrl(_urlController.text);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(state.serverConfigured
-            ? 'Server updated'
-            : 'Server address cleared'),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final state = context.watch<TurboState>();
@@ -88,50 +22,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
       children: [
-        _Section(
-          title: 'Download location',
-          accent: accent,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: _ModeButton(
-                    selected: state.mode == 'device',
-                    icon: Icons.phone_android_rounded,
-                    title: 'This device',
-                    subtitle: 'Uses the phone\'s storage and bandwidth',
-                    accent: accent,
-                    onTap: () => state.setMode('device'),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: _ModeButton(
-                    selected: state.mode == 'server',
-                    icon: Icons.dns_rounded,
-                    title: 'Server',
-                    subtitle: 'Downloads on your Turbo server',
-                    accent: accent,
-                    onTap: () => state.setMode('server'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Device downloads keep the file on your phone and never leave it. '
-              'Use the server when you want large jobs to survive the app being '
-              'closed or the phone sleeping.',
-              style: TextStyle(
-                fontFamily: TurboFonts.body,
-                color: TurboColors.textMuted,
-                fontSize: 11,
-                height: 1.5,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
         _Section(
           title: 'Device engine',
           accent: accent,
@@ -163,8 +53,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onChanged: (v) => state.setDefaultConnections(v.round()),
             ),
             const Text(
-              'Segments used for new device downloads. Range-capable hosts '
-              'split the transfer across these; others fall back to one.',
+              'Segments used for new downloads. Range-capable hosts split the '
+              'transfer across these; others fall back to one.',
               style: TextStyle(
                 fontFamily: TurboFonts.body,
                 color: TurboColors.textMuted,
@@ -172,115 +62,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 height: 1.45,
               ),
             ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        _Section(
-          title: 'Server',
-          accent: accent,
-          children: [
-            TextField(
-              controller: _urlController,
-              keyboardType: TextInputType.url,
-              style: const TextStyle(
-                  fontFamily: TurboFonts.mono,
-                  color: TurboColors.textPrimary,
-                  fontSize: 13),
-              decoration: const InputDecoration(
-                hintText: 'https://your-server.onrender.com',
-                prefixIcon: Icon(Icons.cloud_outlined,
-                    color: TurboColors.textMuted, size: 20),
-              ),
-            ),
             const SizedBox(height: 8),
-            const Text(
-              'Optional. Only needed to browse and start downloads on a Turbo '
-              'server. Leave blank to use this device only.',
-              style: TextStyle(
-                fontFamily: TurboFonts.body,
-                color: TurboColors.textMuted,
-                fontSize: 11,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _tokenController,
-              obscureText: true,
-              style: const TextStyle(
-                  fontFamily: TurboFonts.mono,
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: state.playSound,
+              onChanged: (v) => state.setPlaySound(v),
+              title: const Text(
+                'Completion sound',
+                style: TextStyle(
+                  fontFamily: TurboFonts.body,
                   color: TurboColors.textPrimary,
-                  fontSize: 13),
-              decoration: const InputDecoration(
-                hintText: 'Access token (if the server requires one)',
-                prefixIcon: Icon(Icons.key_rounded,
-                    color: TurboColors.textMuted, size: 20),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Only needed when the server was started with a TURBO_API_TOKEN. '
-              'Leave blank for open servers.',
-              style: TextStyle(
-                fontFamily: TurboFonts.body,
-                color: TurboColors.textMuted,
-                fontSize: 11,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TurboButton(
-                    outline: true,
-                    busy: _testing,
-                    onPressed: _test,
-                    icon: Icons.wifi_tethering_rounded,
-                    label: 'Test',
-                  ),
+                  fontSize: 13,
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TurboButton(
-                    onPressed: _save,
-                    icon: Icons.save_rounded,
-                    label: 'Save',
-                  ),
-                ),
-              ],
-            ),
-            if (_reachable != null) ...[
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Icon(
-                    _reachable!
-                        ? Icons.check_circle_rounded
-                        : Icons.cancel_rounded,
-                    size: 16,
-                    color: _reachable!
-                        ? TurboColors.success
-                        : TurboColors.error,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _reachable!
-                          ? (_serverInfo ?? 'Server reachable')
-                          : 'Could not reach that server',
-                      style: TextStyle(
-                        fontFamily: TurboFonts.body,
-                        color: _reachable!
-                            ? TurboColors.success
-                            : TurboColors.error,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ],
               ),
-            ],
+              subtitle: const Text(
+                'Play a chime when a download finishes.',
+                style: TextStyle(
+                  fontFamily: TurboFonts.body,
+                  color: TurboColors.textMuted,
+                  fontSize: 10.5,
+                ),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -328,10 +131,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _InfoRow(label: 'Designer', value: Designer.name),
             SizedBox(height: 10),
             Text(
-              'Turbo downloads either on the device or on your Turbo server. '
-              'Device downloads run entirely on your phone and save straight to '
-              'your Downloads folder; server downloads are fetched and merged '
-              'remotely, then saved to your phone when you retrieve them.',
+              'Turbo downloads entirely on this device. It opens the '
+              'connections itself, saves into your Downloads folder, and needs '
+              'no server, account, or key.',
               style: TextStyle(
                 fontFamily: TurboFonts.body,
                 color: TurboColors.textMuted,
@@ -344,10 +146,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SizedBox(height: 14),
             Kicker('Designed & engineered by', letterSpacing: 1.6),
             SizedBox(height: 8),
-            _ContactRow(
-              icon: Icons.person_rounded,
-              value: Designer.name,
-            ),
+            _ContactRow(icon: Icons.person_rounded, value: Designer.name),
             _ContactRow(
               icon: Icons.email_outlined,
               value: Designer.email,
@@ -361,72 +160,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
       ],
-    );
-  }
-}
-
-/// Selectable card describing one download location.
-class _ModeButton extends StatelessWidget {
-  final bool selected;
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Color accent;
-  final VoidCallback onTap;
-
-  const _ModeButton({
-    required this.selected,
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.accent,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: selected ? accent.withOpacity(0.12) : TurboColors.bgTertiary,
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(
-              color: selected ? accent.withOpacity(0.7) : Colors.transparent),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon,
-                size: 19, color: selected ? accent : TurboColors.textMuted),
-            const SizedBox(height: 9),
-            Text(
-              title,
-              style: TextStyle(
-                fontFamily: TurboFonts.body,
-                color: selected
-                    ? TurboColors.textPrimary
-                    : TurboColors.textSecondary,
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              subtitle,
-              style: const TextStyle(
-                fontFamily: TurboFonts.body,
-                color: TurboColors.textMuted,
-                fontSize: 10,
-                height: 1.35,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

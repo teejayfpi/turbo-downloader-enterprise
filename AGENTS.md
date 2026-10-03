@@ -8,11 +8,13 @@ Repository knowledge for agents working on Turbo Downloader.
   `downloadEngine.js` handles HTTP downloads (segmented/resumable) and delegates
   media URLs to `mediaService.js`, which shells out to `yt-dlp`.
 - `client/` — Vite + React SPA, built to `client/dist` and served by the server.
-- `mobile/` — Flutter Android client packaged for the Play Store. It has two
-  download modes: **device** (a real on-device segmented/resumable engine in
-  `lib/local_downloader.dart`, stored via MediaStore) and **server** (a remote
-  control for the REST API and `downloads:update` Socket.IO event). See
-  `mobile/README.md`.
+- `mobile/` — Flutter app for **Android and desktop** (Windows/Linux/macOS).
+  It is a self-contained, offline-first downloader: no server, account, or key.
+  Every transfer runs on the device that opened the app and is written to that
+  device's own storage (`lib/local_downloader.dart`, `lib/file_store.dart`), and
+  media pages are resolved on-device by `lib/media_extractor.dart`. See
+  `mobile/README.md`. The `server/` and `client/` trees below are the legacy
+  web deployment and are no longer used by the mobile app.
 - Deployed on Render from `main` via `Dockerfile`. `main` is the production branch.
   `mobile/` is excluded in `.dockerignore` so it never enters the server image.
 
@@ -65,29 +67,33 @@ These caused real, user-visible bugs. Do not regress them.
   configured download directory before any read (`resolveStoredFile`), because a
   naive `startsWith` also matches sibling dirs like `<root>-evil/`.
 
-## Android client (`mobile/`)
+## Android & desktop client (`mobile/`)
 
+- **The app is device-only.** It never asks for a server URL, token, or account.
+  `Mobile` boots straight into a splash screen and then the three tabs
+  (`lib/screens/home_shell.dart`). Do not reintroduce a setup/server mode.
 - **Build with JDK 17, not 21.** JDK 21 makes the Android Gradle Plugin's
   `JdkImageTransform` fail with a `jlink` error on `core-for-system-modules.jar`.
   Set `JAVA_HOME` to a JDK 17 before `flutter build`.
-- **`socket_io_client` 2.x talks to the server's Socket.IO 4.x fine**, but the
-  payload is the whole queue (`{downloads, stats, speedHistory}`) — replace the
-  list wholesale rather than reconciling per task.
-- **The app has no baked-in server URL.** It asks on first run and stores the
-  address in `shared_preferences`; a wrong default is worse than none.
-- **Saved files go through MediaStore** (`publishDownload` in `MainActivity.kt`),
-  not a raw path, so they land in the public Downloads collection under scoped
-  storage. On **Android 9 and below** the publish first calls `ensureStorage`,
-  which requests legacy `WRITE_EXTERNAL_STORAGE` at runtime; if the user
-  declines, `Downloader._appPrivate` keeps the file instead of losing it.
-  Android 10+ needs no permission.
-- **The UI is a "precision instrument console"** shared with the web client:
-  bundled Sora / ChakraPetch / JetBrains Mono, corner-tick `TurboPanel` frames,
-  uppercase mono `Kicker`s, status-railed task cards. Design primitives live in
-  `lib/theme.dart`, shared widgets in `lib/widgets.dart`; keep both surfaces in
+- **Saved files are published per platform** by `lib/file_store.dart`: Android
+  goes through MediaStore (`publishDownload` in `MainActivity.kt`) so the file
+  lands in the public Downloads collection; desktop copies it into the OS
+  Downloads directory (derived from the documents dir, avoiding an extra
+  plugin); anything else falls back to app-private storage. On **Android 9 and
+  below** the Android path first calls `ensureStorage`, which requests legacy
+  `WRITE_EXTERNAL_STORAGE` at runtime; if the user declines, the file stays
+  app-private instead of being lost. Android 10+ needs no permission.
+- **Keep desktop green too.** `flutter create --platforms=windows,linux,macos`
+  generated the runner folders; the in-app splash and the file store are
+  cross-platform, and `flutter analyze && flutter test` cover them. CI runs the
+  Android build (`android.yml`) and the desktop builds (`desktop.yml`).
+- **The UI is a "precision instrument console"**: bundled Sora / ChakraPetch /
+  JetBrains Mono, corner-tick `TurboPanel` frames, uppercase mono `Kicker`s,
+  status-railed task cards. Design primitives live in `lib/theme.dart`, shared
+  widgets in `lib/widgets.dart`; keep both the app and the legacy web console in
   sync rather than inventing a second visual language.
-- **Play policy risk.** A YouTube/yt-dlp downloader can be pulled under IP/DMCA
-  rules; see `mobile/README.md`.
+- **Play policy risk.** A YouTube/yt-dlp-style downloader can be pulled under
+  IP/DMCA rules; see `mobile/README.md`.
 
 ## Mobile engine gotchas
 
@@ -102,14 +108,13 @@ These caused real, user-visible bugs. Do not regress them.
 - **Plans must be reused on resume.** Rebuilding segments from zero after a pause
   appends duplicates. `_planSegments` keeps a matching plan and only rebuilds
   when the segment count or total length changed.
-- **Media in device mode is resolved on the phone.** `lib/media_extractor.dart`
-  uses `youtube_explode_dart` to turn a page URL into a direct stream, and the
+- **Media is resolved on the device.** `lib/media_extractor.dart` uses
+  `youtube_explode_dart` to turn a page URL into a direct stream, and the
   on-device engine downloads it. Only a combined (muxed) stream, an HLS stream,
   or audio-only is offered, because muxing separate HD tracks needs ffmpeg, which
-  is not on the phone. Server mode still exists for higher-resolution media via
-  yt-dlp/ffmpeg and `/api/media/*`.
+  is not on the phone. There is no server fallback any more.
 - **Persist the page URL, re-resolve the stream.** Signed stream URLs expire, so
-  `LocalTask.url` keeps the page and `streamUrl` is transient; a resume
+  `LocalTask.url` keeps the page and `fetchUrl` is transient; a resume
   re-resolves rather than reusing a stale URL.
 
 ## Environment
