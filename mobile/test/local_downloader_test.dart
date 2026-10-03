@@ -304,4 +304,116 @@ void main() {
     final raw = File('${root.path}/local_tasks.json').readAsStringSync();
     expect(jsonDecode(raw), isEmpty);
   });
+
+  test('resolves a media page on-device then downloads and saves it', () async {
+    final data = _blob(2 * 1024 * 1024);
+    final origin = _Origin(data)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    var resolved = 0;
+    manager.resolveMediaOverride = (page) async {
+      resolved++;
+      // The page URL is a YouTube link; the phone must never fetch it directly.
+      expect(page, contains('youtube.com'));
+      return ResolvedMedia(
+        url: origin.url,
+        title: 'Launch / Recap',
+        extension: 'mp4',
+        size: data.length,
+        qualityLabel: '360p',
+        kind: 'video',
+      );
+    };
+
+    final task = manager.add('https://youtube.com/watch?v=abc123',
+        filename: 'download', connections: 4, kind: 'media');
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(resolved, 1);
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    // The page URL is kept (so resume can re-resolve), the stream URL is only
+    // held in memory, and the file is named from the media title with
+    // filesystem-unsafe characters replaced.
+    expect(task.url, 'https://youtube.com/watch?v=abc123');
+    expect(task.streamUrl, origin.url);
+    expect(task.filename, 'Launch _ Recap.mp4');
+    expect(await File(task.filePath!).readAsBytes(), equals(data));
+  });
+
+  test('resuming a media task re-resolves instead of reusing a stale stream',
+      () async {
+    final data = _blob(600 * 1024);
+    final origin = _Origin(data, throttle: 20)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    var resolved = 0;
+    manager.resolveMediaOverride = (page) async {
+      resolved++;
+      return ResolvedMedia(
+        url: origin.url,
+        title: 'Clip',
+        extension: 'mp4',
+        size: data.length,
+        qualityLabel: '360p',
+        kind: 'video',
+      );
+    };
+
+    final task = manager.add('https://youtube.com/watch?v=clip', kind: 'media');
+    await _waitFor(() => task.downloaded > 0);
+    manager.pause(task.id);
+    await _waitFor(() => !task.isActive);
+
+    manager.resume(task.id);
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    expect(resolved, greaterThanOrEqualTo(2),
+        reason: 'each start should resolve the page again');
+    expect(await File(task.filePath!).readAsBytes(), equals(data));
+  });
+
+  test('media resolution failure is surfaced as a friendly task error',
+      () async {
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    manager.resolveMediaOverride =
+        (page) async => throw const MediaResolveException('Video unavailable');
+
+    final task = manager.add('https://youtube.com/watch?v=gone',
+        kind: 'media');
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isFailed, isTrue);
+    expect(task.error, 'Video unavailable');
+  });
+
+  test('a direct link is never sent through the extractor', () async {
+    final data = _blob(256 * 1024);
+    final origin = _Origin(data)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    var resolved = 0;
+    manager.resolveMediaOverride = (page) async {
+      resolved++;
+      throw StateError('should not be called for a direct link');
+    };
+
+    final task = manager.add(origin.url, filename: 'file.bin');
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(resolved, 0);
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    expect(await File(task.filePath!).readAsBytes(), equals(data));
+  });
 }

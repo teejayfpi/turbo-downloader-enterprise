@@ -12,7 +12,7 @@ import 'package:turbo_downloader/theme.dart';
 
 void main() {
   group('media detection drives the UI guard', () {
-    test('media pages are flagged so device mode can refuse them', () {
+    test('media pages are flagged so device mode can route them on-device', () {
       expect(isMediaUrl('https://www.youtube.com/watch?v=abc'), isTrue);
       expect(isYouTubeUrl('https://www.youtube.com/watch?v=abc'), isTrue);
       expect(isYouTubeUrl('https://soundcloud.com/a/b'), isFalse);

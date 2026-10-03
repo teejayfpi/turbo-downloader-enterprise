@@ -94,20 +94,27 @@ class _AddScreenState extends State<AddScreen> {
 
     // Device mode stores the file on the phone; server mode queues it remotely.
     if (state.mode == 'device') {
+      final url = _controller.text.trim();
+      final isMedia = isMediaUrl(url);
       state.addToDevice(
-        _controller.text.trim(),
+        url,
         filename: _nameController.text.trim().isEmpty
             ? null
             : _nameController.text.trim(),
         connections: _connections,
+        kind: isMedia ? 'media' : 'http',
       );
       if (!mounted) return;
       setState(() => _submitting = false);
       _reset();
       FocusScope.of(context).unfocus();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Downloading to this device · saved to Downloads'),
+        SnackBar(
+          content: Text(
+            isMedia
+                ? 'Resolving and downloading on this device · saved to Downloads'
+                : 'Downloading to this device · saved to Downloads',
+          ),
         ),
       );
       return;
@@ -213,16 +220,10 @@ class _AddScreenState extends State<AddScreen> {
                     !(uri.isScheme('http') || uri.isScheme('https'))) {
                   return 'Enter a valid http(s) URL';
                 }
-                // A media page is not a file; fetching it directly would save
-                // HTML. Device mode has no extractor, so it must not pretend.
-                if (deviceMode && isMediaUrl(value)) {
-                  return 'This is a media page — switch to Server mode to download it';
-                }
                 return null;
               },
             ),
-            if (deviceMode && isMediaUrl(_controller.text))
-              _MediaHint(onSwitch: () => state.setMode('server')),
+            if (deviceMode && isMediaUrl(_controller.text)) const _MediaHint(),
             if (deviceMode) ...[
               const SizedBox(height: 18),
               const Kicker('Save as (optional)', letterSpacing: 2.0),
@@ -341,11 +342,11 @@ class _AddScreenState extends State<AddScreen> {
   }
 }
 
-/// Shown when a media page is pasted in device mode, which has no extractor
-/// and would otherwise save the page's HTML instead of the media.
+/// Shown when a media page is pasted in device mode, which now resolves the
+/// page on the phone and stores the file locally. It sets the expectation that
+/// a combined stream is used because a phone cannot mux separate HD tracks.
 class _MediaHint extends StatelessWidget {
-  final VoidCallback onSwitch;
-  const _MediaHint({required this.onSwitch});
+  const _MediaHint();
 
   @override
   Widget build(BuildContext context) {
@@ -353,49 +354,38 @@ class _MediaHint extends StatelessWidget {
       margin: const EdgeInsets.only(top: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: TurboColors.warning.withOpacity(0.10),
+        color: TurboColors.accent.withOpacity(0.10),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: TurboColors.warning.withOpacity(0.4)),
+        border: Border.all(color: TurboColors.accent.withOpacity(0.4)),
       ),
-      child: Row(
+      child: const Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.warning_amber_rounded,
-              color: TurboColors.warning, size: 18),
-          const SizedBox(width: 10),
+          Icon(Icons.movie_rounded, color: TurboColors.accent, size: 18),
+          SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'This is a media page',
+                Text(
+                  'Downloading on this device',
                   style: TextStyle(
                       fontFamily: TurboFonts.body,
                       color: TurboColors.textPrimary,
                       fontSize: 13,
                       fontWeight: FontWeight.w700),
                 ),
-                const SizedBox(height: 4),
-                const Text(
-                  'Video and audio sites need the server\'s extractor. Device '
-                  'mode only fetches direct file links, so switch to Server mode.',
+                SizedBox(height: 4),
+                Text(
+                  'The video is resolved and saved on your phone using its own '
+                  'storage and connection — nothing is stored on the server. A '
+                  'combined audio+video stream is used, so quality tops out '
+                  'around 360p/720p.',
                   style: TextStyle(
                       fontFamily: TurboFonts.body,
                       color: TurboColors.textSecondary,
                       fontSize: 11.5,
                       height: 1.4),
-                ),
-                const SizedBox(height: 8),
-                TextButton.icon(
-                  onPressed: onSwitch,
-                  icon: const Icon(Icons.dns_rounded, size: 16),
-                  label: const Text('Switch to Server mode'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: TurboColors.warning,
-                    padding: EdgeInsets.zero,
-                    minimumSize: const Size(0, 32),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
                 ),
               ],
             ),

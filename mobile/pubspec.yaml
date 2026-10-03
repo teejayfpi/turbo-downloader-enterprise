@@ -15,6 +15,7 @@ dependencies:
   path_provider: ^2.1.4
   open_filex: ^4.5.0
   provider: ^6.1.2
+  youtube_explode_dart: ^3.1.0
 
 dev_dependencies:
   flutter_test:
@@ -66,3 +67,9 @@ flutter_launcher_icons:
   image_path: "assets/icon/icon-512.png"
   adaptive_icon_background: "#0A0A0F"
   adaptive_icon_foreground: "assets/icon/icon-maskable-512.png"
+
+# youtube_explode_dart 3.1.0 needs path >=1.9.1, but the Flutter 3.24.5 SDK's
+# flutter_test still pins path 1.9.0. The override lifts that single transitive
+# pin; the extractor and the test harness both work with path 1.9.1.
+dependency_overrides:
+  path: ^1.9.1

@@ -8,6 +8,11 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'downloader.dart';
+import 'media_extractor.dart';
+
+// `ResolvedMedia`/`MediaResolveException` appear in the manager's public API
+// (the resolver hook and its errors), so re-export them for callers.
+export 'media_extractor.dart' show MediaExtractor, MediaResolveException, ResolvedMedia;
 
 /// Moves a finished file into its final location. The default hands it to
 /// Android's MediaStore; tests substitute a plain move.
@@ -16,6 +21,10 @@ typedef PublishFn = Future<File> Function(File tempFile, String filename);
 /// Starts or stops Android's foreground service so the process keeps running
 /// while transfers are in flight. Counts downloads, not calls.
 typedef BackgroundFn = Future<void> Function(int active);
+
+/// Resolves a media page to a direct stream. The default uses the on-device
+/// extractor; tests substitute a fake so they never call YouTube.
+typedef ResolveMediaFn = Future<ResolvedMedia> Function(String pageUrl);
 
 Future<void> _deviceBackground(int active) async {
   try {
@@ -33,7 +42,7 @@ Future<void> _deviceBackground(int active) async {
 /// State is small and serialisable so the queue survives a restart.
 class LocalTask {
   final String id;
-  final String url;
+  String url;
   String filename;
   int connections;
   int total;
@@ -42,6 +51,20 @@ class LocalTask {
   String status; // queued | active | paused | completed | failed
   String? error;
   String? filePath;
+
+  /// "http" for a direct file link, "media" for a page resolved on-device.
+  /// A media task is resolved to a stream URL just before it is fetched, so
+  /// the bytes still land on this device rather than a server.
+  String kind;
+
+  /// The direct stream a media [url] resolved to. Not persisted: it is
+  /// re-resolved on every start because signed stream URLs expire, and
+  /// resuming against a stale one would fail. Null for direct links.
+  String? streamUrl;
+
+  /// The URL the worker actually fetches.
+  String get fetchUrl => streamUrl ?? url;
+
   List<int> segmentStart;
   List<int> segmentEnd;
   List<int> segmentDone;
@@ -59,6 +82,7 @@ class LocalTask {
     this.status = 'queued',
     this.error,
     this.filePath,
+    this.kind = 'http',
     List<int>? segmentStart,
     List<int>? segmentEnd,
     List<int>? segmentDone,
@@ -90,6 +114,7 @@ class LocalTask {
         'status': status,
         'error': error,
         'filePath': filePath,
+        'kind': kind,
         'segmentStart': segmentStart,
         'segmentEnd': segmentEnd,
         'segmentDone': segmentDone,
@@ -111,6 +136,7 @@ class LocalTask {
       status: json['status']?.toString() ?? 'queued',
       error: json['error']?.toString(),
       filePath: json['filePath']?.toString(),
+      kind: json['kind']?.toString() ?? 'http',
       segmentStart: ints(json['segmentStart']),
       segmentEnd: ints(json['segmentEnd']),
       segmentDone: ints(json['segmentDone']),
@@ -149,6 +175,10 @@ class LocalDownloadManager extends ChangeNotifier {
   @visibleForTesting
   BackgroundFn backgroundOverride = _deviceBackground;
 
+  /// Overridden in tests so media resolution never reaches YouTube.
+  @visibleForTesting
+  ResolveMediaFn resolveMediaOverride = const MediaExtractor().resolve;
+
   List<LocalTask> get tasks =>
       _order.map((id) => _byId[id]).whereType<LocalTask>().toList();
 
@@ -184,9 +214,14 @@ class LocalDownloadManager extends ChangeNotifier {
   LocalTask? task(String id) => _byId[id];
 
   /// Queues a download and returns its id. The worker starts it if a slot is
-  /// free. Media pages (YouTube and the like) are not supported here — the
-  /// device downloads the URL's bytes directly with no extraction step.
-  LocalTask add(String url, {String? filename, int connections = 4}) {
+  /// free. Direct file links are fetched as-is; media pages are resolved to a
+  /// stream on the device first, then fetched and stored here too.
+  LocalTask add(
+    String url, {
+    String? filename,
+    int connections = 4,
+    String kind = 'http',
+  }) {
     final id = _newId();
     final task = LocalTask(
       id: id,
@@ -195,6 +230,7 @@ class LocalDownloadManager extends ChangeNotifier {
           ? filename!.trim()
           : _fallbackName(url),
       connections: connections.clamp(1, 16),
+      kind: kind,
       createdAt: DateTime.now(),
     );
     _byId[id] = task;
@@ -313,7 +349,19 @@ class LocalDownloadManager extends ChangeNotifier {
     // downloads, so take the raw bytes.
     client.autoUncompress = false;
     try {
-      final probe = await _probe(client, task.url);
+      // A media page points at HTML, not a file. Resolve it to the real stream
+      // on this device first, then download that URL directly. Only the
+      // resolved URL is fetched here; nothing is proxied through a server.
+      if (task.kind == 'media') {
+        final media = await resolveMediaOverride(task.url);
+        task.streamUrl = media.url;
+        if (task.filename.isEmpty || task.filename == 'download') {
+          task.filename = _mediaName(media);
+        }
+        if (media.size > 0) task.total = media.size;
+      }
+
+      final probe = await _probe(client, task.fetchUrl);
       task.filename = _chooseName(task.filename, probe.filename);
       if (probe.total > 0) task.total = probe.total;
 
@@ -443,7 +491,7 @@ class LocalDownloadManager extends ChangeNotifier {
       final end = task.segmentEnd[index];
       var done = index < task.segmentDone.length ? task.segmentDone[index] : 0;
 
-      final req = await client.getUrl(Uri.parse(task.url));
+      final req = await client.getUrl(Uri.parse(task.fetchUrl));
       // Ask only for the bytes still missing. `end < 0` means the length is
       // unknown, so an open-ended range from the resume point is used.
       if (done > 0 || end >= 0) {
@@ -595,7 +643,19 @@ class LocalDownloadManager extends ChangeNotifier {
     return 'download';
   }
 
+  /// Builds a safe filename from a resolved media title and container.
+  static String _mediaName(ResolvedMedia media) {
+    final base = media.title
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    final stem = base.isEmpty ? 'media' : base;
+    final ext = media.extension.isEmpty ? 'mp4' : media.extension;
+    return '$stem.$ext';
+  }
+
   static String _friendly(Object e) {
+    if (e is MediaResolveException) return e.message;
     if (e is SocketException) {
       return 'Network error. Check your connection.';
     }

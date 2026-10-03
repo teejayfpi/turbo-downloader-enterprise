@@ -16,12 +16,18 @@ Device downloads use Dart's `HttpClient`, probe the URL for range support, split
 the transfer into up to 16 connections, stream each part to app-private storage,
 and merge the parts into one file that is handed to Android's MediaStore. A
 paused or interrupted download keeps its parts and resumes from where it stopped.
-Media pages (YouTube and similar) are only handled in Server mode, because they
-need yt-dlp and ffmpeg, which do not run on the phone. Pasting a media URL while
-in Device mode is rejected up front with a prompt to switch, rather than saving
-the HTML page the URL returns. YouTube itself is further gated on hosted servers
-and needs `YT_DLP_COOKIES_DATA` — see "YouTube on a hosted server" in the root
-`README.md`.
+
+Device mode also downloads media without a server. A YouTube or similar page is
+resolved on the phone by `youtube_explode_dart` (`lib/media_extractor.dart`),
+which turns the page into a direct stream URL; the on-device engine then fetches
+that URL with the phone's own connection and storage. A combined audio+video
+stream is used because a phone cannot mux separate HD tracks without ffmpeg, so
+the practical ceiling is around 360p (the extractor falls back to an HLS or
+audio-only stream when no muxed one exists). The page URL is what is stored, so a
+resume re-resolves rather than reusing an expired stream URL. Server mode still
+exists for higher-resolution jobs, where yt-dlp and ffmpeg run. YouTube on a
+hosted server is gated and needs `YT_DLP_COOKIES_DATA` — see "YouTube on a hosted
+server" in the root `README.md`.
 
 ## Requirements
 

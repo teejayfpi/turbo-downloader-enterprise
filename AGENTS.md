@@ -102,8 +102,15 @@ These caused real, user-visible bugs. Do not regress them.
 - **Plans must be reused on resume.** Rebuilding segments from zero after a pause
   appends duplicates. `_planSegments` keeps a matching plan and only rebuilds
   when the segment count or total length changed.
-- **Media (YouTube) is server-only.** yt-dlp/ffmpeg do not run on the phone, so
-  device mode never offers media formats or `/api/media/info`.
+- **Media in device mode is resolved on the phone.** `lib/media_extractor.dart`
+  uses `youtube_explode_dart` to turn a page URL into a direct stream, and the
+  on-device engine downloads it. Only a combined (muxed) stream, an HLS stream,
+  or audio-only is offered, because muxing separate HD tracks needs ffmpeg, which
+  is not on the phone. Server mode still exists for higher-resolution media via
+  yt-dlp/ffmpeg and `/api/media/*`.
+- **Persist the page URL, re-resolve the stream.** Signed stream URLs expire, so
+  `LocalTask.url` keeps the page and `streamUrl` is transient; a resume
+  re-resolves rather than reusing a stale URL.
 
 ## Environment
 

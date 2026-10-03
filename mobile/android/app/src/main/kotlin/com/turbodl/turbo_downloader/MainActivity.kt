@@ -163,6 +163,7 @@ class MainActivity : FlutterActivity() {
             "mp4", "m4v" -> "video/mp4"
             "mkv" -> "video/x-matroska"
             "webm" -> "video/webm"
+            "ts" -> "video/mp2t"
             "mov" -> "video/quicktime"
             "mp3" -> "audio/mpeg"
             "m4a" -> "audio/mp4"

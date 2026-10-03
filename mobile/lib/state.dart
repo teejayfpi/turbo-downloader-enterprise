@@ -201,9 +201,11 @@ class TurboState extends ChangeNotifier {
     }
   }
 
-  /// Queues a download that runs and is stored on this device.
-  void addToDevice(String url, {String? filename, int connections = 4}) {
-    local.add(url, filename: filename, connections: connections);
+  /// Queues a download that runs and is stored on this device. Media pages
+  /// are resolved on-device by the extractor, so they are queued with
+  /// `kind: 'media'` and never sent to the server.
+  void addToDevice(String url, {String? filename, int connections = 4, String kind = 'http'}) {
+    local.add(url, filename: filename, connections: connections, kind: kind);
   }
 
   Future<String?> run(Future<void> Function() action) async {
