@@ -3,11 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../api.dart';
+import '../credits.dart';
 import '../format.dart';
 import '../media_url.dart';
 import '../models.dart';
 import '../state.dart';
 import '../theme.dart';
+import '../widgets.dart';
 
 class AddScreen extends StatefulWidget {
   const AddScreen({super.key});
@@ -32,6 +34,7 @@ class _AddScreenState extends State<AddScreen> {
   void initState() {
     super.initState();
     _controller.addListener(_onUrlChanged);
+    _connections = context.read<TurboState>().defaultConnections;
   }
 
   void _onUrlChanged() {
@@ -46,6 +49,8 @@ class _AddScreenState extends State<AddScreen> {
     _nameController.dispose();
     super.dispose();
   }
+
+  bool get _mediaHint => isMediaUrl(_controller.text);
 
   Future<void> _probe() async {
     final url = _controller.text.trim();
@@ -101,7 +106,9 @@ class _AddScreenState extends State<AddScreen> {
       _reset();
       FocusScope.of(context).unfocus();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Downloading to this device')),
+        const SnackBar(
+          content: Text('Downloading to this device · saved to Downloads'),
+        ),
       );
       return;
     }
@@ -118,7 +125,7 @@ class _AddScreenState extends State<AddScreen> {
       _reset();
       FocusScope.of(context).unfocus();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Download added to the server')),
+        const SnackBar(content: Text('Download queued on the server')),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -142,7 +149,11 @@ class _AddScreenState extends State<AddScreen> {
     final text = data?.text?.trim();
     if (text != null && text.isNotEmpty) {
       _controller.text = text;
-      await _probe();
+      if (isMediaUrl(text)) {
+        await _probe();
+      } else if (mounted) {
+        setState(() {});
+      }
     }
   }
 
@@ -152,29 +163,40 @@ class _AddScreenState extends State<AddScreen> {
     final deviceMode = state.mode == 'device';
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
       child: Form(
         key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _ModeSwitch(
-              mode: state.mode,
+            ModeSegment(
+              value: state.mode,
               onChanged: (m) => state.setMode(m),
+              options: const [
+                ModeSegmentOption(
+                    'device', Icons.phone_android_rounded, 'This device'),
+                ModeSegmentOption('server', Icons.dns_rounded, 'Server'),
+              ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 18),
+            const Kicker('Target URL', letterSpacing: 2.0),
+            const SizedBox(height: 8),
             TextFormField(
               controller: _controller,
               keyboardType: TextInputType.url,
               textInputAction: TextInputAction.go,
-              onFieldSubmitted: (_) => deviceMode ? null : _probe(),
-              style: const TextStyle(color: TurboColors.textPrimary),
+              onChanged: (_) => setState(() {}),
+              onFieldSubmitted: (_) {
+                if (!deviceMode && _mediaHint) _probe();
+              },
+              style: const TextStyle(
+                  fontFamily: TurboFonts.mono,
+                  color: TurboColors.textPrimary,
+                  fontSize: 13),
               decoration: InputDecoration(
-                labelText: 'URL',
-                hintText: 'https://…',
-                labelStyle: const TextStyle(color: TurboColors.textSecondary),
+                hintText: 'https://example.com/file.zip',
                 prefixIcon: const Icon(Icons.link_rounded,
-                    color: TurboColors.textMuted),
+                    color: TurboColors.textMuted, size: 20),
                 suffixIcon: IconButton(
                   tooltip: 'Paste',
                   icon: const Icon(Icons.content_paste_rounded,
@@ -202,27 +224,30 @@ class _AddScreenState extends State<AddScreen> {
             if (deviceMode && isMediaUrl(_controller.text))
               _MediaHint(onSwitch: () => state.setMode('server')),
             if (deviceMode) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 18),
+              const Kicker('Save as (optional)', letterSpacing: 2.0),
+              const SizedBox(height: 8),
               TextFormField(
                 controller: _nameController,
-                style: const TextStyle(color: TurboColors.textPrimary),
+                style: const TextStyle(
+                    fontFamily: TurboFonts.mono,
+                    color: TurboColors.textPrimary,
+                    fontSize: 13),
                 decoration: const InputDecoration(
-                  labelText: 'Save as (optional)',
                   hintText: 'filename.ext',
-                  labelStyle: TextStyle(color: TurboColors.textSecondary),
                   prefixIcon: Icon(Icons.edit_outlined,
                       color: TurboColors.textMuted, size: 20),
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
               _ConnectionPicker(
                 value: _connections,
                 onChanged: (v) => setState(() => _connections = v),
               ),
             ] else ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               if (isYouTubeUrl(_controller.text)) ...[
-                const _Notice(
+                const Notice(
                   icon: Icons.warning_amber_rounded,
                   color: TurboColors.warning,
                   text: 'YouTube may refuse to serve the video from a hosted '
@@ -231,26 +256,24 @@ class _AddScreenState extends State<AddScreen> {
                       'needs YT_DLP_COOKIES_DATA set.',
                 ),
                 const SizedBox(height: 12),
-              ],
-              OutlinedButton.icon(
-                onPressed: _probing ? null : _probe,
-                icon: _probing
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.travel_explore_rounded, size: 18),
-                label: Text(_probing ? 'Checking…' : 'Check media'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: TurboColors.textPrimary,
-                  side: const BorderSide(color: TurboColors.borderSubtle),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
+              ] else if (_mediaHint)
+                const Notice(
+                  icon: Icons.movie_rounded,
+                  color: TurboColors.accent,
+                  text: 'Media page detected. Use Check media to list the '
+                      'available video and audio streams before downloading.',
                 ),
+              const SizedBox(height: 12),
+              TurboButton(
+                outline: true,
+                busy: _probing,
+                onPressed: _probe,
+                icon: Icons.travel_explore_rounded,
+                label: _probing ? 'Probing' : 'Check media',
               ),
               if (_probeError != null) ...[
                 const SizedBox(height: 12),
-                _Notice(
+                Notice(
                   icon: Icons.info_outline_rounded,
                   color: TurboColors.warning,
                   text: '$_probeError\n\n'
@@ -267,42 +290,49 @@ class _AddScreenState extends State<AddScreen> {
                 ),
               ],
             ],
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: _submitting ? null : _submit,
-              icon: _submitting
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.black),
-                    )
-                  : Icon(
-                      deviceMode
-                          ? Icons.download_rounded
-                          : Icons.cloud_download_rounded,
-                      size: 20),
-              label: Text(_submitting
-                  ? 'Adding…'
+            const SizedBox(height: 22),
+            TurboButton(
+              busy: _submitting,
+              onPressed: _submit,
+              icon: deviceMode
+                  ? Icons.download_rounded
+                  : Icons.cloud_download_rounded,
+              label: _submitting
+                  ? 'Adding'
                   : deviceMode
                       ? 'Download to this device'
-                      : 'Download on the server'),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                textStyle: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w700),
-              ),
+                      : 'Download on the server',
             ),
-            const SizedBox(height: 10),
-            Text(
-              deviceMode
-                  ? 'The phone downloads directly and saves the file to its '
-                      'own Downloads folder.'
-                  : 'The server downloads the file; retrieve it to your phone '
-                      'when it finishes.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                  color: TurboColors.textMuted, fontSize: 11, height: 1.4),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  deviceMode ? Icons.sd_storage_rounded : Icons.cloud_rounded,
+                  size: 13,
+                  color: TurboColors.textMuted,
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    deviceMode
+                        ? 'Runs on this phone, stored in your Downloads folder'
+                        : 'Fetched by the server, retrieve it to your phone later',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontFamily: TurboFonts.mono,
+                      color: TurboColors.textMuted,
+                      fontSize: 10,
+                      letterSpacing: 0.3,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            const Center(
+              child: Kicker('Eng. by ${Designer.name}', size: 9, letterSpacing: 1.4),
             ),
           ],
         ),
@@ -311,7 +341,8 @@ class _AddScreenState extends State<AddScreen> {
   }
 }
 
-/// Shown when a media page is pasted in device mode, which cannot extract it.
+/// Shown when a media page is pasted in device mode, which has no extractor
+/// and would otherwise save the page's HTML instead of the media.
 class _MediaHint extends StatelessWidget {
   final VoidCallback onSwitch;
   const _MediaHint({required this.onSwitch});
@@ -322,14 +353,14 @@ class _MediaHint extends StatelessWidget {
       margin: const EdgeInsets.only(top: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: TurboColors.warning.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(12),
+        color: TurboColors.warning.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(4),
         border: Border.all(color: TurboColors.warning.withOpacity(0.4)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.info_outline_rounded,
+          const Icon(Icons.warning_amber_rounded,
               color: TurboColors.warning, size: 18),
           const SizedBox(width: 10),
           Expanded(
@@ -337,23 +368,27 @@ class _MediaHint extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'This looks like a media page',
+                  'This is a media page',
                   style: TextStyle(
+                      fontFamily: TurboFonts.body,
                       color: TurboColors.textPrimary,
                       fontSize: 13,
-                      fontWeight: FontWeight.w600),
+                      fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Video and audio sites need the server\'s extractor. '
-                  'Device mode can only fetch direct file links.',
+                  'Video and audio sites need the server\'s extractor. Device '
+                  'mode only fetches direct file links, so switch to Server mode.',
                   style: TextStyle(
-                      color: TurboColors.textSecondary, fontSize: 12, height: 1.4),
+                      fontFamily: TurboFonts.body,
+                      color: TurboColors.textSecondary,
+                      fontSize: 11.5,
+                      height: 1.4),
                 ),
                 const SizedBox(height: 8),
                 TextButton.icon(
                   onPressed: onSwitch,
-                  icon: const Icon(Icons.cloud_rounded, size: 16),
+                  icon: const Icon(Icons.dns_rounded, size: 16),
                   label: const Text('Switch to Server mode'),
                   style: TextButton.styleFrom(
                     foregroundColor: TurboColors.warning,
@@ -371,70 +406,6 @@ class _MediaHint extends StatelessWidget {
   }
 }
 
-/// Segmented control that decides where a download runs.
-class _ModeSwitch extends StatelessWidget {
-  final String mode;
-  final ValueChanged<String> onChanged;
-  const _ModeSwitch({required this.mode, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
-    Widget segment(String value, IconData icon, String label) {
-      final selected = mode == value;
-      return Expanded(
-        child: GestureDetector(
-          onTap: () => onChanged(value),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            decoration: BoxDecoration(
-              color: selected ? accent.withOpacity(0.15) : Colors.transparent,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                  color: selected ? accent : Colors.transparent),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon,
-                    size: 16,
-                    color: selected ? accent : TurboColors.textMuted),
-                const SizedBox(width: 8),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color:
-                        selected ? TurboColors.textPrimary : TurboColors.textMuted,
-                    fontSize: 13,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: TurboColors.bgSecondary,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: TurboColors.borderSubtle),
-      ),
-      child: Row(
-        children: [
-          segment('device', Icons.phone_android_rounded, 'This device'),
-          const SizedBox(width: 4),
-          segment('server', Icons.dns_rounded, 'Server'),
-        ],
-      ),
-    );
-  }
-}
-
 /// Lets the user trade speed for server politeness in device mode.
 class _ConnectionPicker extends StatelessWidget {
   final int value;
@@ -443,34 +414,26 @@ class _ConnectionPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final accent = Theme.of(context).colorScheme.primary;
+    return TurboPanel(
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: TurboColors.bgSecondary,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: TurboColors.borderSubtle),
-      ),
+      accentColor: accent,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               const Icon(Icons.speed_rounded,
-                  color: TurboColors.textMuted, size: 16),
+                  color: TurboColors.textMuted, size: 15),
               const SizedBox(width: 8),
-              const Text(
-                'Parallel connections',
-                style: TextStyle(
-                    color: TurboColors.textSecondary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600),
-              ),
+              const Kicker('Parallel connections', letterSpacing: 1.6),
               const Spacer(),
               Text(
                 '$value',
                 style: TextStyle(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontSize: 13,
+                  fontFamily: TurboFonts.mono,
+                  color: accent,
+                  fontSize: 14,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -486,40 +449,12 @@ class _ConnectionPicker extends StatelessWidget {
           ),
           const Text(
             'More connections can be faster but some servers limit them. '
-            'Servers that do not support ranges fall back to one.',
+            'Hosts that do not support ranges fall back to one.',
             style: TextStyle(
-                color: TurboColors.textMuted, fontSize: 10, height: 1.4),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Notice extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final String text;
-  const _Notice({required this.icon, required this.color, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: TextStyle(color: color, fontSize: 12, height: 1.4),
+              fontFamily: TurboFonts.body,
+              color: TurboColors.textMuted,
+              fontSize: 10,
+              height: 1.45,
             ),
           ),
         ],
@@ -541,13 +476,8 @@ class _MediaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return TurboPanel(
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: TurboColors.bgSecondary,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: TurboColors.borderSubtle),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -556,16 +486,17 @@ class _MediaCard extends StatelessWidget {
             children: [
               if (info.thumbnail != null && info.thumbnail!.isNotEmpty)
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(4),
                   child: Image.network(
                     info.thumbnail!,
-                    width: 84,
-                    height: 52,
+                    width: 92,
+                    height: 56,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const SizedBox(
-                      width: 84,
-                      height: 52,
-                      child: Icon(Icons.movie_rounded,
+                    errorBuilder: (_, __, ___) => Container(
+                      width: 92,
+                      height: 56,
+                      color: TurboColors.bgTertiary,
+                      child: const Icon(Icons.movie_rounded,
                           color: TurboColors.textMuted),
                     ),
                   ),
@@ -577,61 +508,53 @@ class _MediaCard extends StatelessWidget {
                   children: [
                     Text(
                       info.title,
-                      maxLines: 2,
+                      maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
+                        fontFamily: TurboFonts.body,
                         color: TurboColors.textPrimary,
-                        fontSize: 14,
+                        fontSize: 13.5,
                         fontWeight: FontWeight.w600,
+                        height: 1.3,
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
+                    const SizedBox(height: 5),
+                    Kicker(
                       [
                         if (info.uploader != null) info.uploader!,
                         if (info.duration != null && info.duration! > 0)
                           formatDuration(info.duration),
                       ].join(' · '),
-                      style: const TextStyle(
-                        color: TurboColors.textMuted,
-                        fontSize: 11,
-                      ),
+                      size: 9,
+                      letterSpacing: 0.8,
                     ),
                   ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          const Text(
-            'Quality',
-            style: TextStyle(
-              color: TurboColors.textSecondary,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          const SizedBox(height: 16),
+          const Kicker('Quality', letterSpacing: 1.8),
           const SizedBox(height: 8),
           ...info.formats.map((f) {
             final isSelected = selected?.formatId == f.formatId;
             final isAudioOnly = !f.isVideo;
+            final accent = Theme.of(context).colorScheme.primary;
             return Padding(
               padding: const EdgeInsets.only(bottom: 6),
               child: InkWell(
                 onTap: () => onSelect(f),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(4),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? Theme.of(context).colorScheme.primary.withOpacity(0.12)
+                        ? accent.withOpacity(0.12)
                         : TurboColors.bgTertiary,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(4),
                     border: Border.all(
-                      color: isSelected
-                          ? Theme.of(context).colorScheme.primary
-                          : Colors.transparent,
+                      color: isSelected ? accent : Colors.transparent,
                     ),
                   ),
                   child: Row(
@@ -640,20 +563,19 @@ class _MediaCard extends StatelessWidget {
                         isSelected
                             ? Icons.radio_button_checked_rounded
                             : Icons.radio_button_off_rounded,
-                        size: 18,
-                        color: isSelected
-                            ? Theme.of(context).colorScheme.primary
-                            : TurboColors.textMuted,
+                        size: 17,
+                        color: isSelected ? accent : TurboColors.textMuted,
                       ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           f.display,
                           style: TextStyle(
+                            fontFamily: TurboFonts.body,
                             color: isSelected
                                 ? TurboColors.textPrimary
                                 : TurboColors.textSecondary,
-                            fontSize: 13,
+                            fontSize: 12.5,
                             fontWeight:
                                 isSelected ? FontWeight.w600 : FontWeight.w400,
                           ),
@@ -663,14 +585,20 @@ class _MediaCard extends StatelessWidget {
                         const Text(
                           'audio',
                           style: TextStyle(
-                              color: TurboColors.textMuted, fontSize: 10),
+                            fontFamily: TurboFonts.mono,
+                            color: TurboColors.textMuted,
+                            fontSize: 9.5,
+                          ),
                         ),
                       if (f.filesize > 0) ...[
                         const SizedBox(width: 8),
                         Text(
                           formatBytes(f.filesize),
                           style: const TextStyle(
-                              color: TurboColors.textMuted, fontSize: 11),
+                            fontFamily: TurboFonts.mono,
+                            color: TurboColors.textMuted,
+                            fontSize: 10.5,
+                          ),
                         ),
                       ],
                     ],

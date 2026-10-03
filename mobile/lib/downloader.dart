@@ -50,13 +50,29 @@ class FileDownloader {
     return saved;
   }
 
-  /// Hands a finished file to MediaStore so it appears in the Downloads app.
+  /// Hands the finished file to MediaStore so it appears in the Downloads app.
   /// Public so the on-device engine can use the same path as the server fetch.
   static Future<File> publish(File tempFile, String filename) =>
       _publish(tempFile, filename);
 
   /// Hands the finished file to MediaStore so it appears in the Downloads app.
   static Future<File> _publish(File tempFile, String filename) async {
+    try {
+      // On Android 9 and below the shared Downloads folder needs the legacy
+      // storage permission, which is granted at runtime. Ask first; if the
+      // user declines, keep the file app-private rather than losing it.
+      final allowed =
+          await _channel.invokeMethod<bool>('ensureStorage') ?? true;
+      if (!allowed) {
+        return _appPrivate(tempFile, filename);
+      }
+    } on MissingPluginException {
+      // Not an Android host (desktop/tests): use the app-private location.
+      return _appPrivate(tempFile, filename);
+    } catch (_) {
+      // Any other bridge error falls through to the publish attempt below.
+    }
+
     try {
       final path = await _channel.invokeMethod<String>('publishDownload', {
         'path': tempFile.path,
@@ -75,6 +91,11 @@ class FileDownloader {
       // Fall through as well — a failed publish should not lose the file.
     }
 
+    return _appPrivate(tempFile, filename);
+  }
+
+  /// Last-resort location when the shared Downloads folder is unavailable.
+  static Future<File> _appPrivate(File tempFile, String filename) async {
     final dir = await getExternalStorageDirectory() ??
         await getApplicationDocumentsDirectory();
     final dest = File('${dir.path}/$filename');

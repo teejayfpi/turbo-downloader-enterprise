@@ -1,7 +1,9 @@
 package com.turbodl.turbo_downloader
 
+import android.Manifest
 import android.content.ContentResolver
 import android.content.ContentValues
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -14,6 +16,9 @@ import java.io.File
 class MainActivity : FlutterActivity() {
 
     private val channelName = "turbo_downloader/files"
+
+    /** Holds the in-flight storage-permission reply until the user answers. */
+    private var storageResult: MethodChannel.Result? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -34,6 +39,10 @@ class MainActivity : FlutterActivity() {
                             result.error("PUBLISH_FAILED", e.message, null)
                         }
                     }
+                    // Android 10+ needs no permission; older versions must grant
+                    // legacy storage before the shared Downloads folder is
+                    // writable. Replies once the user answers the prompt.
+                    "ensureStorage" -> ensureStorage(result)
                     // Keeps the process alive for on-device downloads with the
                     // screen off. `active` is the number of running transfers.
                     "background" -> {
@@ -48,6 +57,41 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun ensureStorage(result: MethodChannel.Result) {
+        val alreadyGranted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ||
+            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+            PackageManager.PERMISSION_GRANTED
+        if (alreadyGranted) {
+            result.success(true)
+            return
+        }
+        // Only one permission dialog can be outstanding at a time; a second
+        // request reports failure so the caller keeps the file app-private.
+        if (storageResult != null) {
+            result.success(false)
+            return
+        }
+        storageResult = result
+        requestPermissions(
+            arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE),
+            STORAGE_REQUEST
+        )
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == STORAGE_REQUEST) {
+            val granted = grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED
+            storageResult?.success(granted)
+            storageResult = null
+        }
     }
 
     /**
@@ -132,5 +176,9 @@ class MainActivity : FlutterActivity() {
             "apk" -> "application/vnd.android.package-archive"
             else -> "application/octet-stream"
         }
+    }
+
+    companion object {
+        private const val STORAGE_REQUEST = 7301
     }
 }

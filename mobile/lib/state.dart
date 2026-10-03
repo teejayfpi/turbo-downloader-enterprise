@@ -12,9 +12,13 @@ class TurboState extends ChangeNotifier {
   static const _kBaseUrl = 'turbo.baseUrl';
   static const _kAccent = 'turbo.accent';
   static const _kMode = 'turbo.mode';
+  static const _kConnections = 'turbo.connections';
 
   String baseUrl = '';
   String accentKey = 'cyan';
+
+  /// Default segment count applied to new device downloads.
+  int defaultConnections = 4;
 
   /// Where downloads happen: `device` stores them on the phone, `server`
   /// leaves them on the Turbo server for later retrieval.
@@ -47,6 +51,7 @@ class TurboState extends ChangeNotifier {
     baseUrl = prefs.getString(_kBaseUrl) ?? '';
     accentKey = prefs.getString(_kAccent) ?? 'cyan';
     mode = prefs.getString(_kMode) ?? 'device';
+    defaultConnections = prefs.getInt(_kConnections) ?? 4;
     api = TurboApi(baseUrl);
     await local.init();
     if (serverConfigured) {
@@ -151,6 +156,13 @@ class TurboState extends ChangeNotifier {
     accentKey = key;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kAccent, key);
+    _safeNotify();
+  }
+
+  Future<void> setDefaultConnections(int value) async {
+    defaultConnections = value.clamp(1, 16);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kConnections, defaultConnections);
     _safeNotify();
   }
 

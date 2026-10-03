@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../api.dart';
+import '../credits.dart';
 import '../state.dart';
 import '../theme.dart';
 
@@ -74,12 +76,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<TurboState>();
+    final accent = Theme.of(context).colorScheme.primary;
 
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
       children: [
         _Section(
           title: 'Download location',
+          accent: accent,
           children: [
             Row(
               children: [
@@ -88,7 +92,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     selected: state.mode == 'device',
                     icon: Icons.phone_android_rounded,
                     title: 'This device',
-                    subtitle: 'Uses the phone\'s storage and connection',
+                    subtitle: 'Uses the phone\'s storage and bandwidth',
+                    accent: accent,
                     onTap: () => state.setMode('device'),
                   ),
                 ),
@@ -99,84 +104,132 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.dns_rounded,
                     title: 'Server',
                     subtitle: 'Downloads on your Turbo server',
+                    accent: accent,
                     onTap: () => state.setMode('server'),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             const Text(
-              'Device downloads keep the file on your phone and never leave '
-              'it. Use the server when you want big jobs to survive the app '
-              'closing or the phone sleeping.',
+              'Device downloads keep the file on your phone and never leave it. '
+              'Use the server when you want large jobs to survive the app being '
+              'closed or the phone sleeping.',
               style: TextStyle(
-                  color: TurboColors.textMuted, fontSize: 11, height: 1.5),
+                fontFamily: TurboFonts.body,
+                color: TurboColors.textMuted,
+                fontSize: 11,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _Section(
+          title: 'Device engine',
+          accent: accent,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.speed_rounded,
+                    color: TurboColors.textMuted, size: 15),
+                const SizedBox(width: 8),
+                const Kicker('Default connections', letterSpacing: 1.6),
+                const Spacer(),
+                Text(
+                  '${state.defaultConnections}',
+                  style: TextStyle(
+                    fontFamily: TurboFonts.mono,
+                    color: accent,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            Slider(
+              value: state.defaultConnections.toDouble(),
+              min: 1,
+              max: 16,
+              divisions: 15,
+              label: '${state.defaultConnections}',
+              onChanged: (v) => state.setDefaultConnections(v.round()),
+            ),
+            const Text(
+              'Segments used for new device downloads. Range-capable hosts '
+              'split the transfer across these; others fall back to one.',
+              style: TextStyle(
+                fontFamily: TurboFonts.body,
+                color: TurboColors.textMuted,
+                fontSize: 10,
+                height: 1.45,
+              ),
             ),
           ],
         ),
         const SizedBox(height: 16),
         _Section(
           title: 'Server',
+          accent: accent,
           children: [
             TextField(
               controller: _urlController,
               keyboardType: TextInputType.url,
               style: const TextStyle(
-                  color: TurboColors.textPrimary, fontSize: 13),
+                  fontFamily: TurboFonts.mono,
+                  color: TurboColors.textPrimary,
+                  fontSize: 13),
               decoration: const InputDecoration(
                 hintText: 'https://your-server.onrender.com',
                 prefixIcon: Icon(Icons.cloud_outlined,
                     color: TurboColors.textMuted, size: 20),
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             const Text(
               'Optional. Only needed to browse and start downloads on a Turbo '
               'server. Leave blank to use this device only.',
               style: TextStyle(
-                  color: TurboColors.textMuted, fontSize: 11, height: 1.4),
+                fontFamily: TurboFonts.body,
+                color: TurboColors.textMuted,
+                fontSize: 11,
+                height: 1.4,
+              ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _testing ? null : _test,
-                    icon: _testing
-                        ? const SizedBox(
-                            width: 15,
-                            height: 15,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.wifi_tethering_rounded, size: 18),
-                    label: const Text('Test'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: TurboColors.textPrimary,
-                      side: const BorderSide(color: TurboColors.borderSubtle),
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                    ),
+                  child: TurboButton(
+                    outline: true,
+                    busy: _testing,
+                    onPressed: _test,
+                    icon: Icons.wifi_tethering_rounded,
+                    label: 'Test',
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: FilledButton(
+                  child: TurboButton(
                     onPressed: _save,
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                    ),
-                    child: const Text('Save'),
+                    icon: Icons.save_rounded,
+                    label: 'Save',
                   ),
                 ),
               ],
             ),
             if (_reachable != null) ...[
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Icon(
-                    _reachable! ? Icons.check_circle_rounded : Icons.cancel_rounded,
+                    _reachable!
+                        ? Icons.check_circle_rounded
+                        : Icons.cancel_rounded,
                     size: 16,
-                    color: _reachable! ? TurboColors.success : TurboColors.error,
+                    color: _reachable!
+                        ? TurboColors.success
+                        : TurboColors.error,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -185,6 +238,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ? (_serverInfo ?? 'Server reachable')
                           : 'Could not reach that server',
                       style: TextStyle(
+                        fontFamily: TurboFonts.body,
                         color: _reachable!
                             ? TurboColors.success
                             : TurboColors.error,
@@ -200,29 +254,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 16),
         _Section(
           title: 'Accent colour',
+          accent: accent,
           children: [
             Wrap(
               spacing: 12,
+              runSpacing: 12,
               children: TurboColors.accents.entries.map((entry) {
                 final selected = state.accentKey == entry.key;
                 return GestureDetector(
                   onTap: () => state.setAccent(entry.key),
                   child: Container(
-                    width: 46,
-                    height: 46,
+                    width: 44,
+                    height: 44,
                     decoration: BoxDecoration(
                       color: entry.value,
-                      shape: BoxShape.circle,
+                      borderRadius: BorderRadius.circular(4),
                       border: Border.all(
                         color: selected
                             ? TurboColors.textPrimary
                             : Colors.transparent,
-                        width: 3,
+                        width: 2.5,
                       ),
                     ),
                     child: selected
                         ? const Icon(Icons.check_rounded,
-                            color: Colors.black, size: 22)
+                            color: TurboColors.bgPrimary, size: 20)
                         : null,
                   ),
                 );
@@ -231,19 +287,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
         const SizedBox(height: 16),
-        const _Section(
+        _Section(
           title: 'About',
-          children: [
+          accent: accent,
+          children: const [
             _InfoRow(label: 'App', value: 'Turbo Downloader'),
-            _InfoRow(label: 'Version', value: '1.1.0'),
-            SizedBox(height: 8),
+            _InfoRow(label: 'Version', value: appVersion),
+            _InfoRow(label: 'Designer', value: Designer.name),
+            SizedBox(height: 10),
             Text(
-              'Turbo downloads either here on the device or on your Turbo '
-              'server. Device downloads use the phone\'s own storage and '
-              'connection; server downloads are fetched and merged remotely, '
-              'then saved to your phone when you retrieve them.',
+              'Turbo downloads either on the device or on your Turbo server. '
+              'Device downloads run entirely on your phone and save straight to '
+              'your Downloads folder; server downloads are fetched and merged '
+              'remotely, then saved to your phone when you retrieve them.',
               style: TextStyle(
-                  color: TurboColors.textMuted, fontSize: 11, height: 1.5),
+                fontFamily: TurboFonts.body,
+                color: TurboColors.textMuted,
+                fontSize: 11,
+                height: 1.5,
+              ),
+            ),
+            SizedBox(height: 14),
+            Divider(color: TurboColors.borderSubtle, height: 1),
+            SizedBox(height: 14),
+            Kicker('Designed & engineered by', letterSpacing: 1.6),
+            SizedBox(height: 8),
+            _ContactRow(
+              icon: Icons.person_rounded,
+              value: Designer.name,
+            ),
+            _ContactRow(
+              icon: Icons.email_outlined,
+              value: Designer.email,
+              copyValue: Designer.email,
+            ),
+            _ContactRow(
+              icon: Icons.phone_outlined,
+              value: Designer.phone,
+              copyValue: Designer.phoneHref,
             ),
           ],
         ),
@@ -258,6 +339,7 @@ class _ModeButton extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
+  final Color accent;
   final VoidCallback onTap;
 
   const _ModeButton({
@@ -265,31 +347,34 @@ class _ModeButton extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.subtitle,
+    required this.accent,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
     return GestureDetector(
       onTap: onTap,
+      behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: selected ? accent.withOpacity(0.12) : TurboColors.bgTertiary,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: selected ? accent : Colors.transparent),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+              color: selected ? accent.withOpacity(0.7) : Colors.transparent),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(icon,
-                size: 20, color: selected ? accent : TurboColors.textMuted),
-            const SizedBox(height: 8),
+                size: 19, color: selected ? accent : TurboColors.textMuted),
+            const SizedBox(height: 9),
             Text(
               title,
               style: TextStyle(
+                fontFamily: TurboFonts.body,
                 color: selected
                     ? TurboColors.textPrimary
                     : TurboColors.textSecondary,
@@ -301,7 +386,11 @@ class _ModeButton extends StatelessWidget {
             Text(
               subtitle,
               style: const TextStyle(
-                  color: TurboColors.textMuted, fontSize: 10, height: 1.3),
+                fontFamily: TurboFonts.body,
+                color: TurboColors.textMuted,
+                fontSize: 10,
+                height: 1.35,
+              ),
             ),
           ],
         ),
@@ -313,7 +402,12 @@ class _ModeButton extends StatelessWidget {
 class _Section extends StatelessWidget {
   final String title;
   final List<Widget> children;
-  const _Section({required this.title, required this.children});
+  final Color accent;
+  const _Section({
+    required this.title,
+    required this.children,
+    required this.accent,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -321,24 +415,12 @@ class _Section extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
-          child: Text(
-            title.toUpperCase(),
-            style: const TextStyle(
-              color: TurboColors.textMuted,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.6,
-            ),
-          ),
+          padding: const EdgeInsets.only(left: 2, bottom: 8),
+          child: Kicker(title, letterSpacing: 2.0),
         ),
-        Container(
+        TurboPanel(
           padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: TurboColors.bgSecondary,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: TurboColors.borderSubtle),
-          ),
+          accentColor: accent,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: children,
@@ -357,17 +439,80 @@ class _InfoRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label,
               style: const TextStyle(
-                  color: TurboColors.textSecondary, fontSize: 13)),
-          Text(value,
+                fontFamily: TurboFonts.body,
+                color: TurboColors.textSecondary,
+                fontSize: 13,
+              )),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
               style: const TextStyle(
-                  color: TurboColors.textPrimary, fontSize: 13)),
+                fontFamily: TurboFonts.mono,
+                color: TurboColors.textPrimary,
+                fontSize: 12,
+              ),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+/// A read-only contact line that copies its value to the clipboard on tap.
+class _ContactRow extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final String? copyValue;
+
+  const _ContactRow({
+    required this.icon,
+    required this.value,
+    this.copyValue,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    return InkWell(
+      onTap: copyValue == null
+          ? null
+          : () async {
+              await Clipboard.setData(ClipboardData(text: copyValue!));
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Copied $value')),
+                );
+              }
+            },
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Icon(icon, size: 16, color: TurboColors.textMuted),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                value,
+                style: const TextStyle(
+                  fontFamily: TurboFonts.mono,
+                  color: TurboColors.textPrimary,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+            if (copyValue != null)
+              Icon(Icons.copy_rounded, size: 14, color: accent.withOpacity(0.7)),
+          ],
+        ),
       ),
     );
   }

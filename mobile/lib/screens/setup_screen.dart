@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../api.dart';
+import '../credits.dart';
 import '../state.dart';
 import '../theme.dart';
+import '../widgets.dart';
 
-/// First-run screen. Turbo is a client for a server the user runs (or was
-/// given), so the app must be told where that server lives before it can do
-/// anything useful.
+/// First-run screen. Turbo can download entirely on the device, so a server is
+/// optional; it is only needed to run or retrieve remote jobs.
 class SetupScreen extends StatefulWidget {
   const SetupScreen({super.key});
 
@@ -19,12 +20,16 @@ class _SetupScreenState extends State<SetupScreen> {
   final _controller = TextEditingController();
   bool _checking = false;
   String? _error;
-  bool _ok = false;
 
   @override
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  /// Skip server setup and start downloading straight to this device.
+  void _useDevice() {
+    context.read<TurboState>().setMode('device');
   }
 
   Future<void> _connect() async {
@@ -37,7 +42,6 @@ class _SetupScreenState extends State<SetupScreen> {
     setState(() {
       _checking = true;
       _error = null;
-      _ok = false;
     });
 
     final reachable = await TurboApi(url).ping();
@@ -57,108 +61,149 @@ class _SetupScreenState extends State<SetupScreen> {
   @override
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
+    final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Icon(Icons.bolt_rounded, size: 64, color: accent),
-                const SizedBox(height: 12),
-                const Text(
-                  'Turbo',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: TurboColors.textPrimary,
-                    fontSize: 30,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Connect to your download server',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: TurboColors.textSecondary, fontSize: 14),
-                ),
-                const SizedBox(height: 28),
-                TextField(
-                  controller: _controller,
-                  autofocus: true,
-                  keyboardType: TextInputType.url,
-                  textInputAction: TextInputAction.go,
-                  onSubmitted: (_) => _connect(),
-                  style: const TextStyle(color: TurboColors.textPrimary),
-                  decoration: const InputDecoration(
-                    hintText: 'https://your-server.onrender.com',
-                    prefixIcon: Icon(Icons.dns_outlined,
-                        color: TurboColors.textMuted, size: 20),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                FilledButton(
-                  onPressed: _checking ? null : _connect,
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  child: _checking
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.black),
-                        )
-                      : const Text(
-                          'Connect',
-                          style: TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.w700),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: const Alignment(-0.7, -0.9),
+            radius: 1.4,
+            colors: [accent.withOpacity(0.10), TurboColors.bgPrimary],
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 66,
+                      height: 66,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [accent, scheme.secondary],
                         ),
-                ),
-                if (_error != null) ...[
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      const Icon(Icons.error_outline_rounded,
-                          color: TurboColors.error, size: 16),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _error!,
-                          style: const TextStyle(
-                              color: TurboColors.error, fontSize: 12),
-                        ),
+                        borderRadius: BorderRadius.circular(6),
                       ),
-                    ],
+                      child: const Icon(Icons.bolt_rounded,
+                          color: TurboColors.bgPrimary, size: 36),
+                    ),
                   ),
-                ],
-                if (_ok) ...[
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'TURBO',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: TurboFonts.display,
+                      color: TurboColors.textPrimary,
+                      fontSize: 34,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 10,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Kicker(
+                    'High-performance download engine',
+                    align: TextAlign.center,
+                    letterSpacing: 2.2,
+                    size: 10,
+                  ),
+                  const SizedBox(height: 30),
+                  TurboButton(
+                    onPressed: _useDevice,
+                    icon: Icons.phone_android_rounded,
+                    label: 'Start on this device',
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'No account or server needed. Files download to your own '
+                    'Downloads folder using this phone\'s connection.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: TurboFonts.body,
+                      color: TurboColors.textMuted,
+                      fontSize: 11,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
                   const Row(
                     children: [
-                      Icon(Icons.check_circle_rounded,
-                          color: TurboColors.success, size: 16),
-                      SizedBox(width: 8),
-                      Text('Connected',
-                          style: TextStyle(
-                              color: TurboColors.success, fontSize: 12)),
+                      Expanded(
+                          child: Divider(color: TurboColors.borderSubtle)),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 12),
+                        child: Kicker('or connect a server', letterSpacing: 1.8),
+                      ),
+                      Expanded(
+                          child: Divider(color: TurboColors.borderSubtle)),
                     ],
                   ),
+                  const SizedBox(height: 20),
+                  TextField(
+                    controller: _controller,
+                    keyboardType: TextInputType.url,
+                    textInputAction: TextInputAction.go,
+                    onSubmitted: (_) => _connect(),
+                    style: const TextStyle(
+                      fontFamily: TurboFonts.mono,
+                      color: TurboColors.textPrimary,
+                      fontSize: 13,
+                    ),
+                    decoration: const InputDecoration(
+                      hintText: 'https://your-server.onrender.com',
+                      prefixIcon: Icon(Icons.dns_outlined,
+                          color: TurboColors.textMuted, size: 20),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TurboButton(
+                    outline: true,
+                    busy: _checking,
+                    onPressed: _connect,
+                    icon: Icons.link_rounded,
+                    label: _checking ? 'Connecting' : 'Connect',
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 14),
+                    Notice(
+                      icon: Icons.error_outline_rounded,
+                      color: TurboColors.error,
+                      text: _error!,
+                    ),
+                  ],
+                  const SizedBox(height: 30),
+                  const Divider(color: TurboColors.borderSubtle, height: 1),
+                  const SizedBox(height: 16),
+                  const Kicker(
+                    'Designed & engineered by ${Designer.name}',
+                    align: TextAlign.center,
+                    size: 9,
+                    letterSpacing: 1.4,
+                  ),
+                  const SizedBox(height: 6),
+                  const Kicker(
+                    '${Designer.email}  ·  ${Designer.phone}',
+                    align: TextAlign.center,
+                    size: 9,
+                    letterSpacing: 0.6,
+                  ),
+                  const SizedBox(height: 10),
+                  const Kicker(
+                    'v$appVersion',
+                    align: TextAlign.center,
+                    size: 9,
+                    letterSpacing: 1.2,
+                  ),
                 ],
-                const SizedBox(height: 26),
-                const Text(
-                  'Run your own server with the Turbo Docker image, or use one '
-                  'you were given. You can change this address later in '
-                  'Settings.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: TurboColors.textMuted, fontSize: 11, height: 1.5),
-                ),
-              ],
+              ),
             ),
           ),
         ),
