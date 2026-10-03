@@ -9,6 +9,7 @@ import '../local_downloader.dart';
 import '../models.dart';
 import '../state.dart';
 import '../theme.dart';
+import '../widgets.dart';
 
 class DownloadsScreen extends StatelessWidget {
   const DownloadsScreen({super.key});
@@ -20,7 +21,9 @@ class DownloadsScreen extends StatelessWidget {
     final server = state.downloads;
 
     if (state.loading && local.isEmpty && server.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
     }
 
     return RefreshIndicator(
@@ -48,10 +51,11 @@ class DownloadsScreen extends StatelessWidget {
             )
           else ...[
             if (local.isNotEmpty) ...[
-              const SliverToBoxAdapter(
-                child: _SectionHeader(
+              SliverToBoxAdapter(
+                child: SectionLabel(
                   icon: Icons.phone_android_rounded,
                   title: 'On this device',
+                  trailing: '${local.length}',
                 ),
               ),
               SliverPadding(
@@ -63,10 +67,11 @@ class DownloadsScreen extends StatelessWidget {
               ),
             ],
             if (server.isNotEmpty) ...[
-              const SliverToBoxAdapter(
-                child: _SectionHeader(
+              SliverToBoxAdapter(
+                child: SectionLabel(
                   icon: Icons.dns_rounded,
                   title: 'On the server',
+                  trailing: '${server.length}',
                 ),
               ),
               SliverPadding(
@@ -79,34 +84,6 @@ class DownloadsScreen extends StatelessWidget {
               ),
             ],
           ],
-        ],
-      ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  const _SectionHeader({required this.icon, required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-      child: Row(
-        children: [
-          Icon(icon, size: 14, color: TurboColors.textMuted),
-          const SizedBox(width: 8),
-          Text(
-            title.toUpperCase(),
-            style: const TextStyle(
-              color: TurboColors.textMuted,
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.6,
-            ),
-          ),
         ],
       ),
     );
@@ -128,75 +105,34 @@ class _StatsBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 0),
       child: Row(
         children: [
-          _Stat(
+          StatTile(
             label: 'Active',
             value: '$active',
             color: TurboColors.accent,
+            icon: Icons.bolt_rounded,
           ),
-          _Stat(
+          StatTile(
             label: 'Speed',
             value: formatSpeed(speed),
             color: TurboColors.speedUltra,
+            icon: Icons.speed_rounded,
           ),
-          _Stat(
+          StatTile(
             label: 'Done',
             value: '$done',
             color: TurboColors.success,
+            icon: Icons.check_rounded,
           ),
-          _Stat(
+          StatTile(
             label: 'Total',
             value: formatBytes(bytes),
             color: TurboColors.textSecondary,
+            icon: Icons.sd_storage_rounded,
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _Stat extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-  const _Stat({required this.label, required this.value, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 3),
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-        decoration: BoxDecoration(
-          color: TurboColors.bgSecondary,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: TurboColors.borderSubtle),
-        ),
-        child: Column(
-          children: [
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: color,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: const TextStyle(
-                color: TurboColors.textMuted,
-                fontSize: 10,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -208,25 +144,12 @@ class _ErrorBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: TurboColors.error.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: TurboColors.error.withOpacity(0.35)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.wifi_off_rounded, color: TurboColors.error, size: 18),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(color: TurboColors.error, fontSize: 12),
-            ),
-          ),
-        ],
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Notice(
+        icon: Icons.wifi_off_rounded,
+        color: TurboColors.error,
+        text: message,
       ),
     );
   }
@@ -237,31 +160,143 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.download_for_offline_outlined,
-            size: 64,
-            color: TurboColors.textMuted.withOpacity(0.5),
-          ),
-          const SizedBox(height: 14),
-          const Text(
-            'No downloads yet',
-            style: TextStyle(
-              color: TurboColors.textSecondary,
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: TurboColors.bgSecondary,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: TurboColors.borderSubtle),
+            ),
+            child: Icon(
+              Icons.download_for_offline_outlined,
+              size: 32,
+              color: accent.withOpacity(0.7),
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 16),
+          const Kicker('Queue empty', letterSpacing: 2.4, size: 11),
+          const SizedBox(height: 8),
           const Text(
-            'Open the Add tab to start one',
-            style: TextStyle(color: TurboColors.textMuted, fontSize: 13),
+            'Open the Add tab to start a transfer.\nFiles land in your Downloads folder.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: TurboFonts.body,
+              color: TurboColors.textSecondary,
+              fontSize: 13,
+              height: 1.5,
+            ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Shared card chrome: status rail on the left, hairline border, tight radius.
+class _TaskCard extends StatelessWidget {
+  final Color railColor;
+  final bool railStrong;
+  final Widget child;
+
+  const _TaskCard({
+    required this.railColor,
+    required this.child,
+    this.railStrong = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: TurboColors.bgSecondary,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: TurboColors.borderSubtle),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(4),
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                width: 3,
+                color: railColor.withOpacity(railStrong ? 1.0 : 0.6),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: child,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CardHeader extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String filename;
+  final Widget subtitle;
+  final Widget trailing;
+
+  const _CardHeader({
+    required this.icon,
+    required this.color,
+    required this.filename,
+    required this.subtitle,
+    required this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Icon(icon, color: color, size: 19),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                filename,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontFamily: TurboFonts.body,
+                  color: TurboColors.textPrimary,
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  height: 1.3,
+                ),
+              ),
+              const SizedBox(height: 5),
+              subtitle,
+            ],
+          ),
+        ),
+        const SizedBox(width: 6),
+        trailing,
+      ],
     );
   }
 }
@@ -272,112 +307,72 @@ class _LocalCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.read<TurboState>();
-    final accent = Theme.of(context).colorScheme.primary;
-    final (icon, color) = _meta();
+    final meta = _meta();
+    final railColor = meta.$2;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: TurboColors.bgSecondary,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: TurboColors.borderSubtle),
-      ),
+    return _TaskCard(
+      railColor: railColor,
+      railStrong: task.isActive,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: color, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      task.filename,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: TurboColors.textPrimary,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        _StatusPill(status: task.status),
-                        const SizedBox(width: 6),
-                        Text(
-                          '${task.connections} conn',
-                          style: const TextStyle(
-                            color: TurboColors.textMuted,
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert_rounded,
-                    color: TurboColors.textSecondary, size: 20),
-                color: TurboColors.bgTertiary,
-                onSelected: (value) {
-                  switch (value) {
-                    case 'pause':
-                      state.local.pause(task.id);
-                      break;
-                    case 'resume':
-                      state.local.resume(task.id);
-                      break;
-                    case 'retry':
-                      state.local.retry(task.id);
-                      break;
-                    case 'open':
-                      _open(context);
-                      break;
-                    case 'remove':
-                      state.local.remove(task.id);
-                      break;
-                  }
-                },
-                itemBuilder: (context) => [
-                  if (task.isActive || task.isQueued)
-                    _item('pause', Icons.pause_rounded, 'Pause'),
-                  if (task.isPaused)
-                    _item('resume', Icons.play_arrow_rounded, 'Resume'),
-                  if (task.isFailed)
-                    _item('retry', Icons.refresh_rounded, 'Retry'),
-                  if (task.canOpen) _item('open', Icons.open_in_new_rounded, 'Open'),
-                  _item('remove', Icons.delete_outline_rounded, 'Delete'),
-                ],
-              ),
-            ],
+          _CardHeader(
+            icon: meta.$1,
+            color: railColor,
+            filename: task.filename,
+            subtitle: Row(
+              children: [
+                StatusPill(status: task.status),
+                const SizedBox(width: 6),
+                Kicker('${task.connections} conn', size: 9, letterSpacing: 1.0),
+              ],
+            ),
+            trailing: PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert_rounded,
+                  color: TurboColors.textSecondary, size: 20),
+              color: TurboColors.bgTertiary,
+              onSelected: (value) {
+                final state = context.read<TurboState>();
+                switch (value) {
+                  case 'pause':
+                    state.local.pause(task.id);
+                    break;
+                  case 'resume':
+                    state.local.resume(task.id);
+                    break;
+                  case 'retry':
+                    state.local.retry(task.id);
+                    break;
+                  case 'open':
+                    _open(context);
+                    break;
+                  case 'remove':
+                    state.local.remove(task.id);
+                    break;
+                }
+              },
+              itemBuilder: (context) => [
+                if (task.isActive || task.isQueued)
+                  _menuItem('pause', Icons.pause_rounded, 'Pause'),
+                if (task.isPaused)
+                  _menuItem('resume', Icons.play_arrow_rounded, 'Resume'),
+                if (task.isFailed)
+                  _menuItem('retry', Icons.refresh_rounded, 'Retry'),
+                if (task.canOpen)
+                  _menuItem('open', Icons.open_in_new_rounded, 'Open'),
+                _menuItem('remove', Icons.delete_outline_rounded, 'Delete'),
+              ],
+            ),
           ),
           if (task.isActive || task.isPaused) ...[
             const SizedBox(height: 12),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: task.progress,
-                minHeight: 6,
-                backgroundColor: TurboColors.bgTertiary,
-                valueColor: AlwaysStoppedAnimation(accent),
-              ),
+            TurboProgressBar(
+              value: task.progress,
+              color: task.isPaused
+                  ? TurboColors.warning
+                  : Theme.of(context).colorScheme.primary,
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 7),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -385,53 +380,39 @@ class _LocalCard extends StatelessWidget {
                   '${formatBytes(task.downloaded)} / '
                   '${task.total > 0 ? formatBytes(task.total) : '—'}',
                   style: const TextStyle(
-                      color: TurboColors.textSecondary, fontSize: 11),
+                    fontFamily: TurboFonts.mono,
+                    color: TurboColors.textSecondary,
+                    fontSize: 11,
+                  ),
                 ),
                 Text(
                   task.isActive ? formatSpeed(task.speed) : 'Paused',
-                  style: const TextStyle(
-                      color: TurboColors.textSecondary, fontSize: 11),
+                  style: TextStyle(
+                    fontFamily: TurboFonts.mono,
+                    color: task.isActive
+                        ? Theme.of(context).colorScheme.primary
+                        : TurboColors.warning,
+                    fontSize: 11,
+                  ),
                 ),
               ],
             ),
           ],
           if (task.isFailed && task.error != null) ...[
             const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: TurboColors.error.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                task.error!,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    color: TurboColors.error, fontSize: 11),
-              ),
+            Notice(
+              icon: Icons.error_outline_rounded,
+              color: TurboColors.error,
+              text: task.error!,
             ),
           ],
           if (task.canOpen) ...[
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                const Icon(Icons.check_circle_rounded,
-                    color: TurboColors.success, size: 14),
-                const SizedBox(width: 6),
-                const Expanded(
-                  child: Text(
-                    'Saved to your Downloads',
-                    style: TextStyle(
-                        color: TurboColors.success, fontSize: 11),
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: () => _open(context),
-                  icon: const Icon(Icons.open_in_new_rounded, size: 15),
-                  label: const Text('Open', style: TextStyle(fontSize: 12)),
-                ),
-              ],
+            const SizedBox(height: 12),
+            _SavedRow(
+              onOpen: () => _open(context),
+              meta: task.filePath != null && task.filePath!.isNotEmpty
+                  ? task.filePath!
+                  : null,
             ),
           ],
         ],
@@ -457,7 +438,7 @@ class _LocalCard extends StatelessWidget {
     OpenFilex.open(path);
   }
 
-  PopupMenuItem<String> _item(String value, IconData icon, String label) =>
+  PopupMenuItem<String> _menuItem(String value, IconData icon, String label) =>
       PopupMenuItem(
         value: value,
         child: Row(
@@ -466,10 +447,76 @@ class _LocalCard extends StatelessWidget {
             const SizedBox(width: 10),
             Text(label,
                 style: const TextStyle(
-                    color: TurboColors.textPrimary, fontSize: 13)),
+                    fontFamily: TurboFonts.body,
+                    color: TurboColors.textPrimary,
+                    fontSize: 13)),
           ],
         ),
       );
+}
+
+/// "Saved to your Downloads" strip shown on completed device downloads.
+class _SavedRow extends StatelessWidget {
+  final VoidCallback onOpen;
+  final String? meta;
+  const _SavedRow({required this.onOpen, this.meta});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: TurboColors.success.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: TurboColors.success.withOpacity(0.25)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.folder_rounded,
+              color: TurboColors.success, size: 15),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Saved to your Downloads folder',
+                  style: TextStyle(
+                    fontFamily: TurboFonts.body,
+                    color: TurboColors.success,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (meta != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    meta!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: TurboFonts.mono,
+                      color: TurboColors.textMuted,
+                      fontSize: 9.5,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          TextButton.icon(
+            onPressed: onOpen,
+            icon: const Icon(Icons.open_in_new_rounded, size: 15),
+            label: const Text('Open',
+                style: TextStyle(
+                    fontFamily: TurboFonts.body,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _DownloadCard extends StatelessWidget {
@@ -478,92 +525,56 @@ class _DownloadCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.read<TurboState>();
     final meta = _metaFor(task);
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: TurboColors.bgSecondary,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: TurboColors.borderSubtle),
-      ),
+    return _TaskCard(
+      railColor: meta.color,
+      railStrong: task.isActive,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: meta.color.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(meta.icon, color: meta.color, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      task.filename,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: TurboColors.textPrimary,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Row(
-                      children: [
-                        _StatusPill(status: task.status),
-                        const SizedBox(width: 6),
-                        if (task.platform.isNotEmpty)
-                          Text(
-                            task.platform,
-                            style: const TextStyle(
-                              color: TurboColors.textMuted,
-                              fontSize: 11,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              _actions(context, state),
-            ],
+          _CardHeader(
+            icon: meta.icon,
+            color: meta.color,
+            filename: task.filename,
+            subtitle: Row(
+              children: [
+                StatusPill(status: task.status),
+                if (task.platform.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  Kicker(task.platform, size: 9, letterSpacing: 1.0),
+                ],
+                if (task.kind == 'media') ...[
+                  const SizedBox(width: 6),
+                  const _MediaTag(),
+                ],
+              ],
+            ),
+            trailing: _actions(context),
           ),
           if (task.isActive) ...[
             const SizedBox(height: 12),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: (task.progress / 100).clamp(0.0, 1.0),
-                minHeight: 6,
-                backgroundColor: TurboColors.bgTertiary,
-              ),
+            TurboProgressBar(
+              value: task.progress / 100,
+              color: Theme.of(context).colorScheme.primary,
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 7),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
                   '${formatBytes(task.downloaded)} / ${formatBytes(task.total)}',
                   style: const TextStyle(
+                    fontFamily: TurboFonts.mono,
                     color: TurboColors.textSecondary,
                     fontSize: 11,
                   ),
                 ),
                 Text(
                   '${formatSpeed(task.speed)}'
-                  '${task.eta != null ? ' · ${formatDuration(task.eta)} left' : ''}',
+                  '${task.eta != null ? ' · ${formatDuration(task.eta)}' : ''}',
                   style: const TextStyle(
+                    fontFamily: TurboFonts.mono,
                     color: TurboColors.textSecondary,
                     fontSize: 11,
                   ),
@@ -573,29 +584,23 @@ class _DownloadCard extends StatelessWidget {
           ],
           if (task.isFailed && task.error != null) ...[
             const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: TurboColors.error.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                task.error!,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: TurboColors.error,
-                  fontSize: 11,
-                ),
-              ),
+            Notice(
+              icon: Icons.error_outline_rounded,
+              color: TurboColors.error,
+              text: task.error!,
             ),
+          ],
+          if (task.canRetrieve) ...[
+            const SizedBox(height: 12),
+            _SaveToDeviceButton(onTap: () => _saveToDevice(context)),
           ],
         ],
       ),
     );
   }
 
-  Widget _actions(BuildContext context, TurboState state) {
+  Widget _actions(BuildContext context) {
+    final state = context.read<TurboState>();
     return PopupMenuButton<String>(
       icon: const Icon(Icons.more_vert_rounded,
           color: TurboColors.textSecondary, size: 20),
@@ -626,20 +631,23 @@ class _DownloadCard extends StatelessWidget {
         }
       },
       itemBuilder: (context) => [
-        if (task.isActive) _item('pause', Icons.pause_rounded, 'Pause'),
-        if (task.isPaused) _item('resume', Icons.play_arrow_rounded, 'Resume'),
-        if (task.isFailed) _item('retry', Icons.refresh_rounded, 'Retry'),
-        if (task.isQueued) _item('start', Icons.play_arrow_rounded, 'Start now'),
+        if (task.isActive) _menuItem('pause', Icons.pause_rounded, 'Pause'),
+        if (task.isPaused)
+          _menuItem('resume', Icons.play_arrow_rounded, 'Resume'),
+        if (task.isFailed) _menuItem('retry', Icons.refresh_rounded, 'Retry'),
+        if (task.isQueued)
+          _menuItem('start', Icons.play_arrow_rounded, 'Start now'),
         if (task.canRetrieve)
-          _item('save', Icons.download_rounded, 'Save to device'),
+          _menuItem('save', Icons.download_rounded, 'Save to device'),
         if (task.isCompleted)
-          _item('delete_file', Icons.delete_forever_rounded, 'Delete file'),
-        _item('remove', Icons.close_rounded, 'Remove from list'),
+          _menuItem(
+              'delete_file', Icons.delete_forever_rounded, 'Delete file'),
+        _menuItem('remove', Icons.close_rounded, 'Remove from list'),
       ],
     );
   }
 
-  PopupMenuItem<String> _item(String value, IconData icon, String label) =>
+  PopupMenuItem<String> _menuItem(String value, IconData icon, String label) =>
       PopupMenuItem(
         value: value,
         child: Row(
@@ -648,7 +656,9 @@ class _DownloadCard extends StatelessWidget {
             const SizedBox(width: 10),
             Text(label,
                 style: const TextStyle(
-                    color: TurboColors.textPrimary, fontSize: 13)),
+                    fontFamily: TurboFonts.body,
+                    color: TurboColors.textPrimary,
+                    fontSize: 13)),
           ],
         ),
       );
@@ -661,9 +671,7 @@ class _DownloadCard extends StatelessWidget {
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
-        backgroundColor: TurboColors.bgSecondary,
-        title: const Text('Saving to device',
-            style: TextStyle(color: TurboColors.textPrimary, fontSize: 16)),
+        title: const Text('Saving to device'),
         content: ValueListenableBuilder<double?>(
           valueListenable: progress,
           builder: (_, value, __) => Column(
@@ -675,16 +683,14 @@ class _DownloadCard extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                    color: TurboColors.textSecondary, fontSize: 12),
+                    fontFamily: TurboFonts.body,
+                    color: TurboColors.textSecondary,
+                    fontSize: 12),
               ),
               const SizedBox(height: 14),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: value,
-                  minHeight: 6,
-                  backgroundColor: TurboColors.bgTertiary,
-                ),
+              TurboProgressBar(
+                value: value ?? 0,
+                color: Theme.of(context).colorScheme.primary,
               ),
             ],
           ),
@@ -714,69 +720,87 @@ class _DownloadCard extends StatelessWidget {
     }
   }
 
-  _KindMeta _metaFor(DownloadTask task) {
+  KindMeta _metaFor(DownloadTask task) {
     if (task.isFailed) {
-      return const _KindMeta(Icons.error_outline_rounded, TurboColors.error);
+      return const KindMeta(Icons.error_outline_rounded, TurboColors.error);
     }
     if (task.isCompleted) {
-      return const _KindMeta(Icons.check_circle_rounded, TurboColors.success);
+      return const KindMeta(Icons.check_circle_rounded, TurboColors.success);
     }
     if (task.isPaused) {
-      return const _KindMeta(Icons.pause_circle_rounded, TurboColors.warning);
+      return const KindMeta(Icons.pause_circle_rounded, TurboColors.warning);
     }
     if (task.isActive) {
-      return const _KindMeta(Icons.downloading_rounded, TurboColors.accent);
+      return const KindMeta(Icons.downloading_rounded, TurboColors.accent);
     }
-    switch (task.kind) {
-      case 'media':
-        return const _KindMeta(Icons.movie_rounded, TurboColors.accent);
-      case 'archive':
-        return const _KindMeta(Icons.folder_zip_rounded, TurboColors.warning);
-      case 'image':
-        return const _KindMeta(Icons.image_rounded, TurboColors.speedUltra);
-      case 'document':
-        return const _KindMeta(
-            Icons.description_rounded, TurboColors.textSecondary);
-      default:
-        return const _KindMeta(
-            Icons.insert_drive_file_rounded, TurboColors.textSecondary);
-    }
+    return KindMeta.forKind(task.kind);
   }
 }
 
-class _KindMeta {
-  final IconData icon;
-  final Color color;
-  const _KindMeta(this.icon, this.color);
-}
-
-class _StatusPill extends StatelessWidget {
-  final String status;
-  const _StatusPill({required this.status});
+class _MediaTag extends StatelessWidget {
+  const _MediaTag();
 
   @override
   Widget build(BuildContext context) {
-    final (color, label) = switch (status) {
-      'active' => (TurboColors.accent, 'Active'),
-      'completed' => (TurboColors.success, 'Completed'),
-      'failed' => (TurboColors.error, 'Failed'),
-      'paused' => (TurboColors.warning, 'Paused'),
-      'scheduled' => (TurboColors.speedUltra, 'Scheduled'),
-      _ => (TurboColors.textMuted, 'Queued'),
-    };
-
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(6),
+        color: TurboColors.warning.withOpacity(0.16),
+        borderRadius: BorderRadius.circular(3),
       ),
-      child: Text(
-        label,
+      child: const Text(
+        'MEDIA',
         style: TextStyle(
-          color: color,
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
+          fontFamily: TurboFonts.mono,
+          color: TurboColors.warning,
+          fontSize: 8.5,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
+  }
+}
+
+class _SaveToDeviceButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _SaveToDeviceButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    return Material(
+      color: accent.withOpacity(0.1),
+      borderRadius: BorderRadius.circular(4),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(4),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: accent.withOpacity(0.35)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.download_rounded, color: accent, size: 17),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  'Save to this device',
+                  style: TextStyle(
+                    fontFamily: TurboFonts.body,
+                    color: accent,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+              Icon(Icons.arrow_forward_rounded,
+                  color: accent.withOpacity(0.6), size: 15),
+            ],
+          ),
         ),
       ),
     );

@@ -90,16 +90,45 @@ address, which is verified with a `GET /health` probe and stored with
 
 ## Layout
 
+The app is a project of the same "precision instrument console" language as the
+web client: a dark, panel-based shell with corner-tick frames, uppercase mono
+kickers, a left status rail on every task card, and a user-selectable accent.
+Type is bundled (Sora for UI, ChakraPetch for the display face, JetBrains Mono
+for numbers and identifiers) so the two surfaces share one voice.
+
 | Path | Purpose |
 | --- | --- |
 | `lib/main.dart` | App shell, bottom navigation, setup-vs-home routing |
+| `lib/theme.dart` | Palette, type families, `TurboPanel`/`TurboButton`/`Kicker` design primitives |
+| `lib/widgets.dart` | Shared UI: stat tiles, status pills, section labels, notices, segmented control, progress bar |
+| `lib/credits.dart` | Designer attribution + app version, kept in sync with the web client |
 | `lib/state.dart` | `ChangeNotifier` holding the mode, server queue, live Socket.IO updates, settings |
 | `lib/api.dart` | REST client (`TurboApi`) |
 | `lib/models.dart` | `DownloadTask`, `TurboStats`, `MediaInfo`, `MediaFormat` |
+| `lib/media_url.dart` | Detects media pages (YouTube and similar) to drive UI hints |
 | `lib/local_downloader.dart` | On-device engine: ranged/segmented fetch, resume, persistence |
 | `lib/screens/` | Downloads, Add, Settings, first-run Setup |
 | `lib/downloader.dart` | Streams a server file, hands it to MediaStore, opens it |
-| `android/…/MainActivity.kt` | `publishDownload` method channel (Android 10+ MediaStore) |
+| `android/…/MainActivity.kt` | `publishDownload` + `ensureStorage` method channel |
+
+## Where files are stored
+
+Device-mode downloads run entirely on the phone and are written to app-private
+staging, then published to the shared Downloads collection:
+
+- **Android 10+ (API 29+):** the finished file is inserted through MediaStore
+  into `Downloads/`, so it shows in the Files app and in any other app. No
+  permission is required.
+- **Android 9 and below (API 23–28):** the shared `Downloads/` folder needs
+  legacy `WRITE_EXTERNAL_STORAGE`, which is requested at runtime the first time
+  a file is published. If the user declines, the file is kept in the app's
+  external files directory instead of being lost.
+- **Server-mode retrieval** uses the same publish path, so a file pulled from
+  the server lands in the same place.
+
+`lib/downloader.dart` sends the raw byte stream from yt-dlp that the server hands
+back, which is what fixes media files previously being saved as HTML error
+pages.
 
 ## Verifying
 
@@ -110,12 +139,14 @@ flutter analyze
 dart run tool/integration_check.dart http://localhost:3001
 ```
 
-`test/local_downloader_test.dart` spins up a real `HttpServer` and exercises the
-device engine against it: multi-segment transfer with exact-byte verification,
-single-connection fallback for servers without range support, a server that
-advertises ranges then ignores them, an unknown-length body, resume without
-duplicating bytes, queue persistence, and unreachable hosts. The `publish` step
-(MediaStore) is the only part faked, so nothing misses the Android channel.
+`test/redesign_test.dart` covers the media-host detector and renders each
+redesigned screen plus the home shell. `test/local_downloader_test.dart` spins up
+a real `HttpServer` and exercises the device engine against it: multi-segment
+transfer with exact-byte verification, single-connection fallback for servers
+without range support, a server that advertises ranges then ignores them, an
+unknown-length body, resume without duplicating bytes, queue persistence, and
+unreachable hosts. The `publish` step (MediaStore) is the only part faked, so
+nothing misses the Android channel.
 
 `tool/integration_check.dart` drives the real `TurboApi` through a complete
 server round-trip — ping, create, poll to completion, list, retrieve the bytes,
