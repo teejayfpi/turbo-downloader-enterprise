@@ -32,9 +32,16 @@ jobs:
 
   # Review the dependency delta on every pull request: blocks a PR that adds a
   # package with a known vulnerability or a disallowed licence.
+  #
+  # This action needs the repository's Dependency graph (Settings → Code
+  # security → Dependency graph). Until that is on it fails with "not supported
+  # on this repository", so the job is opt-in: enable the graph, then set the
+  # repository variable ENABLE_DEPENDENCY_REVIEW to true.
   dependencies:
     name: Dependency review
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request' &&
+      vars.ENABLE_DEPENDENCY_REVIEW == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
