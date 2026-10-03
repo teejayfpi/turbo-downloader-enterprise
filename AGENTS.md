@@ -103,6 +103,15 @@ These caused real, user-visible bugs. Do not regress them.
   drag-and-drop (`desktop_drop`), a launch argument, and a clipboard suggestion.
   Add a new source by funnelling it through `receiveLink`; never duplicate the
   detection logic in another screen.
+- **The `turbo://` scheme is a contract.** The browser extension
+  (`browser-extension/`, served outside the Flutter app) hands links over as
+  `turbo://add?url=<encoded>`. Both ends must agree: `extractUrl` unwraps it,
+  `platform_links.dart` registers the handler at desktop startup, and the
+  Android manifest and macOS `Info.plist` declare it. Change the shape in one
+  place and update all four.
+- **`app_links` stays under 6.4.** 6.4+ reads `flutter.compileSdkVersion` from
+  its Android Gradle script, which the Flutter 3.24 template does not expose;
+  the release APK fails to assemble without the pin in `pubspec.yaml`.
 
 ## Mobile engine gotchas
 

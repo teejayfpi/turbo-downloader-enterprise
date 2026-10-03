@@ -1,0 +1,36 @@
+name: Browser extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'browser-extension/**'
+      - '.github/workflows/extension.yml'
+  pull_request:
+    paths:
+      - 'browser-extension/**'
+      - '.github/workflows/extension.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate manifest JSON
+        run: node -e "JSON.parse(require('fs').readFileSync('browser-extension/manifest.json','utf8')); console.log('manifest ok')"
+
+      - name: Syntax-check scripts
+        run: |
+          for f in browser-extension/content.js browser-extension/background.js browser-extension/popup.js; do
+            node --check "$f"
+            echo "$f ok"
+          done

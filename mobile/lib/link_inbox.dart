@@ -4,13 +4,36 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
+/// Handoff scheme the browser extension (and other helpers) use to pass a link
+/// to the app: `turbo://add?url=https%3A%2F%2F…`.
+const turboScheme = 'turbo';
+
 /// Pulls the first `http(s)` URL out of arbitrary shared text.
 ///
 /// A browser share, a copied message, or an "Open with" payload can all contain
 /// extra words around the link, so this scans for the URL rather than assuming
-/// the whole string is one.
+/// the whole string is one. A `turbo://` handoff from the browser extension is
+/// unwrapped first, so `turbo://add?url=…` resolves to the real page link.
 String? extractUrl(String text) {
-  final match = RegExp(r'https?://[^\s<>"' r"'" r'\]\)]+').firstMatch(text);
+  final trimmed = text.trim();
+
+  // Unwrap a turbo:// handoff produced by the browser extension.
+  if (trimmed.startsWith('$turboScheme://')) {
+    final handoff = Uri.tryParse(trimmed);
+    if (handoff != null) {
+      final nested = handoff.queryParameters['url'] ??
+          handoff.queryParameters['uri'] ??
+          handoff.queryParameters['u'];
+      if (nested != null && nested.isNotEmpty) {
+        return extractUrl(nested);
+      }
+      // Also accept the link as a path segment: turbo://https://host/…
+      final path = handoff.path.isNotEmpty ? handoff.path : handoff.host;
+      if (path.startsWith('http')) return extractUrl(path);
+    }
+  }
+
+  final match = RegExp(r'https?://[^\s<>"' r"'" r'\]\)]+').firstMatch(trimmed);
   if (match == null) return null;
   // Trim trailing punctuation that commonly wraps a pasted link.
   var url = match.group(0)!;

@@ -29,6 +29,17 @@ void main() {
       expect(extractUrl('no links here'), isNull);
       expect(extractUrl(''), isNull);
     });
+
+    test('unwraps a turbo:// handoff from the browser extension', () {
+      expect(
+        extractUrl('turbo://add?url=https%3A%2F%2Fexample.com%2Fv.mp4'),
+        'https://example.com/v.mp4',
+      );
+      expect(
+        extractUrl('turbo://add?uri=https://youtu.be/abc'),
+        'https://youtu.be/abc',
+      );
+    });
   });
 
   group('TurboState pending link', () {

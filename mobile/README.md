@@ -51,6 +51,10 @@ route is closest to hand:
 - **Clipboard** — opening the Add screen checks the clipboard once and offers
   a one-tap *Use* if it finds a link. Pasting text with a link buried inside it
   also extracts just the URL.
+- **Browser extension** — a companion Manifest V3 extension (`browser-extension/`)
+  scans the current page for `<video>`/`<audio>`, HLS/DASH manifests, and file
+  links, and hands the chosen one to the app through `turbo://add?url=…`. See
+  `browser-extension/README.md`.
 
 Every source funnels into the same Add screen, which auto-detects whether the
 link is a plain file or a media page and inspects it immediately.

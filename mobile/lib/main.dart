@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'link_inbox.dart';
+import 'platform_links.dart';
 import 'state.dart';
 import 'theme.dart';
 import 'screens/splash_screen.dart';
@@ -10,6 +11,8 @@ void main(List<String> args) {
   WidgetsFlutterBinding.ensureInitialized();
   final initial = _urlFromArgs(args);
   runApp(TurboApp(initialUrl: initial));
+  // Let a browser extension hand links over through turbo:// on desktop.
+  registerProtocolHandler();
 }
 
 /// On desktop, the OS may launch the app with a URL as a command-line argument

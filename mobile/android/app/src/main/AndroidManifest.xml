@@ -61,6 +61,15 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="http"/>
             </intent-filter>
+
+            <!-- Custom handoff from the browser extension and other helpers:
+                 turbo://add?url=https%3A%2F%2F… -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="turbo"/>
+            </intent-filter>
         </activity>
         <!-- Foreground service that keeps the process alive while downloading. -->
         <service

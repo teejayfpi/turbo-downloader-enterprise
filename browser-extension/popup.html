@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Turbo Downloader</title>
+  <style>
+    :root {
+      --bg: #080a10;
+      --panel: #0f121b;
+      --panel-2: #171b26;
+      --border: #222836;
+      --text: #f0f4fc;
+      --muted: #969eb0;
+      --accent: #22e0ff;
+      --success: #2fffc8;
+      --error: #ff526e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      width: 360px;
+      max-height: 520px;
+      overflow-y: auto;
+      background: var(--bg);
+      color: var(--text);
+      font: 13px/1.45 -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, #10131d, #0b0e15);
+    }
+    header img { width: 26px; height: 26px; border-radius: 7px; }
+    header .name { font-weight: 700; letter-spacing: .2px; }
+    header .sub { color: var(--muted); font-size: 11px; }
+    .page {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .page .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .page .url { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .primary {
+      display: block;
+      width: 100%;
+      margin: 12px 0 0;
+      padding: 10px 14px;
+      border: 0;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #04121a;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .primary:hover { filter: brightness(1.08); }
+    .section { padding: 12px 16px; }
+    .section h3 {
+      margin: 0 0 8px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1.4px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+      margin-bottom: 7px;
+    }
+    .item .kind {
+      flex: 0 0 auto;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: var(--accent);
+      width: 42px;
+    }
+    .item .meta { flex: 1 1 auto; min-width: 0; }
+    .item .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item .host { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item button {
+      flex: 0 0 auto;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .item button:hover { border-color: var(--accent); color: var(--accent); }
+    .empty { color: var(--muted); padding: 14px 16px; text-align: center; }
+    footer {
+      padding: 12px 16px;
+      color: var(--muted);
+      font-size: 11px;
+      border-top: 1px solid var(--border);
+    }
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 12px;
+      transform: translateX(-50%);
+      background: var(--success);
+      color: #04121a;
+      padding: 7px 14px;
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 12px;
+      opacity: 0;
+      transition: opacity .2s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="icons/icon-128.png" alt="" />
+    <div>
+      <div class="name">Turbo</div>
+      <div class="sub">on-device download manager</div>
+    </div>
+  </header>
+
+  <div class="page" id="page">
+    <div class="title" id="pageTitle">Loading…</div>
+    <div class="url" id="pageUrl"></div>
+    <button class="primary" id="sendPage">Send this page to Turbo</button>
+  </div>
+
+  <div class="section">
+    <h3>Media &amp; files on this page (<span id="count">0</span>)</h3>
+    <div id="list"></div>
+  </div>
+
+  <footer>
+    Sends links to the Turbo app at <code>turbo://add?url=…</code>. Downloads
+    run on your device — nothing is uploaded.
+  </footer>
+  <div class="toast" id="toast">Sent to Turbo</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
