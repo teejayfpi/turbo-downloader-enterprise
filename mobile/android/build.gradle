@@ -15,21 +15,26 @@ subprojects {
 
 // Keep every plugin module on Java 17. Some plugins compile their Kotlin to 17
 // while Flutter leaves the Java target at 1.8, which trips Gradle's "jvm target
-// compatibility" check (e.g. receive_sharing_intent).
-subprojects {
-    afterEvaluate { project ->
-        if (project.hasProperty("android")) {
-            def android = project.android
-            android.compileOptions {
+// compatibility" check (e.g. receive_sharing_intent). `evaluationDependsOn`
+// above can leave a module already evaluated, so only defer when needed.
+subprojects { subproject ->
+    def applyJava17 = {
+        if (subproject.hasProperty("android")) {
+            subproject.android.compileOptions {
                 sourceCompatibility = JavaVersion.VERSION_17
                 targetCompatibility = JavaVersion.VERSION_17
             }
-            if (project.plugins.hasPlugin("org.jetbrains.kotlin.android")) {
-                android.kotlinOptions {
+            if (subproject.plugins.hasPlugin("org.jetbrains.kotlin.android")) {
+                subproject.android.kotlinOptions {
                     jvmTarget = "17"
                 }
             }
         }
+    }
+    if (subproject.state.executed) {
+        applyJava17()
+    } else {
+        subproject.afterEvaluate(applyJava17)
     }
 }
 
