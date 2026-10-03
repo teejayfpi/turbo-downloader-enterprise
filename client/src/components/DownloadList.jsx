@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef } from 'react';
 import {
   Download, Pause, Play, RotateCcw, X, CheckCircle, AlertCircle, Clock,
-  Trash2, Copy, MoreVertical, ChevronDown, ChevronUp, Search, PauseCircle,
+  Trash2, Copy, MoreVertical, ChevronDown, ChevronUp, Search,
   FileArchive, FileVideo, FileAudio, FileImage, FileText, FileCode, FileCog,
   File as FileIcon, Upload, DownloadCloud, GripVertical, CalendarClock,
 } from 'lucide-react';
@@ -100,48 +100,33 @@ export default function DownloadList({ loading }) {
   };
 
   return (
-    <div className="bg-bg-secondary rounded-2xl border border-border-subtle p-6 h-full flex flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-success/10 flex items-center justify-center">
-            <Download className="w-5 h-5 text-success" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-text-primary">Download Queue</h3>
-            <p className="text-xs text-text-muted">{downloads.length} total · drag to prioritise</p>
-          </div>
+    <div className="panel h-full flex flex-col">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5 pb-4 border-b border-border-subtle">
+        <div className="flex items-center gap-2.5">
+          <Download className="w-4 h-4 text-success" />
+          <span className="kicker">Queue</span>
+          <span className="font-mono text-xs text-text-muted">
+            {downloads.length} · drag to prioritise
+          </span>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => run(() => api.pauseAll(), 'All downloads paused')}
-            disabled={counts.active === 0}
-            className="p-2 rounded-lg bg-warning/10 text-warning hover:bg-warning/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-ring"
-            title="Pause all"
-          >
+        <div className="flex items-center gap-1.5">
+          <IconAction title="Pause all" tone="warning" disabled={counts.active === 0} onClick={() => run(() => api.pauseAll(), 'All downloads paused')}>
             <Pause className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => run(() => api.resumeAll(), 'Resuming downloads')}
-            className="p-2 rounded-lg bg-success/10 text-success hover:bg-success/20 transition-colors focus-ring"
-            title="Resume all"
-          >
+          </IconAction>
+          <IconAction title="Resume all" tone="success" onClick={() => run(() => api.resumeAll(), 'Resuming downloads')}>
             <Play className="w-4 h-4" />
-          </button>
+          </IconAction>
           <a
             href={api.exportUrl}
-            className="p-2 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 transition-colors focus-ring"
+            className="p-2 rounded-sm bg-accent/10 text-accent hover:bg-accent/20 transition-colors focus-ring"
             title="Export list"
           >
             <DownloadCloud className="w-4 h-4" />
           </a>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="p-2 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 transition-colors focus-ring"
-            title="Import list"
-          >
+          <IconAction title="Import list" tone="accent" onClick={() => fileInputRef.current?.click()}>
             <Upload className="w-4 h-4" />
-          </button>
+          </IconAction>
           <input
             ref={fileInputRef}
             type="file"
@@ -152,51 +137,44 @@ export default function DownloadList({ loading }) {
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
-        <div className="flex gap-2 overflow-x-auto pb-1 flex-1">
-          {FILTERS.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setFilter(tab.key)}
-              className={`px-3.5 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap focus-ring ${
-                filter === tab.key
-                  ? 'bg-accent text-bg-primary'
-                  : 'bg-bg-tertiary text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              {tab.label}
-              <span className={`ml-2 px-1.5 py-0.5 rounded text-xs ${
-                filter === tab.key ? 'bg-black/20' : 'bg-bg-primary'
-              }`}>
-                {counts[tab.key] ?? 0}
-              </span>
-            </button>
-          ))}
+      <div className="flex flex-col sm:flex-row gap-3 px-5 py-4 border-b border-border-subtle">
+        <div className="flex gap-1.5 overflow-x-auto pb-1 flex-1">
+          {FILTERS.map((tab) => {
+            const on = filter === tab.key;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setFilter(tab.key)}
+                className={`group inline-flex items-center gap-2 px-3 py-1.5 rounded-sm border text-xs font-semibold uppercase tracking-wider transition-all whitespace-nowrap focus-ring ${
+                  on
+                    ? 'border-accent/50 bg-accent/12 text-accent'
+                    : 'border-border-subtle text-text-muted hover:text-text-primary hover:border-border-subtle'
+                }`}
+              >
+                {tab.label}
+                <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded-sm ${on ? 'bg-accent/20 text-accent' : 'bg-bg-tertiary text-text-muted'}`}>
+                  {counts[tab.key] ?? 0}
+                </span>
+              </button>
+            );
+          })}
         </div>
-        <div className="relative sm:w-56">
-          <Search className="w-4 h-4 text-text-muted absolute left-3 top-1/2 -translate-y-1/2" />
+        <div className="relative sm:w-52">
+          <Search className="w-3.5 h-3.5 text-text-muted absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search downloads"
-            className="w-full pl-9 pr-3 py-2 bg-bg-primary rounded-lg border border-border-subtle text-sm text-text-primary focus:border-accent"
+            className="w-full pl-9 pr-3 py-2 bg-bg-primary rounded-sm border border-border-subtle text-sm text-text-primary focus:border-accent"
           />
         </div>
       </div>
 
-      <div className="space-y-3 overflow-y-auto pr-1 flex-1 min-h-[200px] max-h-[560px]">
+      <div className="space-y-2.5 overflow-y-auto p-5 flex-1 min-h-[200px] max-h-[560px]">
         {loading ? (
-          [0, 1, 2].map((i) => <div key={i} className="h-24 rounded-xl skeleton" />)
+          [0, 1, 2].map((i) => <div key={i} className="h-24 rounded-sm skeleton" />)
         ) : visible.length === 0 ? (
-          <div className="text-center py-16">
-            <Download className="w-12 h-12 text-text-muted mx-auto mb-3 opacity-40" />
-            <p className="text-text-secondary">
-              {downloads.length === 0 ? 'No downloads yet' : 'Nothing matches this view'}
-            </p>
-            <p className="text-text-muted text-sm">
-              {downloads.length === 0 ? 'Add URLs above to start downloading' : 'Try another filter or search'}
-            </p>
-          </div>
+          <EmptyState hasAny={downloads.length > 0} />
         ) : (
           visible.map((download) => (
             <DownloadItem
@@ -212,15 +190,33 @@ export default function DownloadList({ loading }) {
       </div>
 
       {counts.completed > 0 && (
-        <div className="mt-4 pt-4 border-t border-border-subtle">
+        <div className="px-5 py-3 border-t border-border-subtle">
           <button
             onClick={() => run(() => api.clearCompleted(), 'Completed downloads cleared')}
-            className="w-full py-2 text-sm text-text-muted hover:text-error transition-colors flex items-center justify-center gap-2"
+            className="w-full py-2 rounded-sm text-xs font-semibold uppercase tracking-[0.14em] text-text-muted hover:text-error hover:bg-error/5 transition-colors flex items-center justify-center gap-2"
           >
-            <Trash2 className="w-4 h-4" /> Clear completed ({counts.completed})
+            <Trash2 className="w-3.5 h-3.5" /> Clear completed ({counts.completed})
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function EmptyState({ hasAny }) {
+  return (
+    <div className="h-full min-h-[220px] flex flex-col items-center justify-center text-center">
+      <div className="w-14 h-14 rounded-sm border border-border-subtle flex items-center justify-center mb-4">
+        <Download className="w-6 h-6 text-text-muted" />
+      </div>
+      <p className="kicker mb-2" style={{ letterSpacing: '0.22em' }}>
+        {hasAny ? 'No match' : 'Queue empty'}
+      </p>
+      <p className="text-sm text-text-secondary max-w-xs">
+        {hasAny
+          ? 'No transfers match this view. Try another filter or search term.'
+          : 'Add a URL above to begin. Transfers appear here with live progress.'}
+      </p>
     </div>
   );
 }
@@ -233,12 +229,12 @@ function DownloadItem({ download, onDragStart, onDropOn, isDragged, run }) {
   const KindIcon = KIND_ICONS[fileKind(download.filename)] || FileIcon;
 
   const statusMeta = {
-    active: { tone: 'text-accent', border: 'border-accent/30', Icon: Download, bg: 'bg-accent/10' },
-    paused: { tone: 'text-warning', border: 'border-warning/30', Icon: PauseCircle, bg: 'bg-warning/10' },
-    completed: { tone: 'text-success', border: 'border-success/30', Icon: CheckCircle, bg: 'bg-success/10' },
-    failed: { tone: 'text-error', border: 'border-error/30', Icon: AlertCircle, bg: 'bg-error/10' },
-    scheduled: { tone: 'text-text-secondary', border: 'border-border-subtle', Icon: CalendarClock, bg: 'bg-bg-tertiary' },
-    queued: { tone: 'text-text-muted', border: 'border-border-subtle', Icon: Clock, bg: 'bg-bg-tertiary' },
+    active: { tone: 'text-accent', bar: 'bg-accent', Icon: Download, soft: 'bg-accent/12' },
+    paused: { tone: 'text-warning', bar: 'bg-warning', Icon: Pause, soft: 'bg-warning/12' },
+    completed: { tone: 'text-success', bar: 'bg-success', Icon: CheckCircle, soft: 'bg-success/12' },
+    failed: { tone: 'text-error', bar: 'bg-error', Icon: AlertCircle, soft: 'bg-error/12' },
+    scheduled: { tone: 'text-text-secondary', bar: 'bg-text-secondary', Icon: CalendarClock, soft: 'bg-bg-tertiary' },
+    queued: { tone: 'text-text-muted', bar: 'bg-text-muted', Icon: Clock, soft: 'bg-bg-tertiary' },
   };
   const meta = statusMeta[download.status] || statusMeta.queued;
   const StatusIcon = meta.Icon;
@@ -259,21 +255,20 @@ function DownloadItem({ download, onDragStart, onDropOn, isDragged, run }) {
       onDragStart={onDragStart}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDropOn}
-      className={`group relative bg-bg-primary rounded-xl border overflow-hidden transition-all duration-200 ${meta.border} ${
+      className={`group relative bg-bg-primary rounded-sm border border-border-subtle overflow-hidden transition-all duration-200 hover:border-accent/40 ${
         isDragged ? 'opacity-50' : ''
-      } ${expanded ? 'ring-1 ring-accent/20' : ''}`}
+      }`}
     >
-      {download.status === 'active' && (
-        <div className="absolute inset-0 bg-gradient-to-r from-accent/5 to-transparent pointer-events-none" />
-      )}
+      {/* status rail */}
+      <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${meta.bar} ${download.status === 'active' ? 'opacity-100' : 'opacity-60'}`} />
 
-      <div className="relative p-4">
+      <div className="pl-4 pr-4 py-3.5">
         <div className="flex items-start gap-3">
-          <div className="flex flex-col items-center gap-1 shrink-0 pt-0.5">
-            <GripVertical className="w-4 h-4 text-text-muted cursor-grab opacity-0 group-hover:opacity-100 transition-opacity" />
+          <div className="flex flex-col items-center gap-1 shrink-0 pt-1">
+            <GripVertical className="w-4 h-4 text-text-muted cursor-grab opacity-0 group-hover:opacity-60 transition-opacity" />
           </div>
 
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${meta.bg}`}>
+          <div className={`w-10 h-10 rounded-sm flex items-center justify-center shrink-0 ${meta.soft}`}>
             <KindIcon className={`w-5 h-5 ${meta.tone}`} />
           </div>
 
@@ -283,55 +278,55 @@ function DownloadItem({ download, onDragStart, onDropOn, isDragged, run }) {
                 {download.filename}
               </p>
               {download.status === 'active' && (
-                <span className="px-2 py-0.5 rounded text-xs bg-accent/20 text-accent font-medium shrink-0">
+                <span className="px-1.5 py-0.5 rounded-sm text-[10px] font-mono bg-accent/20 text-accent shrink-0">
                   {download.progress.toFixed(0)}%
                 </span>
               )}
               {download.kind === 'media' && (
-                <span className="px-1.5 py-0.5 rounded text-[10px] bg-warning/20 text-warning font-medium shrink-0 uppercase">
+                <span className="px-1.5 py-0.5 rounded-sm text-[9px] bg-warning/20 text-warning font-semibold tracking-wider shrink-0 uppercase">
                   media
                 </span>
               )}
               {download.status === 'scheduled' && (
-                <span className="px-1.5 py-0.5 rounded text-[10px] bg-accent/20 text-accent font-medium shrink-0">
+                <span className="px-1.5 py-0.5 rounded-sm text-[10px] bg-accent/20 text-accent shrink-0">
                   {formatRelativeTime(download.scheduledAt)}
                 </span>
               )}
             </div>
 
-            <p className="text-xs text-text-muted truncate mb-2" title={download.url}>
+            <p className="text-[11px] text-text-muted truncate mb-2 font-mono" title={download.url}>
               {download.url}
             </p>
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
               {download.status === 'active' && (
                 <>
-                  <span className="font-mono text-accent">{formatSpeed(download.speed)}</span>
-                  <span className="text-text-muted">
+                  <span className="font-mono text-accent speed-counter">{formatSpeed(download.speed)}</span>
+                  <span className="text-text-muted font-mono text-xs">
                     {formatBytes(download.downloaded)} / {formatBytes(download.total)}
                   </span>
-                  <span className="text-text-muted">ETA {formatDuration(download.eta)}</span>
+                  <span className="text-text-muted text-xs">ETA {formatDuration(download.eta)}</span>
                 </>
               )}
               {download.status === 'paused' && (
-                <span className="text-warning">
-                  {formatBytes(download.downloaded)} / {formatBytes(download.total)} · Paused
+                <span className="text-warning text-xs font-mono">
+                  {formatBytes(download.downloaded)} / {formatBytes(download.total)} · paused
                 </span>
               )}
               {download.status === 'completed' && (
-                <span className="text-success">{formatBytes(download.total)} · Completed</span>
+                <span className="text-success text-xs font-mono">{formatBytes(download.total)} · completed</span>
               )}
               {download.status === 'failed' && (
-                <span className="text-error line-clamp-1">{download.error || 'Download failed'}</span>
+                <span className="text-error text-xs line-clamp-1">{download.error || 'Download failed'}</span>
               )}
-              {download.status === 'queued' && <span className="text-text-muted">Waiting in queue…</span>}
+              {download.status === 'queued' && <span className="text-text-muted text-xs">Waiting in queue…</span>}
               {download.status === 'scheduled' && (
-                <span className="text-text-secondary">Scheduled {formatRelativeTime(download.scheduledAt)}</span>
+                <span className="text-text-secondary text-xs">Scheduled {formatRelativeTime(download.scheduledAt)}</span>
               )}
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1 shrink-0">
             {download.status === 'active' && (
               <ActionButton title="Pause" tone="warning" onClick={() => run(() => api.pauseDownload(download.id))}>
                 <Pause className="w-4 h-4" />
@@ -363,7 +358,7 @@ function DownloadItem({ download, onDragStart, onDropOn, isDragged, run }) {
                 href={api.fileUrl(download.id)}
                 download
                 title="Download file"
-                className="p-2 rounded-lg bg-accent/15 text-accent hover:bg-accent/25 transition-colors focus-ring"
+                className="p-2 rounded-sm bg-accent/15 text-accent hover:bg-accent/25 transition-colors focus-ring"
                 aria-label="Download file"
               >
                 <DownloadCloud className="w-4 h-4" />
@@ -373,7 +368,7 @@ function DownloadItem({ download, onDragStart, onDropOn, isDragged, run }) {
             <div className="relative">
               <button
                 onClick={() => setMenuOpen((v) => !v)}
-                className="p-2 rounded-lg bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors focus-ring"
+                className="p-2 rounded-sm text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors focus-ring"
                 aria-label="More actions"
               >
                 <MoreVertical className="w-4 h-4" />
@@ -381,7 +376,7 @@ function DownloadItem({ download, onDragStart, onDropOn, isDragged, run }) {
               {menuOpen && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                  <div className="absolute right-0 top-full mt-1 z-20 bg-bg-secondary border border-border-subtle rounded-xl shadow-xl py-1 min-w-[190px] animate-slide-down">
+                  <div className="absolute right-0 top-full mt-1 z-20 bg-bg-secondary border border-border-subtle rounded-sm shadow-xl py-1 min-w-[200px] animate-slide-down">
                     {download.filepath && (
                       <>
                         <MenuItem icon={Download} onClick={() => { window.location.href = api.fileUrl(download.id); setMenuOpen(false); }}>
@@ -423,7 +418,7 @@ function DownloadItem({ download, onDragStart, onDropOn, isDragged, run }) {
 
             <button
               onClick={() => setExpanded((v) => !v)}
-              className="p-2 rounded-lg bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors focus-ring"
+              className="p-2 rounded-sm text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors focus-ring"
               aria-label="Toggle details"
             >
               {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -432,8 +427,8 @@ function DownloadItem({ download, onDragStart, onDropOn, isDragged, run }) {
         </div>
 
         {download.status === 'active' && (
-          <div className="mt-3">
-            <div className="h-2 bg-bg-tertiary rounded-full overflow-hidden">
+          <div className="mt-3 ml-[3.25rem]">
+            <div className="h-1.5 bg-bg-tertiary rounded-full overflow-hidden">
               <div
                 className="h-full bg-gradient-to-r from-accent to-success rounded-full transition-all duration-300 relative"
                 style={{ width: `${download.progress}%` }}
@@ -445,7 +440,7 @@ function DownloadItem({ download, onDragStart, onDropOn, isDragged, run }) {
         )}
 
         {expanded && (
-          <div className="mt-3 pt-3 border-t border-border-subtle grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+          <div className="mt-3 ml-[3.25rem] pt-4 border-t border-border-subtle grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
             <Detail label="Status" value={download.status} icon={StatusIcon} />
             <Detail label="Connections" value={download.status === 'active' || download.resumeSupported ? `${download.segments || 1} seg` : '—'} />
             <Detail label="Platform" value={download.platform} />
@@ -459,21 +454,19 @@ function DownloadItem({ download, onDragStart, onDropOn, isDragged, run }) {
             />
             {download.filepath && (
               <div className="col-span-2 sm:col-span-4">
-                <p className="text-xs text-text-muted mb-1">Saved to</p>
+                <p className="kicker mb-1.5">Saved to</p>
                 <p className="font-mono text-xs text-text-secondary break-all">{download.filepath}</p>
               </div>
             )}
             {download.checksum && (
               <div className="col-span-2 sm:col-span-4">
-                <p className="text-xs text-text-muted mb-1">
-                  Checksum ({download.checksumAlgo?.toUpperCase()})
-                </p>
+                <p className="kicker mb-1.5">Checksum ({download.checksumAlgo?.toUpperCase()})</p>
                 <p className="font-mono text-xs text-text-secondary break-all">{download.checksum}</p>
               </div>
             )}
             {download.error && (
               <div className="col-span-2 sm:col-span-4">
-                <p className="text-xs text-text-muted mb-1">Last error</p>
+                <p className="kicker mb-1.5">Last error</p>
                 <p className="text-xs text-error break-words">{download.error}</p>
               </div>
             )}
@@ -496,7 +489,26 @@ function ActionButton({ title, tone, onClick, children }) {
       onClick={onClick}
       title={title}
       aria-label={title}
-      className={`p-2 rounded-lg transition-colors focus-ring ${tones[tone]}`}
+      className={`p-2 rounded-sm transition-colors focus-ring ${tones[tone]}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function IconAction({ title, tone, onClick, disabled, children }) {
+  const tones = {
+    warning: 'bg-warning/10 text-warning hover:bg-warning/20',
+    success: 'bg-success/10 text-success hover:bg-success/20',
+    accent: 'bg-accent/10 text-accent hover:bg-accent/20',
+  };
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={title}
+      className={`p-2 rounded-sm transition-colors focus-ring disabled:opacity-40 disabled:cursor-not-allowed ${tones[tone]}`}
     >
       {children}
     </button>
@@ -507,11 +519,11 @@ function MenuItem({ icon: Icon, children, onClick, tone }) {
   return (
     <button
       onClick={onClick}
-      className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 transition-colors ${
+      className={`w-full px-4 py-2 text-left text-xs flex items-center gap-2.5 transition-colors ${
         tone === 'error' ? 'text-error hover:bg-error/10' : 'text-text-secondary hover:bg-bg-tertiary'
       }`}
     >
-      <Icon className="w-4 h-4" />
+      <Icon className="w-3.5 h-3.5" />
       {children}
     </button>
   );
@@ -519,8 +531,8 @@ function MenuItem({ icon: Icon, children, onClick, tone }) {
 
 function Detail({ label, value, icon: Icon }) {
   return (
-    <div>
-      <p className="text-xs text-text-muted mb-1 flex items-center gap-1">
+    <div className="min-w-0">
+      <p className="kicker mb-1.5 flex items-center gap-1.5">
         {Icon && <Icon className="w-3 h-3" />} {label}
       </p>
       <p className="font-mono text-xs text-text-secondary capitalize truncate">{value}</p>

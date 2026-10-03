@@ -22,9 +22,9 @@ export default function ToastContainer() {
           <div
             key={n.id}
             role="status"
-            className={`${bg} ${border} border rounded-xl p-4 shadow-lg backdrop-blur-sm toast-enter flex items-start gap-3`}
+            className={`${bg} ${border} border rounded-sm p-4 shadow-xl backdrop-blur-md toast-enter flex items-start gap-3`}
           >
-            <Icon className={`w-5 h-5 ${tone} shrink-0 mt-0.5`} />
+            <Icon className={`w-4 h-4 ${tone} shrink-0 mt-0.5`} />
             <div className="flex-1 min-w-0">
               <p className={`font-semibold text-sm ${tone}`}>{n.title}</p>
               <p className="text-sm text-text-secondary mt-0.5 break-words">{n.message}</p>
