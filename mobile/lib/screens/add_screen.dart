@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +10,8 @@ import '../media_extractor.dart';
 import '../media_url.dart';
 import '../state.dart';
 import '../theme.dart';
+import '../widgets.dart';
+import '../link_inbox.dart' show extractUrl;
 
 /// The only place a download starts. There is no mode switch: every job runs on
 /// this device. Media pages are detected, inspected, and offered with a format
@@ -35,11 +39,57 @@ class _AddScreenState extends State<AddScreen> {
   /// Set when a URL looks like media but has not been inspected yet.
   bool _mediaReadyToInspect = false;
 
+  /// True when a paste looked like a link buried in other text.
+  bool _pastedExtracted = false;
+
+  /// A link found on the clipboard when the app opened, offered as a shortcut.
+  String? _clipboardUrl;
+
   @override
   void initState() {
     super.initState();
     _connections = context.read<TurboState>().defaultConnections;
     _controller.addListener(_onUrlChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkClipboard());
+  }
+
+  /// Looks at the clipboard once on open. If it holds a link, offer a one-tap
+  /// way to use it — the fastest path when a URL was copied from a browser.
+  Future<void> _checkClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final url = extractUrl(data?.text ?? '');
+    if (!mounted || url == null) return;
+    setState(() => _clipboardUrl = url);
+  }
+
+  Future<void> _useClipboard() async {
+    final url = _clipboardUrl;
+    if (url == null) return;
+    setState(() {
+      _clipboardUrl = null;
+      _controller.text = url;
+    });
+    if (needsExtraction(url)) await _inspect();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _consumePending();
+  }
+
+  /// Pick up a link that arrived from outside the app (deep link, share sheet,
+  /// drop, or a launch argument) and inspect it immediately.
+  void _consumePending() {
+    final state = context.read<TurboState>();
+    if (state.pendingUrl == null) return;
+    final url = state.takePendingLink();
+    if (url == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _controller.text = url;
+      if (needsExtraction(url)) unawaited(_inspect());
+    });
   }
 
   void _onUrlChanged() {
@@ -69,12 +119,18 @@ class _AddScreenState extends State<AddScreen> {
 
   bool get _isPage => needsExtraction(_controller.text);
 
+  /// Reads whatever the clipboard holds and pulls a URL out of it, so a link
+  /// copied alongside other text still lands cleanly in the field.
   Future<void> _paste() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     final text = data?.text?.trim();
-    if (text != null && text.isNotEmpty) {
-      _controller.text = text;
-      if (mounted) setState(() {});
+    if (text == null || text.isEmpty) return;
+    final url = extractUrl(text);
+    _controller.text = url ?? text;
+    if (!mounted) return;
+    setState(() => _pastedExtracted = url != null && url != text);
+    if (url != null && needsExtraction(url)) {
+      await _inspect();
     }
   }
 
@@ -221,6 +277,18 @@ class _AddScreenState extends State<AddScreen> {
                 return null;
               },
             ),
+            if (_clipboardUrl != null && !_isPage) ...[
+              const SizedBox(height: 10),
+              Notice(
+                icon: Icons.content_paste_go_rounded,
+                color: TurboColors.success,
+                text: 'Link on your clipboard: ${_clipboardUrl!}',
+                trailing: TextButton(
+                  onPressed: _useClipboard,
+                  child: const Text('USE'),
+                ),
+              ),
+            ],
             // Auto-detect badge.
             if (isPage) ...[
               const SizedBox(height: 10),
@@ -229,6 +297,14 @@ class _AddScreenState extends State<AddScreen> {
                 probing: _probing,
                 inspected: _probe != null,
                 onInspect: _inspect,
+              ),
+            ],
+            if (_pastedExtracted) ...[
+              const SizedBox(height: 10),
+              const Notice(
+                icon: Icons.content_paste_search_rounded,
+                color: TurboColors.speedUltra,
+                text: 'Found a link in your clipboard and used it.',
               ),
             ],
             if (_probe != null) ...[

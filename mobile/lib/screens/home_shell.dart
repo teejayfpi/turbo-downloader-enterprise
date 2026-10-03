@@ -1,6 +1,11 @@
+import 'dart:io';
+
+import 'package:desktop_drop/desktop_drop.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../link_inbox.dart';
 import '../state.dart';
 import '../theme.dart';
 import 'downloads_screen.dart';
@@ -18,6 +23,7 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
+  bool _dragging = false;
 
   static const _titles = ['Downloads', 'New Transfer', 'Settings'];
   static const _subtitles = [
@@ -32,7 +38,15 @@ class _HomeShellState extends State<HomeShell> {
     final accent = Theme.of(context).colorScheme.primary;
     final activeCount = state.local.activeCount + state.local.queuedCount;
 
-    return Scaffold(
+    // A link that arrived from anywhere (deep link, share sheet, launch arg)
+    // brings the Add tab forward so the user sees it land.
+    if (state.pendingUrl != null && _index != 1) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _index = 1);
+      });
+    }
+
+    final shell = Scaffold(
       appBar: AppBar(
         toolbarHeight: 64,
         titleSpacing: 16,
@@ -115,6 +129,91 @@ class _HomeShellState extends State<HomeShell> {
             ),
           ],
         ),
+      ),
+    );
+
+    if (!_supportsDrop) return shell;
+    return _DropSurface(
+      dragging: _dragging,
+      onDragEntered: () => setState(() => _dragging = true),
+      onDragExited: () => setState(() => _dragging = false),
+      onDrop: (url) {
+        setState(() => _dragging = false);
+        state.receiveLink(url);
+        setState(() => _index = 1);
+      },
+      child: shell,
+    );
+  }
+
+  static bool get _supportsDrop =>
+      !kIsWeb &&
+      (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
+}
+
+/// Wraps the shell so a link dragged from a browser lands in the Add screen.
+class _DropSurface extends StatelessWidget {
+  final bool dragging;
+  final VoidCallback onDragEntered;
+  final VoidCallback onDragExited;
+  final ValueChanged<String> onDrop;
+  final Widget child;
+
+  const _DropSurface({
+    required this.dragging,
+    required this.onDragEntered,
+    required this.onDragExited,
+    required this.onDrop,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    return DropTarget(
+      onDragEntered: (_) => onDragEntered(),
+      onDragExited: (_) => onDragExited(),
+      onDragDone: (detail) {
+        for (final file in detail.files) {
+          final url = extractUrl(file.path);
+          if (url != null) {
+            onDrop(url);
+            return;
+          }
+        }
+      },
+      child: Stack(
+        children: [
+          child,
+          if (dragging)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  color: TurboColors.bgPrimary.withOpacity(0.82),
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 28, vertical: 22),
+                      decoration: BoxDecoration(
+                        color: TurboColors.bgSecondary,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: accent, width: 1.4),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.download_rounded, color: accent, size: 34),
+                          const SizedBox(height: 12),
+                          const Kicker('Drop a link to download',
+                              letterSpacing: 2.0, size: 11),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

@@ -96,6 +96,13 @@ These caused real, user-visible bugs. Do not regress them.
   sync rather than inventing a second visual language.
 - **Play policy risk.** A YouTube/yt-dlp-style downloader can be pulled under
   IP/DMCA rules; see `mobile/README.md`.
+- **Links arrive from many places.** Incoming URLs are normalised in
+  `lib/link_inbox.dart` (`LinkInbox` + `extractUrl`) and delivered to
+  `TurboState.receiveLink`, which the shell and Add screen observe: Android
+  share sheet and `http(s)` intents, deep links (`app_links`), desktop
+  drag-and-drop (`desktop_drop`), a launch argument, and a clipboard suggestion.
+  Add a new source by funnelling it through `receiveLink`; never duplicate the
+  detection logic in another screen.
 
 ## Mobile engine gotchas
 

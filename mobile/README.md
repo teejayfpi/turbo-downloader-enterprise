@@ -33,6 +33,28 @@ and audio tracks and offer 1080p/4K; without it, the app offers combined streams
 install yt-dlp to unlock more platforms and higher quality, or use the app
 as-is.
 
+## Getting links in from anywhere
+
+Turbo does not care where a link comes from. It accepts a URL from whichever
+route is closest to hand:
+
+- **Share to Turbo** — in any browser or app, tap *Share* and choose Turbo
+  (Android share sheet).
+- **Open with Turbo** — tap a link and pick Turbo; the app registers for
+  `http`/`https` links (Android intent filter), so a browser's *Open in app*
+  works.
+- **Drag and drop** — on Windows/Linux/macOS, drag a link straight from the
+  browser onto the window; a drop overlay appears and the Add screen opens.
+- **Launch argument / deep link** — the desktop build also reads a URL passed on
+  the command line, so a `.desktop`/protocol handler or a shell command
+  (`turbo_downloader "https://…"`) works.
+- **Clipboard** — opening the Add screen checks the clipboard once and offers
+  a one-tap *Use* if it finds a link. Pasting text with a link buried inside it
+  also extracts just the URL.
+
+Every source funnels into the same Add screen, which auto-detects whether the
+link is a plain file or a media page and inspects it immediately.
+
 ## Speed
 
 Turbo mode (the default) raises the parallel-segment ceiling to 16 for

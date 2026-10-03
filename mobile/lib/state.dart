@@ -79,6 +79,25 @@ class TurboState extends ChangeNotifier {
 
   bool loading = true;
 
+  /// A link handed to the app from outside (deep link, share sheet, drop).
+  /// The shell watches this, jumps to Add, and the Add screen consumes it.
+  String? pendingUrl;
+
+  /// Receives a link that arrived from anywhere on the device.
+  void receiveLink(String url) {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return;
+    pendingUrl = trimmed;
+    _safeNotify();
+  }
+
+  /// Returns the pending incoming link once, then clears it.
+  String? takePendingLink() {
+    final url = pendingUrl;
+    pendingUrl = null;
+    return url;
+  }
+
   /// Last engine detection result, for Settings.
   bool ytdlpAvailable = false;
   bool ytdlpHasFfmpeg = false;
