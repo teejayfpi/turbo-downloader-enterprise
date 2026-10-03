@@ -393,7 +393,11 @@ class LocalDownloadManager extends ChangeNotifier {
 
   /// Stops the download and forgets it, deleting any partial data.
   Future<void> remove(String id) async {
-    _runs[id]?.cancel();
+    final run = _runs[id];
+    run?.cancel();
+    // Wait for the download loop to stop writing before deleting its folder,
+    // otherwise a late chunk can recreate it and leave orphaned partial data.
+    if (run != null) await run.done.future;
     _byId.remove(id);
     _order.remove(id);
     final dir = _taskDir(id);
@@ -451,6 +455,7 @@ class LocalDownloadManager extends ChangeNotifier {
     _startTicker();
 
     _execute(task, run).whenComplete(() {
+      if (!run.done.isCompleted) run.done.complete();
       _runs.remove(task.id);
       task.speed = 0;
       _persist();
@@ -917,6 +922,10 @@ class _Run {
   DateTime _lastSampleAt = DateTime.now();
 
   void cancel() => cancelled = true;
+
+  /// Completed once the download loop for this run has fully unwound, so
+  /// callers can delete the task folder without a writer recreating it.
+  final Completer<void> done = Completer<void>();
 
   void addBytes(int n) => _totalBytes += n;
 
