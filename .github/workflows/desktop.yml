@@ -101,41 +101,65 @@ jobs:
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           & $iscc "/DMyAppVersion=${{ steps.version.outputs.value }}" turbo.iss
+          Copy-Item "dist\TurboSetup-${{ steps.version.outputs.value }}.exe" "dist\TurboSetup-windows.exe" -Force
 
       - name: Upload Windows installer
         if: matrix.target == 'windows'
         uses: actions/upload-artifact@v5
         with:
           name: turbo-windows-installer
-          path: mobile/windows/installer/dist/*.exe
+          path: mobile/windows/installer/dist/TurboSetup-windows.exe
           if-no-files-found: error
 
-      # ----------------------------------------------------------- Release assets
-      # On a main push, attach installers to the release matching the version so
-      # the download links are stable (…/releases/latest/download/…).
-      - name: Zip macOS app
+      # --------------------------------------------------------- Release archives
+      # Produce a stable-named archive per platform for the release job to attach.
+      - name: Package Linux archive
+        if: matrix.target == 'linux'
+        working-directory: mobile/build/linux/x64/release/bundle
+        run: tar czf "$GITHUB_WORKSPACE/mobile/Turbo-linux.tar.gz" .
+
+      - name: Package macOS archive
         if: matrix.target == 'macos'
         working-directory: mobile/build/macos/Build/Products/Release
-        run: |
-          zip -qry Turbo-macos.zip Turbo.app
+        run: zip -qry "$GITHUB_WORKSPACE/mobile/Turbo-macos.zip" Turbo.app
 
-      - name: Stage release assets
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Upload release archive
+        if: matrix.target != 'windows'
+        uses: actions/upload-artifact@v5
+        with:
+          name: turbo-release-${{ matrix.target }}
+          path: |
+            mobile/Turbo-${{ matrix.target }}.${{ matrix.target == 'linux' && 'tar.gz' || 'zip' }}
+          if-no-files-found: error
+
+  # Publish from a single job so the three platforms do not race to create the
+  # same release, and so a build failure never leaves a half-filled release.
+  release:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Read app version
+        id: version
         shell: bash
         run: |
-          mkdir -p release-assets
-          case "${{ matrix.target }}" in
-            windows) cp windows/installer/dist/*.exe release-assets/TurboSetup-windows.exe ;;
-            macos)   cp build/macos/Build/Products/Release/Turbo-macos.zip release-assets/Turbo-macos.zip ;;
-            linux)   (cd build/linux/x64/release/bundle && zip -qry ../../../../../../release-assets/Turbo-linux.zip .) ;;
-          esac
+          version=$(awk -F'[+ ]' '/^version:/{print $2}' mobile/pubspec.yaml)
+          echo "value=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Publish release assets
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Download artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: artifacts
+
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.value }}
           name: Turbo Downloader v${{ steps.version.outputs.value }}
-          fail_on_unmatched_files: false
-          files: release-assets/*
-
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/turbo-windows-installer/TurboSetup-windows.exe
+            artifacts/turbo-release-macos/Turbo-macos.zip
+            artifacts/turbo-release-linux/Turbo-linux.tar.gz
