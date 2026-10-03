@@ -17,7 +17,11 @@ the transfer into up to 16 connections, stream each part to app-private storage,
 and merge the parts into one file that is handed to Android's MediaStore. A
 paused or interrupted download keeps its parts and resumes from where it stopped.
 Media pages (YouTube and similar) are only handled in Server mode, because they
-need yt-dlp and ffmpeg, which do not run on the phone.
+need yt-dlp and ffmpeg, which do not run on the phone. Pasting a media URL while
+in Device mode is rejected up front with a prompt to switch, rather than saving
+the HTML page the URL returns. YouTube itself is further gated on hosted servers
+and needs `YT_DLP_COOKIES_DATA` — see "YouTube on a hosted server" in the root
+`README.md`.
 
 ## Requirements
 

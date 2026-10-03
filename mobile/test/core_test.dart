@@ -1,9 +1,50 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:turbo_downloader/format.dart';
+import 'package:turbo_downloader/media_url.dart';
 import 'package:turbo_downloader/models.dart';
 import 'package:turbo_downloader/state.dart';
 
 void main() {
+  group('isMediaUrl', () {
+    test('detects known media hosts and subdomains', () {
+      expect(isMediaUrl('https://www.youtube.com/watch?v=abc'), isTrue);
+      expect(isMediaUrl('https://youtu.be/abc'), isTrue);
+      expect(isMediaUrl('https://m.youtube.com/watch?v=abc'), isTrue);
+      expect(isMediaUrl('https://soundcloud.com/artist/track'), isTrue);
+      expect(isMediaUrl('https://x.com/user/status/1'), isTrue);
+    });
+
+    test('leaves direct file links alone', () {
+      expect(isMediaUrl('https://example.com/file.zip'), isFalse);
+      expect(isMediaUrl('https://raw.githubusercontent.com/a/b/README.md'),
+          isFalse);
+      expect(isMediaUrl('https://cdn.example.com/video.mp4'), isFalse);
+    });
+
+    test('does not match a lookalike host', () {
+      expect(isMediaUrl('https://notyoutube.com/watch?v=abc'), isFalse);
+      expect(isMediaUrl('https://youtube.com.evil.test/x'), isFalse);
+    });
+
+    test('rejects malformed input', () {
+      expect(isMediaUrl('not a url'), isFalse);
+      expect(isMediaUrl(''), isFalse);
+    });
+  });
+
+  group('isYouTubeUrl', () {
+    test('recognises YouTube and its subdomains', () {
+      expect(isYouTubeUrl('https://www.youtube.com/watch?v=abc'), isTrue);
+      expect(isYouTubeUrl('https://youtu.be/abc'), isTrue);
+      expect(isYouTubeUrl('https://music.youtube.com/watch?v=abc'), isTrue);
+    });
+
+    test('excludes other media sites', () {
+      expect(isYouTubeUrl('https://soundcloud.com/artist/track'), isFalse);
+      expect(isYouTubeUrl('https://example.com/file.zip'), isFalse);
+    });
+  });
+
   group('formatBytes', () {
     test('scales through units', () {
       expect(formatBytes(0), '0 B');

@@ -335,7 +335,23 @@ function cleanError(stderr) {
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith('WARNING'))
     .pop();
-  return line ? line.replace(/^ERROR:\s*/, '') : '';
+  if (!line) return '';
+  const message = line.replace(/^ERROR:\s*/, '');
+
+  // YouTube rejects datacenter IPs with a 403 or a bot check. The raw text is
+  // meaningless to a user, so it is replaced with the one thing that fixes it.
+  if (
+    /HTTP Error 403|unable to download video data|Sign in to confirm|not a bot/i.test(
+      message,
+    )
+  ) {
+    return (
+      'YouTube refused this download from the server\'s IP address. ' +
+      'Configure YT_DLP_COOKIES_DATA on the server (export cookies from a ' +
+      'signed-in browser) to allow it. Other sites are unaffected.'
+    );
+  }
+  return message;
 }
 
 export default new MediaService();
