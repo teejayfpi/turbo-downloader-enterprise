@@ -1,6 +1,6 @@
 // Author / designer attribution, surfaced on the splash, footer and About panel.
 export const DESIGNER = {
-  name: 'Olatunji Ayobami Ayanlowo',
+  name: 'Ayanlowo Olatunji Ayobami',
   email: 'ayanlowo89@gmail.com',
   phone: '+2347038193753',
   phoneHref: '+2347038193753',

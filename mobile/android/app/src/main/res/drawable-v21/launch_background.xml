@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Branded launch splash: dark canvas with the Turbo mark centred. -->
+<!-- Minimal native handoff that matches the Flutter enterprise launch screen. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@color/ic_launcher_background" />
+    <item android:drawable="@color/launch_background" />
     <item>
         <bitmap
             android:gravity="center"

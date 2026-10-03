@@ -102,8 +102,8 @@ export default function SplashScreen({ ready, onMounted }) {
         </div>
 
         <h1 className="splash-wordmark">TURBO</h1>
-        <p className="splash-tagline">DOWNLOAD MANAGER</p>
-        <p className="splash-sub">Multi-connection · Resumable · Blazing fast</p>
+        <p className="splash-tagline">ENTERPRISE DOWNLOAD OPERATIONS</p>
+        <p className="splash-sub">Local-first · Secure · Resumable</p>
 
         <div className="splash-rail" aria-hidden="true">
           <span className="splash-rail-fill" />
@@ -111,7 +111,7 @@ export default function SplashScreen({ ready, onMounted }) {
         <p className="splash-version">v{APP_VERSION}</p>
 
         <div className="splash-credit">
-          <span className="splash-credit-label">Designed by</span>
+          <span className="splash-credit-label">designed by:</span>
           <span className="splash-credit-name">{DESIGNER.name}</span>
           <span className="splash-credit-links">
             <a href={`mailto:${DESIGNER.email}`}>{DESIGNER.email}</a>

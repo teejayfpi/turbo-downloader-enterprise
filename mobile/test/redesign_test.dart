@@ -90,8 +90,9 @@ void main() {
         ),
       );
 
-      expect(find.text('Turbo Downloader'), findsOneWidget);
-      expect(find.text('Offline download manager'), findsOneWidget);
+      expect(find.text('TURBO'), findsOneWidget);
+      expect(find.text('ENTERPRISE DOWNLOAD OPERATIONS'), findsOneWidget);
+      expect(find.text('designed by:'), findsOneWidget);
       expect(find.text(Designer.name), findsOneWidget);
 
       // Wait out the minimum display, then let the transition settle.
