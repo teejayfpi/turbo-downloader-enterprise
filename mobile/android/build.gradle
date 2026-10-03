@@ -9,16 +9,15 @@ rootProject.buildDir = "../build"
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
 }
-subprojects {
-    project.evaluationDependsOn(":app")
-}
 
 // Keep every plugin module on Java 17. Some plugins compile their Kotlin to 17
 // while Flutter leaves the Java target at 1.8, which trips Gradle's "jvm target
-// compatibility" check (e.g. receive_sharing_intent). `evaluationDependsOn`
-// above can leave a module already evaluated, so only defer when needed.
+// compatibility" check (e.g. receive_sharing_intent). This must be registered
+// before the evaluationDependsOn below, which forces plugin modules to
+// evaluate; an afterEvaluate added afterwards runs too late and AGP has already
+// finalized compileOptions.
 subprojects { subproject ->
-    def applyJava17 = {
+    subproject.afterEvaluate {
         if (subproject.hasProperty("android")) {
             subproject.android.compileOptions {
                 sourceCompatibility = JavaVersion.VERSION_17
@@ -31,11 +30,10 @@ subprojects { subproject ->
             }
         }
     }
-    if (subproject.state.executed) {
-        applyJava17()
-    } else {
-        subproject.afterEvaluate(applyJava17)
-    }
+}
+
+subprojects {
+    project.evaluationDependsOn(":app")
 }
 
 tasks.register("clean", Delete) {
