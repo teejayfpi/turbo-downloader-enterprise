@@ -125,7 +125,17 @@ void main() {
   });
 
   tearDown(() async {
-    if (await root.exists()) await root.delete(recursive: true);
+    // A background part-writer can briefly recreate data after delete() starts,
+    // which surfaces as ENOTEMPTY on a loaded CI box. Retry a few times.
+    for (var attempt = 0; attempt < 5; attempt++) {
+      if (!await root.exists()) return;
+      try {
+        await root.delete(recursive: true);
+        return;
+      } on FileSystemException {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+    }
   });
 
   test('downloads a ranged file with several segments and stores exact bytes',
