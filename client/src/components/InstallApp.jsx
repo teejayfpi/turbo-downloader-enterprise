@@ -7,7 +7,7 @@ export function InstallCard({ pwa, compact = false }) {
 
   if (installed) {
     return (
-      <div className={`rounded-xl border border-success/30 bg-success/10 ${compact ? 'p-3' : 'p-4'} flex items-center gap-3`}>
+      <div className={`rounded-sm border border-success/30 bg-success/10 ${compact ? 'p-3' : 'p-4'} flex items-center gap-3`}>
         <Check className="w-5 h-5 text-success shrink-0" />
         <div className="min-w-0">
           <p className="text-sm font-semibold text-success">Installed on this device</p>
@@ -18,9 +18,9 @@ export function InstallCard({ pwa, compact = false }) {
   }
 
   return (
-    <div className={`rounded-xl border border-border-subtle bg-bg-primary ${compact ? 'p-3' : 'p-4'}`}>
+    <div className={`rounded-sm border border-border-subtle bg-bg-primary ${compact ? 'p-3' : 'p-4'}`}>
       <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
+        <div className="w-10 h-10 rounded-sm bg-accent/10 flex items-center justify-center shrink-0">
           <Smartphone className="w-5 h-5 text-accent" />
         </div>
         <div className="min-w-0 flex-1">
@@ -32,7 +32,7 @@ export function InstallCard({ pwa, compact = false }) {
           {pwa.canPrompt ? (
             <button
               onClick={pwa.promptInstall}
-              className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-bg-primary font-semibold text-sm hover:bg-accent/90 transition-colors focus-ring"
+              className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-sm bg-accent text-bg-primary font-semibold text-sm hover:bg-accent/90 transition-colors focus-ring"
             >
               <Download className="w-4 h-4" />
               Install app

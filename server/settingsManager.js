@@ -50,7 +50,7 @@ export function sanitizeSettings(input = {}, base = DEFAULT_SETTINGS) {
     } else if (key === 'theme') {
       if (['dark', 'light'].includes(value)) next[key] = value;
     } else if (key === 'accentColor') {
-      if (['cyan', 'green', 'purple', 'orange'].includes(value)) next[key] = value;
+      if (['cyan', 'green', 'amber', 'orange', 'rose', 'purple'].includes(value)) next[key] = value;
     } else if (typeof value === 'boolean') {
       next[key] = value;
     } else if (typeof value === 'string') {

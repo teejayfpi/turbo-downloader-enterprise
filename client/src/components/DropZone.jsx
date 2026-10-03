@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import {
-  Upload, Link as LinkIcon, Loader2, X, Plus, Zap, Clock,
-  SlidersHorizontal, ShieldCheck, Film, ChevronDown,
+  Link as LinkIcon, Loader2, X, Plus, Zap, Clock,
+  SlidersHorizontal, ShieldCheck, Film, ChevronRight, AlertTriangle,
 } from 'lucide-react';
 import { api } from '../hooks/useApi';
 import { useDownloadStore } from '../stores/downloadStore';
@@ -118,15 +118,13 @@ export default function DropZone({ onAdded }) {
       validUrls[0]
     );
 
+  const canSubmit = validUrls.length > 0 && !isLoading;
+
   return (
-    <div
-      className={`relative rounded-2xl border-2 border-dashed transition-all duration-300 ${
-        isDragging
-          ? 'border-accent bg-accent/5 drop-zone-active'
-          : error
-            ? 'border-error bg-error/5'
-            : 'border-border-subtle bg-bg-secondary/50 hover:border-accent/50 hover:bg-bg-secondary'
-      }`}
+    <section
+      className={`panel transition-all duration-300 ${
+        isDragging ? 'drop-zone-active' : ''
+      } ${error ? 'ring-1 ring-error/40' : ''}`}
       onDragOver={(e) => {
         e.preventDefault();
         setIsDragging(true);
@@ -137,41 +135,18 @@ export default function DropZone({ onAdded }) {
       }}
       onDrop={onDrop}
     >
-      <div className="p-6 sm:p-8">
-        <div className="flex justify-center mb-4">
-          <div
-            className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-300 ${
-              isDragging ? 'bg-accent/20 scale-110' : error ? 'bg-error/20' : 'bg-bg-tertiary'
-            }`}
-          >
-            {isLoading ? (
-              <Loader2 className="w-7 h-7 text-accent animate-spin" />
-            ) : error ? (
-              <X className="w-7 h-7 text-error" />
-            ) : isDragging ? (
-              <Plus className="w-7 h-7 text-accent" />
-            ) : (
-              <Upload className="w-7 h-7 text-text-secondary" />
-            )}
-          </div>
-        </div>
+      <div className="flex items-center gap-3 px-5 sm:px-6 pt-5">
+        <span className="kicker">New Transfer</span>
+        <span className="flex-1 h-px bg-border-subtle" />
+        <span className="kicker" style={{ letterSpacing: '0.18em' }}>
+          {isDragging ? 'Release to queue' : 'Paste · drop · enter'}
+        </span>
+      </div>
 
-        <div className="text-center mb-4">
-          <h2 className={`text-lg font-semibold mb-1 ${error ? 'text-error' : 'text-text-primary'}`}>
-            {isDragging ? 'Drop to add downloads' : error ? 'Error' : 'Add Downloads'}
-          </h2>
-          <p className="text-sm text-text-secondary">
-            {isDragging
-              ? 'Release to queue these files'
-              : error
-                ? error
-                : 'Paste URLs (one per line) or drop a .txt / .json list'}
-          </p>
-        </div>
-
-        <div className="relative max-w-3xl mx-auto">
-          <div className="absolute left-4 top-4">
-            <LinkIcon className="w-5 h-5 text-text-muted" />
+      <div className="p-5 sm:p-6">
+        <div className="relative">
+          <div className="absolute left-4 top-4 pointer-events-none">
+            <LinkIcon className="w-4 h-4 text-text-muted" />
           </div>
           <textarea
             ref={inputRef}
@@ -181,7 +156,7 @@ export default function DropZone({ onAdded }) {
               setError(null);
             }}
             placeholder={'https://example.com/file.zip\nhttps://example.com/video.mp4'}
-            className={`w-full pl-12 pr-12 py-4 bg-bg-primary rounded-xl border transition-all duration-200 resize-none h-24 placeholder:text-text-muted text-sm font-mono focus:ring-2 focus:ring-accent/20 ${
+            className={`w-full pl-12 pr-12 py-4 bg-bg-primary rounded-sm border transition-all duration-200 resize-none h-28 placeholder:text-text-muted text-sm font-mono leading-relaxed focus:ring-2 focus:ring-accent/20 ${
               error ? 'border-error' : 'border-border-subtle focus:border-accent'
             }`}
             disabled={isLoading}
@@ -196,39 +171,49 @@ export default function DropZone({ onAdded }) {
                 setMediaInfo(null);
                 inputRef.current?.focus();
               }}
-              className="absolute right-4 top-4 p-1 rounded-lg hover:bg-bg-tertiary transition-colors"
+              className="absolute right-3 top-3 p-1.5 rounded-sm text-text-muted hover:text-error hover:bg-bg-tertiary transition-colors"
               aria-label="Clear"
             >
-              <X className="w-4 h-4 text-text-muted" />
+              <X className="w-4 h-4" />
             </button>
           )}
         </div>
 
-        {validUrls.length > 0 && (
-          <p className="text-center text-xs text-text-muted mt-2">
-            {validUrls.length} valid URL{validUrls.length > 1 ? 's' : ''} detected
-            {urls.length !== validUrls.length && ` · ${urls.length - validUrls.length} ignored`}
-          </p>
-        )}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3 min-h-[1.25rem]">
+          {validUrls.length > 0 && (
+            <p className="kicker" style={{ letterSpacing: '0.18em' }}>
+              <span className="text-accent">{validUrls.length}</span> ready
+              {urls.length !== validUrls.length && (
+                <span className="text-text-muted"> · {urls.length - validUrls.length} ignored</span>
+              )}
+            </p>
+          )}
+          {error && (
+            <p className="text-xs text-error flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {error}
+            </p>
+          )}
+        </div>
 
-        <div className="flex flex-wrap items-center justify-center gap-3 mt-4">
+        <div className="flex flex-wrap items-center gap-2.5 mt-4">
           <button
             type="button"
             onClick={submit}
-            disabled={validUrls.length === 0 || isLoading}
-            className={`px-8 py-3 rounded-xl font-semibold transition-all duration-200 flex items-center gap-2 focus-ring ${
-              validUrls.length > 0 && !isLoading
-                ? 'bg-gradient-to-r from-accent to-success text-bg-primary hover:shadow-lg hover:shadow-accent/30 hover:scale-[1.03]'
+            disabled={!canSubmit}
+            className={`group flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-7 py-3 rounded-sm font-bold uppercase tracking-[0.14em] text-xs transition-all duration-200 focus-ring ${
+              canSubmit
+                ? 'bg-accent text-bg-primary hover:brightness-110 glow-accent'
                 : 'bg-bg-tertiary text-text-muted cursor-not-allowed'
             }`}
           >
             {isLoading ? (
               <>
-                <Loader2 className="w-5 h-5 animate-spin" /> Adding...
+                <Loader2 className="w-4 h-4 animate-spin" /> Queuing…
               </>
             ) : (
               <>
-                <Zap className="w-5 h-5" /> Start Download
+                <Zap className="w-4 h-4" /> Start Download
+                <ChevronRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
               </>
             )}
           </button>
@@ -238,7 +223,7 @@ export default function DropZone({ onAdded }) {
               type="button"
               onClick={inspectMedia}
               disabled={mediaLoading}
-              className="px-5 py-3 rounded-xl font-medium border border-border-subtle text-text-secondary hover:text-accent hover:border-accent/50 transition-colors flex items-center gap-2 focus-ring"
+              className="inline-flex items-center gap-2 px-4 py-3 rounded-sm border border-border-subtle text-text-secondary text-xs font-semibold uppercase tracking-[0.12em] hover:text-accent hover:border-accent/50 transition-colors focus-ring"
             >
               {mediaLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Film className="w-4 h-4" />}
               Fetch media info
@@ -248,34 +233,34 @@ export default function DropZone({ onAdded }) {
           <button
             type="button"
             onClick={() => setShowOptions((v) => !v)}
-            className="px-5 py-3 rounded-xl font-medium border border-border-subtle text-text-secondary hover:text-accent hover:border-accent/50 transition-colors flex items-center gap-2 focus-ring"
+            className="inline-flex items-center gap-2 px-4 py-3 rounded-sm border border-border-subtle text-text-secondary text-xs font-semibold uppercase tracking-[0.12em] hover:text-accent hover:border-accent/50 transition-colors focus-ring"
           >
             <SlidersHorizontal className="w-4 h-4" />
             Options
-            <ChevronDown className={`w-4 h-4 transition-transform ${showOptions ? 'rotate-180' : ''}`} />
+            <ChevronRight className={`w-3.5 h-3.5 transition-transform ${showOptions ? 'rotate-90' : ''}`} />
           </button>
         </div>
 
         {mediaInfo && (
-          <div className="max-w-3xl mx-auto mt-5 bg-bg-primary border border-border-subtle rounded-xl p-4 flex gap-4 animate-slide-down">
+          <div className="mt-5 panel p-4 flex gap-4 animate-slide-down">
             {mediaInfo.thumbnail && (
               <img
                 src={mediaInfo.thumbnail}
                 alt=""
-                className="w-28 h-20 object-cover rounded-lg shrink-0"
+                className="w-28 h-20 object-cover rounded-sm shrink-0 border border-border-subtle"
                 referrerPolicy="no-referrer"
               />
             )}
             <div className="min-w-0 flex-1">
               <p className="font-semibold text-text-primary truncate">{mediaInfo.title}</p>
-              <p className="text-xs text-text-muted mb-2">
+              <p className="kicker mb-2.5" style={{ letterSpacing: '0.16em' }}>
                 {mediaInfo.uploader} · {formatDuration(mediaInfo.duration)}
                 {mediaInfo.isLive && ' · LIVE'}
               </p>
               <select
                 value={selectedFormat}
                 onChange={(e) => setSelectedFormat(e.target.value)}
-                className="w-full px-3 py-2 bg-bg-secondary rounded-lg border border-border-subtle text-sm text-text-primary focus:border-accent"
+                className="w-full px-3 py-2 bg-bg-secondary rounded-sm border border-border-subtle text-sm text-text-primary focus:border-accent"
               >
                 <option value="best">Best quality (auto)</option>
                 {mediaInfo.formats?.slice(0, 60).map((f) => (
@@ -289,19 +274,19 @@ export default function DropZone({ onAdded }) {
             </div>
             <button
               onClick={() => setMediaInfo(null)}
-              className="p-1 h-fit rounded-lg hover:bg-bg-tertiary"
+              className="p-1 h-fit rounded-sm text-text-muted hover:text-error transition-colors"
               aria-label="Close media info"
             >
-              <X className="w-4 h-4 text-text-muted" />
+              <X className="w-4 h-4" />
             </button>
           </div>
         )}
 
         {showOptions && (
-          <div className="max-w-3xl mx-auto mt-5 bg-bg-primary border border-border-subtle rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 gap-4 animate-slide-down">
+          <div className="mt-5 panel p-5 grid grid-cols-1 sm:grid-cols-2 gap-5 animate-slide-down">
             <label className="text-sm">
-              <span className="flex items-center gap-2 text-text-secondary mb-1.5">
-                <Zap className="w-4 h-4 text-accent" /> Connections per file
+              <span className="kicker mb-2 flex items-center gap-2">
+                <Zap className="w-3.5 h-3.5 text-accent" /> Connections per file
               </span>
               <input
                 type="number"
@@ -310,41 +295,41 @@ export default function DropZone({ onAdded }) {
                 value={options.connections}
                 onChange={(e) => setOptions({ ...options, connections: e.target.value })}
                 placeholder={`Default: ${settings.connections}`}
-                className="w-full px-3 py-2 bg-bg-secondary rounded-lg border border-border-subtle text-text-primary focus:border-accent"
+                className="w-full px-3 py-2 bg-bg-secondary rounded-sm border border-border-subtle text-text-primary font-mono text-sm focus:border-accent"
               />
             </label>
 
             <label className="text-sm">
-              <span className="flex items-center gap-2 text-text-secondary mb-1.5">
-                <Clock className="w-4 h-4 text-accent" /> Schedule for
+              <span className="kicker mb-2 flex items-center gap-2">
+                <Clock className="w-3.5 h-3.5 text-accent" /> Schedule for
               </span>
               <input
                 type="datetime-local"
                 value={options.scheduledAt}
                 onChange={(e) => setOptions({ ...options, scheduledAt: e.target.value })}
-                className="w-full px-3 py-2 bg-bg-secondary rounded-lg border border-border-subtle text-text-primary focus:border-accent"
+                className="w-full px-3 py-2 bg-bg-secondary rounded-sm border border-border-subtle text-text-primary text-sm focus:border-accent"
               />
             </label>
 
             <label className="text-sm">
-              <span className="flex items-center gap-2 text-text-secondary mb-1.5">
-                <ShieldCheck className="w-4 h-4 text-accent" /> Verify checksum
+              <span className="kicker mb-2 flex items-center gap-2">
+                <ShieldCheck className="w-3.5 h-3.5 text-accent" /> Verify checksum
               </span>
               <input
                 type="text"
                 value={options.checksum}
                 onChange={(e) => setOptions({ ...options, checksum: e.target.value })}
                 placeholder="Expected hash (optional)"
-                className="w-full px-3 py-2 bg-bg-secondary rounded-lg border border-border-subtle text-text-primary focus:border-accent font-mono text-xs"
+                className="w-full px-3 py-2 bg-bg-secondary rounded-sm border border-border-subtle text-text-primary focus:border-accent font-mono text-xs"
               />
             </label>
 
             <label className="text-sm">
-              <span className="text-text-secondary mb-1.5 block">Checksum algorithm</span>
+              <span className="kicker mb-2 block">Checksum algorithm</span>
               <select
                 value={options.checksumAlgo}
                 onChange={(e) => setOptions({ ...options, checksumAlgo: e.target.value })}
-                className="w-full px-3 py-2 bg-bg-secondary rounded-lg border border-border-subtle text-text-primary focus:border-accent"
+                className="w-full px-3 py-2 bg-bg-secondary rounded-sm border border-border-subtle text-text-primary text-sm focus:border-accent"
               >
                 <option value="sha256">SHA-256</option>
                 <option value="sha1">SHA-1</option>
@@ -356,13 +341,13 @@ export default function DropZone({ onAdded }) {
       </div>
 
       {isDragging && (
-        <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-accent/10 pointer-events-none">
+        <div className="absolute inset-0 flex items-center justify-center bg-accent/10 pointer-events-none">
           <div className="text-center">
-            <Plus className="w-14 h-14 text-accent mx-auto mb-2" />
-            <p className="text-accent font-semibold">Drop to add</p>
+            <Plus className="w-12 h-12 text-accent mx-auto mb-2" />
+            <p className="kicker text-accent" style={{ letterSpacing: '0.24em' }}>Drop to add</p>
           </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }

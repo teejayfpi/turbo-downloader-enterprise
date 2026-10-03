@@ -1,4 +1,4 @@
-import { Settings, Zap, Activity, ListOrdered, Wifi, WifiOff, Sun, Moon, Download } from 'lucide-react';
+import { Settings, Activity, Wifi, WifiOff, Sun, Moon, Download, ChevronRight } from 'lucide-react';
 import { useDownloadStore } from '../stores/downloadStore';
 import { api } from '../hooks/useApi';
 import { formatSpeed } from '../lib/format';
@@ -27,39 +27,43 @@ export default function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-50 bg-bg-primary/80 backdrop-blur-xl border-b border-border-subtle">
+    <header className="sticky top-0 z-50 border-b border-border-subtle bg-bg-primary/85 backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-4">
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-success flex items-center justify-center glow-accent">
-                <Zap className="w-6 h-6 text-bg-primary" />
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="relative shrink-0">
+              <div className="w-10 h-10 rounded-sm bg-gradient-to-br from-accent to-success flex items-center justify-center glow-accent">
+                <svg viewBox="0 0 1024 1024" className="w-5 h-5" aria-hidden="true">
+                  <path d="M462 258H562V534H688L512 736L336 534H462Z" fill="rgb(var(--bg-primary))" />
+                </svg>
               </div>
               <div
-                className={`absolute -top-1 -right-1 w-3 h-3 rounded-full pulse-dot ${
-                  stats.activeCount > 0 ? 'bg-success' : 'bg-text-muted'
+                className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-bg-primary ${
+                  stats.activeCount > 0 ? 'bg-success pulse-dot' : 'bg-text-muted'
                 }`}
               />
             </div>
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">
-                <span className="text-gradient">TURBO</span>
-              </h1>
-              <p className="text-[10px] text-text-muted uppercase tracking-widest">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                <h1 className="font-display font-bold text-lg tracking-[0.2em] text-gradient leading-none">
+                  TURBO
+                </h1>
+              </div>
+              <p className="kicker leading-none mt-1" style={{ letterSpacing: '0.24em' }}>
                 Download Manager
               </p>
             </div>
           </div>
 
-          <div className="hidden md:flex items-center gap-3">
-            <Stat icon={Activity} label="Speed" value={formatSpeed(stats.totalSpeed)} tone="text-accent" />
-            <Stat icon={Zap} label="Peak" value={formatSpeed(stats.peakSpeed)} tone="text-success" />
-            <Stat icon={ListOrdered} label="Queue" value={String(queued)} tone="text-warning" />
+          <div className="hidden md:flex items-center gap-2">
+            <Readout icon={Activity} label="Speed" value={formatSpeed(stats.totalSpeed)} tone="accent" />
+            <Readout icon={Activity} label="Peak" value={formatSpeed(stats.peakSpeed)} tone="success" />
+            <Readout icon={Download} label="Queue" value={String(queued)} tone="warning" />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <span
-              className={`hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium ${
+              className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm border text-[11px] font-medium uppercase tracking-wider ${
                 connected
                   ? 'border-success/30 text-success bg-success/10'
                   : 'border-error/30 text-error bg-error/10'
@@ -73,7 +77,7 @@ export default function Header() {
             {pwa.canPrompt && (
               <button
                 onClick={pwa.promptInstall}
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-accent text-bg-primary text-xs font-semibold hover:bg-accent/90 transition-colors focus-ring"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sm bg-accent text-bg-primary text-[11px] font-bold uppercase tracking-wider hover:brightness-110 transition focus-ring"
                 aria-label="Install app"
                 title="Install app"
               >
@@ -84,24 +88,21 @@ export default function Header() {
 
             <button
               onClick={toggleTheme}
-              className="p-2 rounded-lg bg-bg-secondary border border-border-subtle hover:border-accent/50 transition-colors focus-ring"
+              className="p-2 rounded-sm border border-border-subtle text-text-secondary hover:text-accent hover:border-accent/50 transition-colors focus-ring"
               aria-label="Toggle theme"
               title="Toggle theme"
             >
-              {settings.theme === 'light' ? (
-                <Moon className="w-5 h-5 text-text-secondary" />
-              ) : (
-                <Sun className="w-5 h-5 text-text-secondary" />
-              )}
+              {settings.theme === 'light' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
             </button>
 
             <button
               onClick={toggleSettingsModal}
-              className="p-2 rounded-lg bg-bg-secondary border border-border-subtle hover:border-accent/50 transition-colors group focus-ring"
+              className="group inline-flex items-center gap-2 pl-2 pr-2.5 py-2 rounded-sm border border-border-subtle text-text-secondary hover:text-accent hover:border-accent/50 transition-colors focus-ring"
               aria-label="Settings"
               title="Settings"
             >
-              <Settings className="w-5 h-5 text-text-secondary group-hover:text-accent transition-colors" />
+              <Settings className="w-4 h-4" />
+              <ChevronRight className="w-3 h-3 hidden sm:block opacity-50 group-hover:translate-x-0.5 transition-transform" />
             </button>
           </div>
         </div>
@@ -110,12 +111,12 @@ export default function Header() {
   );
 }
 
-function Stat({ icon: Icon, label, value, tone }) {
+function Readout({ icon: Icon, label, value, tone }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-2 bg-bg-secondary rounded-lg border border-border-subtle">
-      <Icon className={`w-4 h-4 ${tone}`} />
-      <span className="text-xs text-text-secondary">{label}:</span>
-      <span className={`font-mono font-semibold text-sm ${tone}`}>{value}</span>
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-sm border border-border-subtle bg-bg-secondary/60">
+      <Icon className={`w-3.5 h-3.5 ${tone}`} />
+      <span className="kicker" style={{ letterSpacing: '0.2em' }}>{label}</span>
+      <span className={`font-mono font-semibold text-sm speed-counter ${tone}`}>{value}</span>
     </div>
   );
 }

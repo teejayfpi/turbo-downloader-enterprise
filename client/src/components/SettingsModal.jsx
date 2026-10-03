@@ -70,43 +70,47 @@ export default function SettingsModal() {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 modal-backdrop" onClick={toggle} />
-      <div className="relative w-full max-w-2xl max-h-[90vh] bg-bg-secondary rounded-2xl border border-border-subtle shadow-2xl overflow-hidden animate-slide-up flex flex-col">
-        <div className="flex items-center justify-between p-6 border-b border-border-subtle">
+      <div className="relative w-full max-w-2xl max-h-[90vh] bg-bg-secondary rounded-sm border border-border-subtle shadow-2xl overflow-hidden animate-slide-up flex flex-col">
+        <div className="flex items-center justify-between gap-3 px-6 py-5 border-b border-border-subtle">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
-              <Settings className="w-5 h-5 text-accent" />
+            <div className="w-9 h-9 rounded-sm bg-accent/10 border border-accent/25 flex items-center justify-center">
+              <Settings className="w-4 h-4 text-accent" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-text-primary">Settings</h2>
-              <p className="text-sm text-text-muted">Tune Turbo to your workflow</p>
+              <h2 className="font-display font-semibold text-lg tracking-wide text-text-primary">Configuration</h2>
+              <p className="kicker mt-0.5" style={{ letterSpacing: '0.18em' }}>Tune the engine to your workflow</p>
             </div>
           </div>
           <button
             onClick={toggle}
-            className="p-2 rounded-lg bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors"
+            className="p-2 rounded-sm text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors focus-ring"
             aria-label="Close"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         <div className="flex flex-1 min-h-0 flex-col sm:flex-row">
-          <div className="sm:w-48 border-b sm:border-b-0 sm:border-r border-border-subtle p-4 shrink-0">
+          <div className="sm:w-44 border-b sm:border-b-0 sm:border-r border-border-subtle p-3 shrink-0 bg-bg-primary/40">
             <nav className="flex sm:flex-col gap-1 overflow-x-auto">
-              {tabs.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setTab(t.id)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${
-                    tab === t.id
-                      ? 'bg-accent/10 text-accent'
-                      : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary'
-                  }`}
-                >
-                  <t.icon className="w-4 h-4" />
-                  {t.label}
-                </button>
-              ))}
+              {tabs.map((t) => {
+                const on = tab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setTab(t.id)}
+                    className={`relative flex items-center gap-2.5 px-3 py-2.5 rounded-sm text-xs font-semibold uppercase tracking-wider transition-all whitespace-nowrap ${
+                      on
+                        ? 'bg-accent/10 text-accent'
+                        : 'text-text-muted hover:bg-bg-tertiary hover:text-text-primary'
+                    }`}
+                  >
+                    {on && <span className="absolute left-0 top-2 bottom-2 w-[2px] bg-accent" />}
+                    <t.icon className="w-3.5 h-3.5" />
+                    {t.label}
+                  </button>
+                );
+              })}
             </nav>
           </div>
 
@@ -120,26 +124,26 @@ export default function SettingsModal() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 p-6 border-t border-border-subtle">
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-border-subtle">
           <button
             onClick={reset}
-            className="px-4 py-2.5 rounded-xl text-sm font-medium text-text-muted hover:text-error transition-colors flex items-center gap-2"
+            className="px-3 py-2 rounded-sm text-xs font-semibold uppercase tracking-wider text-text-muted hover:text-error transition-colors flex items-center gap-2"
           >
-            <RotateCcw className="w-4 h-4" /> Reset defaults
+            <RotateCcw className="w-3.5 h-3.5" /> Reset defaults
           </button>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button
               onClick={toggle}
-              className="px-6 py-2.5 rounded-xl text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
+              className="px-4 py-2.5 rounded-sm text-xs font-semibold uppercase tracking-wider text-text-secondary hover:text-text-primary transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={save}
               disabled={saving}
-              className="px-6 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-accent to-success text-bg-primary hover:shadow-lg hover:shadow-accent/30 transition-all flex items-center gap-2 disabled:opacity-50 focus-ring"
+              className="px-5 py-2.5 rounded-sm text-xs font-bold uppercase tracking-[0.14em] bg-accent text-bg-primary hover:brightness-110 transition-all flex items-center gap-2 disabled:opacity-50 focus-ring"
             >
-              {saving ? 'Saving…' : (<><Save className="w-4 h-4" /> Save changes</>)}
+              {saving ? 'Saving…' : (<><Save className="w-3.5 h-3.5" /> Save changes</>)}
             </button>
           </div>
         </div>
@@ -153,7 +157,7 @@ function Slider({ label, hint, value, min, max, step = 1, suffix = '', onChange 
     <div>
       <div className="flex items-center justify-between mb-2">
         <label className="text-sm font-medium text-text-primary">{label}</label>
-        <span className="text-sm font-mono text-accent">
+        <span className="font-mono text-sm text-accent speed-counter">
           {value}
           {suffix}
         </span>
@@ -166,7 +170,7 @@ function Slider({ label, hint, value, min, max, step = 1, suffix = '', onChange 
         value={value}
         onChange={(e) => onChange(parseInt(e.target.value, 10))}
       />
-      {hint && <p className="text-xs text-text-muted mt-1">{hint}</p>}
+      {hint && <p className="text-xs text-text-muted mt-1.5">{hint}</p>}
     </div>
   );
 }
@@ -176,19 +180,19 @@ function Toggle({ label, hint, checked, onChange }) {
     <div className="flex items-center justify-between gap-4">
       <div>
         <label className="text-sm font-medium text-text-primary">{label}</label>
-        {hint && <p className="text-xs text-text-muted">{hint}</p>}
+        {hint && <p className="text-xs text-text-muted mt-0.5">{hint}</p>}
       </div>
       <button
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
-        className={`w-12 h-6 rounded-full transition-all duration-200 relative shrink-0 ${
-          checked ? 'bg-accent' : 'bg-bg-tertiary'
+        className={`w-11 h-6 rounded-sm transition-all duration-200 relative shrink-0 border ${
+          checked ? 'bg-accent border-accent' : 'bg-bg-tertiary border-border-subtle'
         }`}
       >
         <span
-          className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all duration-200 ${
-            checked ? 'left-7' : 'left-1'
+          className={`absolute top-0.5 w-4 h-4 rounded-sm bg-white transition-all duration-200 ${
+            checked ? 'left-[1.375rem]' : 'left-0.5'
           }`}
         />
       </button>
@@ -199,7 +203,7 @@ function Toggle({ label, hint, checked, onChange }) {
 function ConnectionSettings({ settings, onChange }) {
   return (
     <div className="space-y-6">
-      <Header title="Connection Settings" subtitle="Optimise speed and concurrency" />
+      <Header title="Connection" subtitle="Optimise speed and concurrency" />
       <Slider
         label="Connections per download"
         hint="Segments requested in parallel (1–32). Higher is faster but heavier on the server."
@@ -231,7 +235,7 @@ function ConnectionSettings({ settings, onChange }) {
         min={0}
         max={100000}
         step={100}
-        suffix={settings.bandwidthLimit === 0 ? ' KB/s (unlimited)' : ' KB/s'}
+        suffix={settings.bandwidthLimit === 0 ? ' KB/s · unlimited' : ' KB/s'}
         onChange={(v) => onChange('bandwidthLimit', v)}
       />
     </div>
@@ -241,24 +245,24 @@ function ConnectionSettings({ settings, onChange }) {
 function StorageSettings({ settings, onChange }) {
   return (
     <div className="space-y-6">
-      <Header title="Storage Settings" subtitle="Where files go and how duplicates are handled" />
+      <Header title="Storage" subtitle="Where files go and how duplicates are handled" />
       <div>
-        <label className="text-sm font-medium text-text-primary mb-2 block">Download directory</label>
+        <label className="kicker mb-2 block">Download directory</label>
         <input
           type="text"
           value={settings.defaultDir}
           onChange={(e) => onChange('defaultDir', e.target.value)}
-          className="w-full px-4 py-3 bg-bg-primary rounded-xl border border-border-subtle text-text-primary text-sm focus:border-accent font-mono"
+          className="w-full px-3.5 py-3 bg-bg-primary rounded-sm border border-border-subtle text-text-primary text-sm focus:border-accent font-mono"
           placeholder="/path/to/downloads"
         />
-        <p className="text-xs text-text-muted mt-1">The directory must be writable by the server process.</p>
+        <p className="text-xs text-text-muted mt-1.5">The directory must be writable by the server process.</p>
       </div>
       <div>
-        <label className="text-sm font-medium text-text-primary mb-2 block">Duplicate files</label>
+        <label className="kicker mb-2 block">Duplicate files</label>
         <select
           value={settings.duplicateHandling}
           onChange={(e) => onChange('duplicateHandling', e.target.value)}
-          className="w-full px-4 py-3 bg-bg-primary rounded-xl border border-border-subtle text-text-primary text-sm focus:border-accent"
+          className="w-full px-3.5 py-3 bg-bg-primary rounded-sm border border-border-subtle text-text-primary text-sm focus:border-accent"
         >
           <option value="skip">Skip existing files</option>
           <option value="rename">Rename new files (e.g. "file (1).zip")</option>
@@ -278,7 +282,7 @@ function StorageSettings({ settings, onChange }) {
 function NotificationSettings({ settings, onChange }) {
   return (
     <div className="space-y-6">
-      <Header title="Notification Settings" subtitle="Control alerts and retry behaviour" />
+      <Header title="Alerts" subtitle="Control notifications and retry behaviour" />
       <Toggle
         label="Enable notifications"
         hint="Show in-app and desktop alerts when downloads finish."
@@ -309,51 +313,60 @@ function NotificationSettings({ settings, onChange }) {
 
 function AppearanceSettings({ settings, onChange }) {
   const accents = [
-    { id: 'cyan', color: '#00d4ff', name: 'Cyan' },
-    { id: 'green', color: '#00e082', name: 'Green' },
-    { id: 'purple', color: '#a855f7', name: 'Purple' },
-    { id: 'orange', color: '#ff8800', name: 'Orange' },
+    { id: 'cyan', color: '#22e0ff', name: 'Cyan' },
+    { id: 'green', color: '#2fffc8', name: 'Mint' },
+    { id: 'amber', color: '#ffc43c', name: 'Amber' },
+    { id: 'orange', color: '#ff8a30', name: 'Orange' },
+    { id: 'rose', color: '#ff5c8c', name: 'Rose' },
+    { id: 'purple', color: '#aa7aff', name: 'Violet' },
   ];
   return (
     <div className="space-y-6">
       <Header title="Appearance" subtitle="Make Turbo feel like yours" />
       <div>
-        <label className="text-sm font-medium text-text-primary mb-3 block">Theme</label>
+        <label className="kicker mb-3 block">Theme</label>
         <div className="grid grid-cols-2 gap-3">
-          {['dark', 'light'].map((theme) => (
-            <button
-              key={theme}
-              onClick={() => onChange('theme', theme)}
-              className={`p-4 rounded-xl border-2 transition-all duration-200 capitalize focus-ring ${
-                settings.theme === theme ? 'border-accent bg-accent/10' : 'border-border-subtle hover:border-accent/50'
-              }`}
-            >
-              <div className={`w-full h-14 rounded-lg mb-2 ${theme === 'dark' ? 'bg-[#0a0a0f]' : 'bg-[#f4f6fa]'}`}>
-                <div className="h-2 w-12 rounded bg-accent mx-2 mt-3" />
-              </div>
-              <span className={`text-sm font-medium ${settings.theme === theme ? 'text-accent' : 'text-text-primary'}`}>
-                {theme} mode
-              </span>
-            </button>
-          ))}
+          {['dark', 'light'].map((theme) => {
+            const on = settings.theme === theme;
+            return (
+              <button
+                key={theme}
+                onClick={() => onChange('theme', theme)}
+                className={`p-3 rounded-sm border-2 transition-all duration-200 text-left focus-ring ${
+                  on ? 'border-accent bg-accent/5' : 'border-border-subtle hover:border-accent/50'
+                }`}
+              >
+                <div className={`w-full h-14 rounded-sm mb-2.5 border border-border-subtle overflow-hidden ${theme === 'dark' ? 'bg-[#080a10]' : 'bg-[#f4f6fb]'}`}>
+                  <div className="h-2 w-10 bg-accent mx-2 mt-3 rounded-sm" />
+                  <div className="h-1.5 w-16 bg-text-muted/30 mx-2 mt-1.5 rounded-sm" />
+                </div>
+                <span className={`text-xs font-semibold uppercase tracking-wider ${on ? 'text-accent' : 'text-text-primary'}`}>
+                  {theme} mode
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
       <div>
-        <label className="text-sm font-medium text-text-primary mb-3 block">Accent colour</label>
-        <div className="flex gap-3">
-          {accents.map((a) => (
-            <button
-              key={a.id}
-              onClick={() => onChange('accentColor', a.id)}
-              title={a.name}
-              className={`w-11 h-11 rounded-xl border-2 transition-all duration-200 flex items-center justify-center focus-ring ${
-                settings.accentColor === a.id ? 'border-white scale-110' : 'border-transparent'
-              }`}
-              style={{ backgroundColor: a.color }}
-            >
-              {settings.accentColor === a.id && <Check className="w-5 h-5 text-black/70" />}
-            </button>
-          ))}
+        <label className="kicker mb-3 block">Accent signal</label>
+        <div className="flex flex-wrap gap-2.5">
+          {accents.map((a) => {
+            const on = settings.accentColor === a.id;
+            return (
+              <button
+                key={a.id}
+                onClick={() => onChange('accentColor', a.id)}
+                title={a.name}
+                className={`w-10 h-10 rounded-sm border transition-all duration-200 flex items-center justify-center focus-ring ${
+                  on ? 'border-white/80 scale-105' : 'border-transparent hover:scale-105'
+                }`}
+                style={{ backgroundColor: a.color }}
+              >
+                {on && <Check className="w-4 h-4 text-black/70" />}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -365,7 +378,7 @@ function SystemInfo({ system, settings }) {
   return (
     <div className="space-y-6">
       <Header title="System" subtitle="Runtime capabilities reported by the server" />
-      <div className="space-y-3">
+      <div className="space-y-2.5">
         <InfoRow
           icon={Film}
           label="Media engine (yt-dlp)"
@@ -376,7 +389,7 @@ function SystemInfo({ system, settings }) {
         <InfoRow icon={Server} label="Server version" value={`v${system?.version || '—'} · Node ${system?.node || '—'}`} ok />
       </div>
       {!media.available && (
-        <div className="rounded-xl border border-warning/30 bg-warning/10 p-4 text-sm text-warning flex gap-3">
+        <div className="rounded-sm border border-warning/30 bg-warning/10 p-4 text-sm text-warning flex gap-3">
           <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
           <div>
             <p className="font-medium mb-1">Media downloads are disabled</p>
@@ -400,9 +413,9 @@ function AboutPanel({ system }) {
 
       <InstallCard pwa={pwa} />
 
-      <div className="rounded-xl border border-border-subtle bg-bg-primary p-5 text-center">
-        <p className="text-[11px] uppercase tracking-[0.3em] text-text-muted">Designed by</p>
-        <p className="mt-2 text-lg font-bold text-text-primary">{DESIGNER.name}</p>
+      <div className="rounded-sm border border-border-subtle bg-bg-primary p-5 text-center">
+        <p className="kicker" style={{ letterSpacing: '0.3em' }}>Designed by</p>
+        <p className="mt-2 font-display text-lg font-semibold text-text-primary">{DESIGNER.name}</p>
         <div className="mt-3 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 text-sm">
           <a
             href={`mailto:${DESIGNER.email}`}
@@ -421,7 +434,7 @@ function AboutPanel({ system }) {
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2.5">
         <InfoRow
           icon={Info}
           label="Application"
@@ -441,7 +454,7 @@ function AboutPanel({ system }) {
 
 function InfoRow({ icon: Icon, label, value, ok }) {
   return (
-    <div className="flex items-center justify-between gap-4 bg-bg-primary rounded-xl p-3 border border-border-subtle">
+    <div className="flex items-center justify-between gap-4 bg-bg-primary rounded-sm p-3 border border-border-subtle">
       <div className="flex items-center gap-3 min-w-0">
         <Icon className="w-4 h-4 text-accent shrink-0" />
         <span className="text-sm text-text-secondary">{label}</span>
@@ -461,7 +474,7 @@ function InfoRow({ icon: Icon, label, value, ok }) {
 function Header({ title, subtitle }) {
   return (
     <div>
-      <h3 className="text-lg font-semibold text-text-primary mb-1">{title}</h3>
+      <h3 className="font-display font-semibold text-base tracking-wide text-text-primary mb-1">{title}</h3>
       <p className="text-sm text-text-muted">{subtitle}</p>
     </div>
   );

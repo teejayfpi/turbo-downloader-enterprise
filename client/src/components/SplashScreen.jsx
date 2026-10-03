@@ -67,13 +67,13 @@ export default function SplashScreen({ ready, onMounted }) {
           <svg viewBox="0 0 1024 1024" className="splash-svg" aria-hidden="true">
             <defs>
               <linearGradient id="smark" x1="0.1" y1="0.05" x2="0.9" y2="1">
-                <stop offset="0" stopColor="#7af6ff" />
-                <stop offset="0.42" stopColor="#00d4ff" />
-                <stop offset="1" stopColor="#00ffc2" />
+                <stop offset="0" stopColor="#8af8ff" />
+                <stop offset="0.42" stopColor="#22e0ff" />
+                <stop offset="1" stopColor="#2fffc8" />
               </linearGradient>
               <linearGradient id="sarc" x1="0.1" y1="0" x2="0.9" y2="1">
                 <stop offset="0" stopColor="#5ef2ff" stopOpacity="0.6" />
-                <stop offset="1" stopColor="#00ffc2" stopOpacity="0" />
+                <stop offset="1" stopColor="#2fffc8" stopOpacity="0" />
               </linearGradient>
             </defs>
             <circle
@@ -92,7 +92,7 @@ export default function SplashScreen({ ready, onMounted }) {
             <g className="splash-arrow">
               <path
                 d="M462 258H562V534H688L512 736L336 534H462Z"
-                fill="#00d4ff"
+                fill="#22e0ff"
                 opacity="0.35"
                 className="splash-halo"
               />
