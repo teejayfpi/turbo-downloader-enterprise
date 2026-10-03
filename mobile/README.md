@@ -33,6 +33,24 @@ and audio tracks and offer 1080p/4K; without it, the app offers combined streams
 install yt-dlp to unlock more platforms and higher quality, or use the app
 as-is.
 
+## Install
+
+Grab the latest build from the
+[releases page](https://github.com/teejayfpi/turbo-downloader-enterprise/releases/latest):
+
+- **Windows:** download `TurboSetup-windows.exe` and run it. It installs for the
+  current user only (no admin prompt), adds a Start Menu entry and an optional
+  desktop shortcut, registers the `turbo://` link handler, and can be removed
+  from *Apps & features*.
+- **macOS:** download `Turbo-macos.zip`, unzip, and drag `Turbo.app` into
+  *Applications*. The first launch needs *System Settings → Privacy & Security →
+  Open Anyway* because the build is not notarised.
+- **Linux:** download `Turbo-linux.tar.gz`, unpack it, and run
+  `./turbo_downloader`.
+
+To build from source instead, see *Verifying* below (you need the Flutter SDK
+and, on Windows, Visual Studio 2022 with the C++ desktop workload).
+
 ## Getting links in from anywhere
 
 Turbo does not care where a link comes from. It accepts a URL from whichever
