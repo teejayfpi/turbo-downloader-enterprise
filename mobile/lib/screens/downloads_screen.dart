@@ -551,6 +551,8 @@ class _DownloadCard extends StatelessWidget {
             const SizedBox(height: 12),
             _SavedRow(
               onOpen: () => _open(context),
+              onShare: () => _share(context),
+              filename: task.filename,
               meta: task.filePath,
             ),
           ],
@@ -577,6 +579,18 @@ class _DownloadCard extends StatelessWidget {
     FileStore.open(path);
   }
 
+  Future<void> _share(BuildContext context) async {
+    final path = task.filePath;
+    if (path == null || path.isEmpty) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final ok = await FileStore.share(path, filename: task.filename);
+    if (!ok) {
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('Could not share this file.')),
+      );
+    }
+  }
+
   Widget _actions(BuildContext context) {
     final state = context.read<TurboState>();
     return PopupMenuButton<String>(
@@ -597,6 +611,9 @@ class _DownloadCard extends StatelessWidget {
           case 'open':
             _open(context);
             break;
+          case 'share':
+            _share(context);
+            break;
           case 'remove':
             state.local.remove(task.id);
             break;
@@ -609,6 +626,8 @@ class _DownloadCard extends StatelessWidget {
           _menuItem('resume', Icons.play_arrow_rounded, 'Resume'),
         if (task.isFailed) _menuItem('retry', Icons.refresh_rounded, 'Retry'),
         if (task.canOpen) _menuItem('open', Icons.open_in_new_rounded, 'Open'),
+        if (task.canOpen)
+          _menuItem('share', Icons.ios_share_rounded, 'Share'),
         _menuItem('remove', Icons.delete_outline_rounded, 'Delete'),
       ],
     );
@@ -634,8 +653,15 @@ class _DownloadCard extends StatelessWidget {
 /// "Saved to your Downloads" strip shown on completed downloads.
 class _SavedRow extends StatelessWidget {
   final VoidCallback onOpen;
+  final VoidCallback onShare;
   final String? meta;
-  const _SavedRow({required this.onOpen, this.meta});
+  final String filename;
+  const _SavedRow({
+    required this.onOpen,
+    required this.onShare,
+    required this.filename,
+    this.meta,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -655,9 +681,11 @@ class _SavedRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Saved to your Downloads folder',
-                  style: TextStyle(
+                Text(
+                  'Saved to Downloads/${FileStore.subfolderFor(filename)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
                     fontFamily: TurboFonts.body,
                     color: TurboColors.success,
                     fontSize: 11,
@@ -679,6 +707,13 @@ class _SavedRow extends StatelessWidget {
                 ],
               ],
             ),
+          ),
+          IconButton(
+            tooltip: 'Share',
+            onPressed: onShare,
+            icon: const Icon(Icons.ios_share_rounded,
+                color: TurboColors.textSecondary, size: 18),
+            visualDensity: VisualDensity.compact,
           ),
           TextButton.icon(
             onPressed: onOpen,
