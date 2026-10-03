@@ -77,7 +77,15 @@ These caused real, user-visible bugs. Do not regress them.
   address in `shared_preferences`; a wrong default is worse than none.
 - **Saved files go through MediaStore** (`publishDownload` in `MainActivity.kt`),
   not a raw path, so they land in the public Downloads collection under scoped
-  storage.
+  storage. On **Android 9 and below** the publish first calls `ensureStorage`,
+  which requests legacy `WRITE_EXTERNAL_STORAGE` at runtime; if the user
+  declines, `Downloader._appPrivate` keeps the file instead of losing it.
+  Android 10+ needs no permission.
+- **The UI is a "precision instrument console"** shared with the web client:
+  bundled Sora / ChakraPetch / JetBrains Mono, corner-tick `TurboPanel` frames,
+  uppercase mono `Kicker`s, status-railed task cards. Design primitives live in
+  `lib/theme.dart`, shared widgets in `lib/widgets.dart`; keep both surfaces in
+  sync rather than inventing a second visual language.
 - **Play policy risk.** A YouTube/yt-dlp downloader can be pulled under IP/DMCA
   rules; see `mobile/README.md`.
 
