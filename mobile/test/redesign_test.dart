@@ -33,10 +33,10 @@ void main() {
       expect(find.text('ACTIVE'), findsOneWidget);
     });
 
-    testWidgets('add screen has no server switch and renders the device form',
+    testWidgets('add screen detects links and has no server switch',
         (tester) async {
       await pumpScreen(tester, const AddScreen());
-      expect(find.text('Target URL'.toUpperCase()), findsOneWidget);
+      expect(find.text('Link or file URL'.toUpperCase()), findsOneWidget);
       expect(find.text('Parallel connections'.toUpperCase()), findsOneWidget);
       expect(find.text('DOWNLOAD TO THIS DEVICE'.toUpperCase()), findsWidgets);
       // The old device/server segmented control is gone.

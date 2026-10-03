@@ -12,8 +12,10 @@ Repository knowledge for agents working on Turbo Downloader.
   It is a self-contained, offline-first downloader: no server, account, or key.
   Every transfer runs on the device that opened the app and is written to that
   device's own storage (`lib/local_downloader.dart`, `lib/file_store.dart`), and
-  media pages are resolved on-device by `lib/media_extractor.dart`. See
-  `mobile/README.md`. The `server/` and `client/` trees below are the legacy
+  media pages are resolved on-device by `lib/media_extractor.dart`. YouTube is
+  handled by the built-in extractor; other platforms (and HD merged downloads)
+  go through an optional on-device `yt-dlp` binary driven by `lib/ytdlp.dart`.
+  See `mobile/README.md`. The `server/` and `client/` trees below are the legacy
   web deployment and are no longer used by the mobile app.
 - Deployed on Render from `main` via `Dockerfile`. `main` is the production branch.
   `mobile/` is excluded in `.dockerignore` so it never enters the server image.

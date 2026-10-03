@@ -314,7 +314,7 @@ void main() {
     addTearDown(manager.dispose);
 
     var resolved = 0;
-    manager.resolveMediaOverride = (page) async {
+    manager.resolveMediaOverride = (page, {String? formatId}) async {
       resolved++;
       // The page URL is a YouTube link; the phone must never fetch it directly.
       expect(page, contains('youtube.com'));
@@ -353,7 +353,7 @@ void main() {
     addTearDown(manager.dispose);
 
     var resolved = 0;
-    manager.resolveMediaOverride = (page) async {
+    manager.resolveMediaOverride = (page, {String? formatId}) async {
       resolved++;
       return ResolvedMedia(
         url: origin.url,
@@ -384,11 +384,78 @@ void main() {
     final manager = await _manager(root);
     addTearDown(manager.dispose);
 
-    manager.resolveMediaOverride =
-        (page) async => throw const MediaResolveException('Video unavailable');
+    manager.resolveMediaOverride = (page, {String? formatId}) async =>
+        throw const MediaResolveException('Video unavailable');
 
     final task = manager.add('https://youtube.com/watch?v=gone',
         kind: 'media');
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isFailed, isTrue);
+    expect(task.error, 'Video unavailable');
+  });
+
+  test('a yt-dlp task streams progress, saves the file, and skips resolution',
+      () async {
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    // The built-in resolver must not be touched for a yt-dlp task.
+    manager.resolveMediaOverride =
+        (page, {String? formatId}) async => throw StateError('should not resolve');
+
+    String? seenUrl;
+    String? seenSelector;
+    final bytes = _blob(512 * 1024);
+    manager.ytdlpOverride = ({
+      required String url,
+      required String selector,
+      required Directory dir,
+      required String stem,
+      void Function(int, int, int)? onProgress,
+      bool Function()? isCancelled,
+    }) async {
+      seenUrl = url;
+      seenSelector = selector;
+      onProgress?.call(bytes.length ~/ 2, bytes.length, 4096);
+      final f = File('${dir.path}/$stem.mkv');
+      await f.writeAsBytes(bytes);
+      return f;
+    };
+
+    final task = manager.add(
+      'https://vimeo.com/12345',
+      filename: 'My Clip',
+      kind: 'media',
+      engine: 'ytdlp',
+      formatSelector: 'bestvideo+bestaudio',
+    );
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    expect(seenUrl, 'https://vimeo.com/12345');
+    expect(seenSelector, 'bestvideo+bestaudio');
+    expect(task.filename, 'My Clip.mkv');
+    expect(await File(task.filePath!).readAsBytes(), equals(bytes));
+  });
+
+  test('progress-only yt-dlp failures surface as a friendly task error',
+      () async {
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    manager.ytdlpOverride = ({
+      required String url,
+      required String selector,
+      required Directory dir,
+      required String stem,
+      void Function(int, int, int)? onProgress,
+      bool Function()? isCancelled,
+    }) async =>
+        throw const YtdlpException('Video unavailable');
+
+    final task = manager.add('https://vimeo.com/gone',
+        kind: 'media', engine: 'ytdlp', formatSelector: 'best');
     await _waitFor(() => task.isCompleted || task.isFailed);
 
     expect(task.isFailed, isTrue);
@@ -404,7 +471,7 @@ void main() {
     addTearDown(manager.dispose);
 
     var resolved = 0;
-    manager.resolveMediaOverride = (page) async {
+    manager.resolveMediaOverride = (page, {String? formatId}) async {
       resolved++;
       throw StateError('should not be called for a direct link');
     };

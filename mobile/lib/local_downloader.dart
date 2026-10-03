@@ -9,10 +9,15 @@ import 'package:path_provider/path_provider.dart';
 
 import 'file_store.dart';
 import 'media_extractor.dart';
+import 'ytdlp.dart';
 
 // `ResolvedMedia`/`MediaResolveException` appear in the manager's public API
 // (the resolver hook and its errors), so re-export them for callers.
-export 'media_extractor.dart' show MediaExtractor, MediaResolveException, ResolvedMedia;
+export 'media_extractor.dart'
+    show MediaExtractor, MediaFormat, MediaInfo, MediaResolveException, ResolvedMedia;
+
+// The yt-dlp engine types cross the manager boundary for the UI and resolver.
+export 'ytdlp.dart' show YtdlpEngine, YtdlpException, YtdlpFormat, YtdlpProbe;
 
 /// Moves a finished file into its final location. The default hands it to
 /// Android's MediaStore; tests substitute a plain move.
@@ -24,7 +29,21 @@ typedef BackgroundFn = Future<void> Function(int active);
 
 /// Resolves a media page to a direct stream. The default uses the on-device
 /// extractor; tests substitute a fake so they never call YouTube.
-typedef ResolveMediaFn = Future<ResolvedMedia> Function(String pageUrl);
+typedef ResolveMediaFn = Future<ResolvedMedia> Function(
+  String pageUrl, {
+  String? formatId,
+});
+
+/// Runs the yt-dlp engine. Tests substitute a fake so they never spawn a
+/// process; the default delegates to [YtdlpEngine].
+typedef YtdlpDownloadFn = Future<File?> Function({
+  required String url,
+  required String selector,
+  required Directory dir,
+  required String stem,
+  void Function(int downloaded, int total, int speed)? onProgress,
+  bool Function()? isCancelled,
+});
 
 Future<void> _deviceBackground(int active) async {
   try {
@@ -57,6 +76,29 @@ class LocalTask {
   /// the bytes still land on this device rather than a server.
   String kind;
 
+  /// Which engine fetches this task: "http" (the built-in multi-connection
+  /// engine) or "ytdlp" (the external program, used for non-YouTube sites and
+  /// high-resolution merged downloads). Chosen when the task is created.
+  String engine;
+
+  /// The yt-dlp `-f` selector, when [engine] is "ytdlp".
+  String? formatSelector;
+
+  /// Chosen rendition id from the extractor (e.g. `muxed:720p:mp4`) when the
+  /// built-in extractor resolves the stream.
+  String? formatId;
+
+  /// Best-effort output extension, used for the filename when the engine
+  /// chooses the container (yt-dlp).
+  String? extensionHint;
+
+  /// Media metadata captured when the link was inspected, kept for the UI and
+  /// for naming the saved file. Null for plain files.
+  String? mediaTitle;
+  String? mediaAuthor;
+  int? mediaDuration;
+  String? thumbnailUrl;
+
   /// The direct stream a media [url] resolved to. Not persisted: it is
   /// re-resolved on every start because signed stream URLs expire, and
   /// resuming against a stale one would fail. Null for direct links.
@@ -64,6 +106,13 @@ class LocalTask {
 
   /// The URL the worker actually fetches.
   String get fetchUrl => streamUrl ?? url;
+
+  /// True when this task runs through the external yt-dlp engine.
+  bool get usesYtdlp => engine == 'ytdlp';
+
+  /// True when extraction was requested but yt-dlp turned out to be missing,
+  /// so the task was served by the built-in extractor instead.
+  bool fellBackToBuiltin = false;
 
   List<int> segmentStart;
   List<int> segmentEnd;
@@ -83,6 +132,14 @@ class LocalTask {
     this.error,
     this.filePath,
     this.kind = 'http',
+    this.engine = 'http',
+    this.formatSelector,
+    this.formatId,
+    this.extensionHint,
+    this.mediaTitle,
+    this.mediaAuthor,
+    this.mediaDuration,
+    this.thumbnailUrl,
     List<int>? segmentStart,
     List<int>? segmentEnd,
     List<int>? segmentDone,
@@ -115,6 +172,15 @@ class LocalTask {
         'error': error,
         'filePath': filePath,
         'kind': kind,
+        'engine': engine,
+        'formatSelector': formatSelector,
+        'formatId': formatId,
+        'extensionHint': extensionHint,
+        'mediaTitle': mediaTitle,
+        'mediaAuthor': mediaAuthor,
+        'mediaDuration': mediaDuration,
+        'thumbnailUrl': thumbnailUrl,
+        'fellBackToBuiltin': fellBackToBuiltin,
         'segmentStart': segmentStart,
         'segmentEnd': segmentEnd,
         'segmentDone': segmentDone,
@@ -137,6 +203,14 @@ class LocalTask {
       error: json['error']?.toString(),
       filePath: json['filePath']?.toString(),
       kind: json['kind']?.toString() ?? 'http',
+      engine: json['engine']?.toString() ?? 'http',
+      formatSelector: json['formatSelector']?.toString(),
+      formatId: json['formatId']?.toString(),
+      extensionHint: json['extensionHint']?.toString(),
+      mediaTitle: json['mediaTitle']?.toString(),
+      mediaAuthor: json['mediaAuthor']?.toString(),
+      mediaDuration: (json['mediaDuration'] as num?)?.toInt(),
+      thumbnailUrl: json['thumbnailUrl']?.toString(),
       segmentStart: ints(json['segmentStart']),
       segmentEnd: ints(json['segmentEnd']),
       segmentDone: ints(json['segmentDone']),
@@ -177,7 +251,43 @@ class LocalDownloadManager extends ChangeNotifier {
 
   /// Overridden in tests so media resolution never reaches YouTube.
   @visibleForTesting
-  ResolveMediaFn resolveMediaOverride = const MediaExtractor().resolve;
+  ResolveMediaFn resolveMediaOverride = _defaultResolve;
+
+  /// Overridden in tests so yt-dlp is never spawned. When null the shared
+  /// [ytdlp] engine is used.
+  @visibleForTesting
+  YtdlpDownloadFn? ytdlpOverride;
+
+  /// The yt-dlp engine, shared with Settings for detection and install help.
+  final YtdlpEngine ytdlp = YtdlpEngine();
+
+  /// Segment ceiling for range-capable hosts. Raised by Turbo speed mode.
+  int maxConnections = 16;
+
+  static Future<ResolvedMedia> _defaultResolve(
+    String pageUrl, {
+    String? formatId,
+  }) =>
+      const MediaExtractor().resolve(pageUrl, formatId: formatId);
+
+  /// Runs [YtdlpEngine.download] with the shared engine (honouring the path
+  /// the user configured in Settings).
+  Future<File?> _runYtdlp({
+    required String url,
+    required String selector,
+    required Directory dir,
+    required String stem,
+    void Function(int downloaded, int total, int speed)? onProgress,
+    bool Function()? isCancelled,
+  }) =>
+      ytdlp.download(
+        url: url,
+        selector: selector,
+        dir: dir,
+        stem: stem,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      );
 
   List<LocalTask> get tasks =>
       _order.map((id) => _byId[id]).whereType<LocalTask>().toList();
@@ -213,14 +323,22 @@ class LocalDownloadManager extends ChangeNotifier {
 
   LocalTask? task(String id) => _byId[id];
 
-  /// Queues a download and returns its id. The worker starts it if a slot is
-  /// free. Direct file links are fetched as-is; media pages are resolved to a
-  /// stream on the device first, then fetched and stored here too.
+  /// Queues a download and returns its task. The worker starts it if a slot is
+  /// free. Direct file links are fetched as-is; media pages are resolved on the
+  /// device first (or handed to yt-dlp), then stored here too.
   LocalTask add(
     String url, {
     String? filename,
     int connections = 4,
     String kind = 'http',
+    String engine = 'http',
+    String? formatSelector,
+    String? formatId,
+    String? extensionHint,
+    String? mediaTitle,
+    String? mediaAuthor,
+    int? mediaDuration,
+    String? thumbnailUrl,
   }) {
     final id = _newId();
     final task = LocalTask(
@@ -231,6 +349,14 @@ class LocalDownloadManager extends ChangeNotifier {
           : _fallbackName(url),
       connections: connections.clamp(1, 16),
       kind: kind,
+      engine: engine,
+      formatSelector: formatSelector,
+      formatId: formatId,
+      extensionHint: extensionHint,
+      mediaTitle: mediaTitle,
+      mediaAuthor: mediaAuthor,
+      mediaDuration: mediaDuration,
+      thumbnailUrl: thumbnailUrl,
       createdAt: DateTime.now(),
     );
     _byId[id] = task;
@@ -344,6 +470,26 @@ class LocalDownloadManager extends ChangeNotifier {
   }
 
   Future<void> _execute(LocalTask task, _Run run) async {
+    try {
+      // The external engine is a separate program that manages its own
+      // connections and writes into the task's folder; the built-in engine
+      // (ranges, resume, multi-connection) handles everything else.
+      if (task.usesYtdlp) {
+        await _executeYtdlp(task, run);
+        return;
+      }
+      await _executeBuiltin(task, run);
+    } catch (e) {
+      if (run.cancelled) return;
+      task.status = 'failed';
+      task.error = _friendly(e);
+    } finally {
+      _persist();
+      _safeNotify();
+    }
+  }
+
+  Future<void> _executeBuiltin(LocalTask task, _Run run) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
     // Content-encoding would change byte offsets and break ranged/resumed
     // downloads, so take the raw bytes.
@@ -353,10 +499,14 @@ class LocalDownloadManager extends ChangeNotifier {
       // on this device first, then download that URL directly. Only the
       // resolved URL is fetched here; nothing is proxied through a server.
       if (task.kind == 'media') {
-        final media = await resolveMediaOverride(task.url);
+        final media =
+            await resolveMediaOverride(task.url, formatId: task.formatId);
         task.streamUrl = media.url;
         if (task.filename.isEmpty || task.filename == 'download') {
           task.filename = _mediaName(media);
+        } else if (task.extensionHint == null &&
+            !task.filename.contains('.')) {
+          task.filename = '${task.filename}.${media.extension}';
         }
         if (media.size > 0) task.total = media.size;
       }
@@ -378,15 +528,45 @@ class LocalDownloadManager extends ChangeNotifier {
       task.status = 'completed';
       task.completedAt = DateTime.now();
       await _cleanupParts(task);
-    } catch (e) {
-      if (run.cancelled) return;
-      task.status = 'failed';
-      task.error = _friendly(e);
     } finally {
       client.close(force: true);
-      _persist();
-      _safeNotify();
     }
+  }
+
+  /// Runs the task through yt-dlp, reporting progress into the same fields the
+  /// UI already renders.
+  Future<void> _executeYtdlp(LocalTask task, _Run run) async {
+    final dir = _taskDir(task.id)!;
+    if (!await dir.exists()) await dir.create(recursive: true);
+    final stem = _safeStem(task.filename);
+    final selector = task.formatSelector ?? 'best';
+    final run_ = ytdlpOverride ?? _runYtdlp;
+
+    final file = await run_(
+      url: task.url,
+      selector: selector,
+      dir: dir,
+      stem: stem,
+      isCancelled: () => run.cancelled,
+      onProgress: (downloaded, total, speed) {
+        task.downloaded = downloaded;
+        if (total > 0) task.total = total;
+        task.speed = speed;
+        _safeNotify();
+      },
+    );
+    if (run.cancelled) return;
+    if (file == null) {
+      throw const YtdlpException('The engine produced no file.');
+    }
+
+    task.filename = _withExtension(task.filename, task.extensionHint, file.path);
+    task.downloaded = task.total > 0 ? task.total : await file.length();
+    final saved = await publishOverride(file, task.filename);
+    task.filePath = saved.path;
+    task.status = 'completed';
+    task.completedAt = DateTime.now();
+    await _cleanupParts(task);
   }
 
   Future<_Probe> _probe(HttpClient client, String url) async {
@@ -611,7 +791,7 @@ class LocalDownloadManager extends ChangeNotifier {
     } catch (_) {}
   }
 
-  int _maxSegments(int total) => max(1, min(16, total ~/ (1 << 19)));
+  int _maxSegments(int total) => max(1, min(maxConnections, total ~/ (1 << 19)));
 
   static int _totalFromContentRange(String? header) {
     // "bytes 0-0/12345"
@@ -643,6 +823,43 @@ class LocalDownloadManager extends ChangeNotifier {
     return 'download';
   }
 
+  /// A filesystem-safe stem (no extension) for a yt-dlp output template.
+  static String _safeStem(String filename) {
+    final dot = filename.lastIndexOf('.');
+    final base = dot > 0 ? filename.substring(0, dot) : filename;
+    final cleaned = base
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+    return cleaned.isEmpty ? 'download' : cleaned;
+  }
+
+  /// Ensures [filename] carries the container the file actually has.
+  static String _withExtension(String filename, String? hint, String filePath) {
+    var base = filename;
+    final dot = base.lastIndexOf('.');
+    final fileExt = _extensionOf(filePath);
+    if (dot <= 0) {
+      final ext = fileExt.isNotEmpty
+          ? fileExt
+          : (hint != null && hint.isNotEmpty ? hint : 'bin');
+      return '$base.$ext';
+    }
+    // Replace a generic/incorrect hint with the real container.
+    if (fileExt.isNotEmpty && base.substring(dot + 1).toLowerCase() != fileExt) {
+      base = '${base.substring(0, dot)}.$fileExt';
+    }
+    return base;
+  }
+
+  static String _extensionOf(String path) {
+    final slash = path.replaceAll('\\', '/').lastIndexOf('/');
+    final name = slash < 0 ? path : path.substring(slash + 1);
+    final dot = name.lastIndexOf('.');
+    if (dot <= 0 || dot == name.length - 1) return '';
+    return name.substring(dot + 1).toLowerCase();
+  }
+
   /// Builds a safe filename from a resolved media title and container.
   static String _mediaName(ResolvedMedia media) {
     final base = media.title
@@ -656,6 +873,7 @@ class LocalDownloadManager extends ChangeNotifier {
 
   static String _friendly(Object e) {
     if (e is MediaResolveException) return e.message;
+    if (e is YtdlpException) return e.message;
     if (e is SocketException) {
       return 'Network error. Check your connection.';
     }

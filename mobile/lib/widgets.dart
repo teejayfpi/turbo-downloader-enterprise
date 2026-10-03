@@ -1,6 +1,29 @@
 import 'package:flutter/material.dart';
 
+import 'media_url.dart';
 import 'theme.dart';
+
+/// Icon for a detected [FileKind], used across the queue and pickers.
+IconData kindIcon(FileKind kind) => switch (kind) {
+      FileKind.video => Icons.movie_rounded,
+      FileKind.audio => Icons.music_note_rounded,
+      FileKind.image => Icons.image_rounded,
+      FileKind.archive => Icons.folder_zip_rounded,
+      FileKind.document => Icons.description_rounded,
+      FileKind.app => Icons.terminal_rounded,
+      FileKind.other => Icons.insert_drive_file_rounded,
+    };
+
+/// Accent tone for a detected [FileKind].
+Color kindColor(FileKind kind) => switch (kind) {
+      FileKind.video => TurboColors.accent,
+      FileKind.audio => TurboColors.speedUltra,
+      FileKind.image => TurboColors.warning,
+      FileKind.archive => const Color(0xFFB98CFF),
+      FileKind.document => TurboColors.textSecondary,
+      FileKind.app => TurboColors.success,
+      FileKind.other => TurboColors.textSecondary,
+    };
 
 /// A compact metric readout. Values are rendered in a tabular mono face so
 /// digits do not jitter as they update.

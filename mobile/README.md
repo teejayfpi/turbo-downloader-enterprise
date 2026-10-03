@@ -5,14 +5,39 @@ computers** (Windows, Linux, macOS). Everything happens on the device you run it
 on: the app opens the connections, writes the bytes to its own storage, and
 needs no server, account, key, or approval. Open it and download.
 
-Media pages such as YouTube are resolved on-device by `youtube_explode_dart`
-(`lib/media_extractor.dart`), which turns the page into a direct stream URL; the
-on-device engine then fetches that URL with the device's own connection and
-storage. A combined audio+video stream is used because the device cannot mux
-separate HD tracks without ffmpeg, so the practical ceiling is around 360p/720p
-(the extractor falls back to an HLS or audio-only stream when no muxed one
-exists). The page URL is what is stored, so a resume re-resolves rather than
-reusing an expired stream URL.
+Turbo detects what a link is and picks the right engine for it, entirely on the
+device:
+
+- **Plain file links** (`.zip`, `.mp4`, `.pdf`, …) go straight through the
+  built-in multi-connection engine, which splits range-capable downloads into up
+  to 16 parallel segments, resumes from the exact byte offset, and merges the
+  parts byte-for-byte.
+- **YouTube pages** are resolved on-device by `youtube_explode_dart`
+  (`lib/media_extractor.dart`) into a direct stream URL. The page is inspected
+  first so the UI can show the title, uploader, duration, thumbnail, and a
+  quality picker.
+- **Every other platform** (Vimeo, TikTok, SoundCloud, Twitch, Instagram,
+  archive.org, and hundreds more) is handled by [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+  when it is installed. yt-dlp is an ordinary program that runs on your machine:
+  it opens the connections and writes to this device's disk, so there is still
+  no server, account, or key. The app finds it on `PATH` or in the usual install
+  locations.
+- **Unlisted sites keep working**: a link that has no file extension is treated
+  as a page and offered to an extractor too, so a brand-new platform is not
+  stuck behind a hard-coded list.
+
+The page URL is what is stored, so a resume re-resolves rather than reusing an
+expired stream URL. When ffmpeg is present, yt-dlp can merge separate HD video
+and audio tracks and offer 1080p/4K; without it, the app offers combined streams
+(and the built-in engine tops out around 360p/720p). Everything is optional —
+install yt-dlp to unlock more platforms and higher quality, or use the app
+as-is.
+
+## Speed
+
+Turbo mode (the default) raises the parallel-segment ceiling to 16 for
+range-capable hosts and lets several downloads run at once. The Add screen and
+Settings expose the connection count, and Settings has a Balanced/Turbo switch.
 
 ## Requirements
 
@@ -81,10 +106,11 @@ ChakraPetch for the display face, JetBrains Mono for numbers and identifiers).
 | `lib/theme.dart` | Palette, type families, `TurboPanel`/`TurboButton`/`Kicker` primitives |
 | `lib/widgets.dart` | Shared UI: stat tiles, status pills, section labels, notices, progress bar |
 | `lib/credits.dart` | Designer attribution + app version |
-| `lib/state.dart` | `ChangeNotifier` holding settings and the device queue |
-| `lib/media_url.dart` | Detects media pages (YouTube and similar) to route them on-device |
-| `lib/local_downloader.dart` | On-device engine: ranged/segmented fetch, resume, persistence |
-| `lib/media_extractor.dart` | Resolves a media page to a direct stream on-device |
+| `lib/state.dart` | `ChangeNotifier` holding settings, engines, and the device queue |
+| `lib/media_url.dart` | Detects media pages vs files and classifies file kinds |
+| `lib/local_downloader.dart` | On-device engine: ranged/segmented fetch, resume, persistence, yt-dlp routing |
+| `lib/media_extractor.dart` | Resolves a YouTube page to a direct stream on-device |
+| `lib/ytdlp.dart` | Finds and drives the yt-dlp binary for other platforms and HD merge |
 | `lib/file_store.dart` | Publishes a finished file per platform and opens it |
 | `lib/screens/splash_screen.dart` | Animated branded splash shown on launch |
 | `lib/screens/home_shell.dart` | Bottom-nav shell: Downloads / Add / Settings |

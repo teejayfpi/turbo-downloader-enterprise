@@ -82,4 +82,64 @@ void main() {
       expect(FileStore.sanitize('video 1080p.mp4'), 'video 1080p.mp4');
     });
   });
+
+  group('platform detection', () {
+    test('recognises a broad set of media platforms', () {
+      for (final url in [
+        'https://www.youtube.com/watch?v=abc',
+        'https://youtu.be/abc',
+        'https://vimeo.com/12345',
+        'https://www.tiktok.com/@user/video/1',
+        'https://open.spotify.com/track/x',
+        'https://soundcloud.com/artist/song',
+        'https://www.twitch.tv/videos/1',
+        'https://instagram.com/reel/x',
+        'https://archive.org/details/item',
+      ]) {
+        expect(isMediaUrl(url), isTrue, reason: url);
+      }
+    });
+
+    test('does not treat ordinary hosts as media', () {
+      expect(isMediaUrl('https://example.com/file.zip'), isFalse);
+      expect(isMediaUrl('https://notyoutube.com.evil.test/x'), isFalse);
+    });
+
+    test('a page-looking link without an extension needs extraction', () {
+      expect(needsExtraction('https://newsite.example/watch/xyz'), isTrue);
+      expect(looksLikePage('https://newsite.example/video'), isTrue);
+      expect(looksLikePage('https://cdn.example.com/movie.mkv'), isFalse);
+      expect(needsExtraction('https://cdn.example.com/movie.mkv'), isFalse);
+      expect(needsExtraction('https://vimeo.com/123'), isTrue);
+    });
+
+    test('separates YouTube from other platforms', () {
+      expect(isYouTubeUrl('https://youtube.com/watch?v=x'), isTrue);
+      expect(isYouTubeUrl('https://vimeo.com/1'), isFalse);
+    });
+  });
+
+  group('file kind detection', () {
+    test('classifies common extensions', () {
+      expect(kindOf('a.mp4'), FileKind.video);
+      expect(kindOf('a.mkv'), FileKind.video);
+      expect(kindOf('a.mp3'), FileKind.audio);
+      expect(kindOf('a.flac'), FileKind.audio);
+      expect(kindOf('a.png'), FileKind.image);
+      expect(kindOf('a.zip'), FileKind.archive);
+      expect(kindOf('a.pdf'), FileKind.document);
+      expect(kindOf('a.exe'), FileKind.app);
+      expect(kindOf('a.unknownext'), FileKind.other);
+    });
+
+    test('uses the path segment of a URL', () {
+      expect(kindOf('https://cdn.example.com/a/b/clip.webm'), FileKind.video);
+    });
+
+    test('reports playability only for media containers', () {
+      expect(isPlayable('song.mp3'), isTrue);
+      expect(isPlayable('clip.mp4'), isTrue);
+      expect(isPlayable('doc.pdf'), isFalse);
+    });
+  });
 }

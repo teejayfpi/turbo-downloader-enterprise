@@ -1,7 +1,7 @@
 name: turbo_downloader
 description: "Turbo — offline-first download manager for Android and desktop."
 publish_to: 'none'
-version: 1.2.0+3
+version: 2.0.0+4
 
 environment:
   sdk: ^3.5.4

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -5,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../credits.dart';
 import '../state.dart';
 import '../theme.dart';
+import '../widgets.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -56,6 +59,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'Segments used for new downloads. Range-capable hosts split the '
               'transfer across these; others fall back to one.',
               style: TextStyle(
+                fontFamily: TurboFonts.body,
+                color: TurboColors.textMuted,
+                fontSize: 10,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 14),
+            const Kicker('Speed mode', letterSpacing: 1.6),
+            const SizedBox(height: 8),
+            ModeSegment(
+              value: state.speedMode == SpeedMode.turbo ? 'turbo' : 'balanced',
+              onChanged: (v) => state.setSpeedMode(
+                  v == 'turbo' ? SpeedMode.turbo : SpeedMode.balanced),
+              options: const [
+                ModeSegmentOption('balanced', Icons.shield_moon_rounded,
+                    'Balanced'),
+                ModeSegmentOption('turbo', Icons.bolt_rounded, 'Turbo'),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              state.speedMode == SpeedMode.turbo
+                  ? 'Turbo splits range-capable downloads across up to 16 '
+                      'segments for maximum speed.'
+                  : 'Balanced uses fewer segments to stay gentle on hosts.',
+              style: const TextStyle(
                 fontFamily: TurboFonts.body,
                 color: TurboColors.textMuted,
                 fontSize: 10,
@@ -122,6 +151,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
         const SizedBox(height: 16),
+        _EngineSection(state: state, accent: accent),
+        const SizedBox(height: 16),
         _Section(
           title: 'About',
           accent: accent,
@@ -161,6 +192,104 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ],
     );
+  }
+}
+
+/// Shows whether yt-dlp (and ffmpeg) are installed, with install help.
+class _EngineSection extends StatelessWidget {
+  final TurboState state;
+  final Color accent;
+  const _EngineSection({required this.state, required this.accent});
+
+  @override
+  Widget build(BuildContext context) {
+    final available = state.ytdlpAvailable;
+    return _Section(
+      title: 'Download engine',
+      accent: accent,
+      children: [
+        _InfoRow(
+          label: 'yt-dlp',
+          value: available ? 'Installed' : 'Not found',
+        ),
+        if (available)
+          _InfoRow(
+            label: 'ffmpeg (HD merge)',
+            value: state.ytdlpHasFfmpeg ? 'Available' : 'Not installed',
+          ),
+        const SizedBox(height: 10),
+        Notice(
+          icon: available
+              ? Icons.verified_rounded
+              : Icons.info_outline_rounded,
+          color: available ? TurboColors.success : TurboColors.warning,
+          text: available
+              ? 'The built-in engine handles direct files and YouTube. yt-dlp '
+                  'unlocks other platforms and high-resolution merged downloads, '
+                  'all on this device.'
+              : 'The built-in engine handles direct files and YouTube, so the '
+                  'app already works. Install yt-dlp to download from more '
+                  'platforms and in higher resolution.',
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: state.preferEngine,
+          onChanged: (v) => state.setPreferEngine(v),
+          title: const Text(
+            'Prefer yt-dlp when installed',
+            style: TextStyle(
+              fontFamily: TurboFonts.body,
+              color: TurboColors.textPrimary,
+              fontSize: 13,
+            ),
+          ),
+          subtitle: const Text(
+            'Otherwise YouTube uses the built-in extractor.',
+            style: TextStyle(
+              fontFamily: TurboFonts.body,
+              color: TurboColors.textMuted,
+              fontSize: 10.5,
+            ),
+          ),
+        ),
+        if (!available) ...[
+          const Divider(height: 20),
+          const Kicker('Install', letterSpacing: 1.6),
+          const SizedBox(height: 8),
+          Text(
+            _installHint,
+            style: const TextStyle(
+              fontFamily: TurboFonts.mono,
+              color: TurboColors.textSecondary,
+              fontSize: 10.5,
+              height: 1.6,
+            ),
+          ),
+          const SizedBox(height: 10),
+          TurboButton(
+            label: 'Re-check',
+            icon: Icons.refresh_rounded,
+            outline: true,
+            onPressed: state.refreshEngine,
+          ),
+        ],
+      ],
+    );
+  }
+
+  String get _installHint {
+    if (Platform.isWindows) {
+      return 'winget install yt-dlp.yt-dlp\n'
+          '(ffmpeg optional, for HD merge: winget install Gyan.FFmpeg)';
+    }
+    if (Platform.isMacOS) {
+      return 'brew install yt-dlp\n(ffmpeg optional: brew install ffmpeg)';
+    }
+    if (Platform.isLinux) {
+      return 'sudo apt install yt-dlp\n'
+          '(ffmpeg optional: sudo apt install ffmpeg)';
+    }
+    return 'Install yt-dlp, then tap Re-check.';
   }
 }
 

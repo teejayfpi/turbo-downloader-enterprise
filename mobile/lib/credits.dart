@@ -6,4 +6,4 @@ class Designer {
   static const phoneHref = '+2347038193753';
 }
 
-const appVersion = '1.2.0';
+const appVersion = '2.0.0';

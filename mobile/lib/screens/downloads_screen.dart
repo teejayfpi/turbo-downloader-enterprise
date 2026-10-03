@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../file_store.dart';
 import '../format.dart';
 import '../local_downloader.dart';
+import '../media_url.dart';
 import '../state.dart';
 import '../theme.dart';
 import '../widgets.dart';
@@ -19,6 +20,9 @@ class DownloadsScreen extends StatefulWidget {
 class _DownloadsScreenState extends State<DownloadsScreen> {
   final Set<String> _seenCompleted = {};
   bool _primed = false;
+
+  /// Active type filter; null means "All".
+  FileKind? _filter;
 
   /// Plays the completion chime when a task finishes, without firing for the
   /// tasks that were already complete when the app opened.
@@ -45,9 +49,12 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   Widget build(BuildContext context) {
     final state = context.watch<TurboState>();
     _maybeChime(state);
-    final local = state.local.tasks;
+    final all = state.local.tasks;
+    final local = _filter == null
+        ? all
+        : all.where((t) => kindOf(t.filename) == _filter).toList();
 
-    if (state.loading && local.isEmpty) {
+    if (state.loading && all.isEmpty) {
       return const Center(child: CircularProgressIndicator(strokeWidth: 2));
     }
 
@@ -57,25 +64,32 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
         slivers: [
           SliverToBoxAdapter(
             child: _StatsBar(
-              active: local.where((t) => t.isActive).length,
-              speed: local.fold<int>(0, (n, t) => n + t.speed),
-              done: local.where((t) => t.isCompleted).length,
-              bytes: local.fold<int>(0, (n, t) => n + t.downloaded),
+              active: all.where((t) => t.isActive).length,
+              speed: all.fold<int>(0, (n, t) => n + t.speed),
+              done: all.where((t) => t.isCompleted).length,
+              bytes: all.fold<int>(0, (n, t) => n + t.downloaded),
             ),
           ),
           SliverToBoxAdapter(
             child: _Toolbar(
-              hasCompleted: local.any((t) => t.isCompleted),
-              anyPaused: local.any((t) => t.isPaused || t.isFailed),
+              hasCompleted: all.any((t) => t.isCompleted),
+              anyPaused: all.any((t) => t.isPaused || t.isFailed),
               onPauseAll: state.local.pauseAll,
               onResumeAll: state.local.resumeAll,
               onClearCompleted: state.local.clearCompleted,
             ),
           ),
+          SliverToBoxAdapter(
+            child: _FilterBar(
+              tasks: all,
+              selected: _filter,
+              onChanged: (f) => setState(() => _filter = f),
+            ),
+          ),
           if (local.isEmpty)
-            const SliverFillRemaining(
+            SliverFillRemaining(
               hasScrollBody: false,
-              child: _EmptyState(),
+              child: _EmptyState(filtered: _filter != null),
             )
           else
             SliverPadding(
@@ -86,6 +100,101 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Type chips derived from the kinds actually present in the queue.
+class _FilterBar extends StatelessWidget {
+  final List<LocalTask> tasks;
+  final FileKind? selected;
+  final ValueChanged<FileKind?> onChanged;
+
+  const _FilterBar({
+    required this.tasks,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (tasks.isEmpty) return const SizedBox.shrink();
+    final present = <FileKind>{};
+    for (final t in tasks) {
+      present.add(kindOf(t.filename));
+    }
+    final ordered = FileKind.values.where(present.contains).toList();
+    if (ordered.length <= 1) return const SizedBox.shrink();
+
+    final accent = Theme.of(context).colorScheme.primary;
+    return SizedBox(
+      height: 44,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(14, 6, 14, 6),
+        children: [
+          _Chip(
+            label: 'All',
+            count: tasks.length,
+            selected: selected == null,
+            accent: accent,
+            onTap: () => onChanged(null),
+          ),
+          for (final kind in ordered) ...[
+            const SizedBox(width: 8),
+            _Chip(
+              label: kind.label,
+              count: tasks.where((t) => kindOf(t.filename) == kind).length,
+              selected: selected == kind,
+              accent: accent,
+              onTap: () => onChanged(kind),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  final String label;
+  final int count;
+  final bool selected;
+  final Color accent;
+  final VoidCallback onTap;
+
+  const _Chip({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.accent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? accent.withOpacity(0.16) : TurboColors.bgSecondary,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: selected ? accent : TurboColors.borderSubtle,
+          ),
+        ),
+        child: Text(
+          '$label · $count',
+          style: TextStyle(
+            fontFamily: TurboFonts.body,
+            color: selected ? TurboColors.textPrimary : TurboColors.textSecondary,
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
     );
   }
@@ -184,7 +293,8 @@ class _StatsBar extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+  final bool filtered;
+  const _EmptyState({this.filtered = false});
 
   @override
   Widget build(BuildContext context) {
@@ -208,12 +318,19 @@ class _EmptyState extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          const Kicker('Queue empty', letterSpacing: 2.4, size: 11),
+          Kicker(
+            filtered ? 'Nothing of this type' : 'Queue empty',
+            letterSpacing: 2.4,
+            size: 11,
+          ),
           const SizedBox(height: 8),
-          const Text(
-            'Open the Add tab to start a transfer.\nFiles land in your Downloads folder.',
+          Text(
+            filtered
+                ? 'No downloads match this filter.'
+                : 'Open the Add tab to start a transfer.\nFiles land in your '
+                    'Downloads folder.',
             textAlign: TextAlign.center,
-            style: TextStyle(
+            style: const TextStyle(
               fontFamily: TurboFonts.body,
               color: TurboColors.textSecondary,
               fontSize: 13,
@@ -335,6 +452,7 @@ class _DownloadCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final kind = kindOf(task.filename);
     final meta = _meta();
 
     return _TaskCard(
@@ -344,17 +462,44 @@ class _DownloadCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _CardHeader(
-            icon: meta.$1,
-            color: meta.$2,
+            icon: kindIcon(kind),
+            color: kindColor(kind),
             filename: task.filename,
-            subtitle: Row(
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                StatusPill(status: task.status),
-                const SizedBox(width: 6),
-                Kicker('${task.connections} conn', size: 9, letterSpacing: 1.0),
-                if (task.kind == 'media') ...[
-                  const SizedBox(width: 6),
-                  const _MediaTag(),
+                Row(
+                  children: [
+                    StatusPill(status: task.status),
+                    const SizedBox(width: 6),
+                    Kicker('${task.connections} conn',
+                        size: 9, letterSpacing: 1.0),
+                    if (task.usesYtdlp) ...[
+                      const SizedBox(width: 6),
+                      const _Tag('YT-DLP', TurboColors.accent),
+                    ] else if (task.kind == 'media') ...[
+                      const SizedBox(width: 6),
+                      const _Tag('BUILT-IN', TurboColors.speedUltra),
+                    ],
+                  ],
+                ),
+                if (task.mediaAuthor != null &&
+                    task.mediaAuthor!.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    [
+                      task.mediaAuthor!,
+                      if (task.mediaDuration != null)
+                        formatDuration(task.mediaDuration),
+                    ].join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: TurboFonts.body,
+                      color: TurboColors.textMuted,
+                      fontSize: 10.5,
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -550,22 +695,24 @@ class _SavedRow extends StatelessWidget {
   }
 }
 
-class _MediaTag extends StatelessWidget {
-  const _MediaTag();
+class _Tag extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _Tag(this.label, this.color);
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
       decoration: BoxDecoration(
-        color: TurboColors.warning.withOpacity(0.16),
+        color: color.withOpacity(0.16),
         borderRadius: BorderRadius.circular(3),
       ),
-      child: const Text(
-        'MEDIA',
+      child: Text(
+        label,
         style: TextStyle(
           fontFamily: TurboFonts.mono,
-          color: TurboColors.warning,
+          color: color,
           fontSize: 8.5,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.8,

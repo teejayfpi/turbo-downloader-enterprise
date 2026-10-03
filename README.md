@@ -1,13 +1,52 @@
 # 🚀 Turbo Downloader
 
-An enterprise-grade download manager with real multi-connection, resumable
-downloads, media support (yt-dlp), scheduling, checksums, and a modern
-real-time UI.
+An enterprise-grade **on-device** download manager for mobile phones and
+computers. It downloads files and media (YouTube and hundreds of other
+platforms) straight to your device with multi-connection, resumable transfers —
+**no server, no account, no API key.**
 
 ![Version](https://img.shields.io/badge/version-2.0.0-00d4ff?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-MIT-00ff88?style=for-the-badge)
 
 ---
+
+## The app
+
+The current product is the **Flutter app in [`mobile/`](mobile/)**. It runs on
+Android phones and on desktop (Windows, Linux, macOS), and everything happens on
+the device: the app opens the connections, resolves media pages, and writes the
+finished file to your Downloads folder. Nothing is sent to a server and nothing
+is stored anywhere but your device.
+
+- **Detects what a link is** — a file, a YouTube video, or any other supported
+  platform — and picks the right engine automatically.
+- **Fast, resumable, multi-connection** downloads with a Turbo mode that splits
+  range-capable transfers across up to 16 parallel segments.
+- **Saves to the device** — Android's Downloads collection via MediaStore,
+  or the OS Downloads folder on desktop.
+- **Optional yt-dlp engine** for non-YouTube platforms and 1080p/4K merged
+  downloads. It is a local program; the app just runs it on your machine.
+- **Beautiful branded splash screen** on every platform.
+
+See [`mobile/README.md`](mobile/README.md) for build instructions and details.
+
+```bash
+cd mobile
+flutter pub get
+flutter build apk --release       # Android
+flutter build windows --release   # or linux / macos
+```
+
+---
+
+## Legacy web deployment (not used by the app)
+
+> The sections below describe the original Node/React server. The mobile app no
+> longer uses it; it is kept for reference only.
+
+An enterprise-grade download manager with real multi-connection, resumable
+downloads, media support (yt-dlp), scheduling, checksums, and a modern
+real-time UI.
 
 ## What makes it real
 
