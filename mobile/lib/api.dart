@@ -20,10 +20,19 @@ class ApiException implements Exception {
 class TurboApi {
   String baseUrl;
 
-  TurboApi(this.baseUrl);
+  /// Shared secret for servers started with TURBO_API_TOKEN. Empty when the
+  /// server is open, in which case no auth header is sent.
+  String apiToken;
 
-  Uri _uri(String path, [Map<String, String>? query]) =>
-      Uri.parse('$baseUrl$path').replace(queryParameters: query);
+  TurboApi(this.baseUrl, {this.apiToken = ''});
+
+  Map<String, String> _headers({bool json = false}) => {
+        if (json) 'Content-Type': 'application/json',
+        if (apiToken.isNotEmpty) 'Authorization': 'Bearer $apiToken',
+      };
+
+  Uri _uri(String path, [Map<String, String>? query]) => Uri.parse('$baseUrl$path')
+      .replace(queryParameters: query == null || query.isEmpty ? null : query);
 
   Future<dynamic> _send(String method, String path,
       {Map<String, String>? query, Object? body}) async {
@@ -32,24 +41,28 @@ class TurboApi {
     try {
       switch (method) {
         case 'GET':
-          res = await http.get(uri).timeout(const Duration(seconds: 30));
+          res = await http
+              .get(uri, headers: _headers())
+              .timeout(const Duration(seconds: 30));
           break;
         case 'POST':
           res = await http
               .post(uri,
-                  headers: {'Content-Type': 'application/json'},
+                  headers: _headers(json: true),
                   body: body == null ? null : jsonEncode(body))
               .timeout(const Duration(seconds: 30));
           break;
         case 'PUT':
           res = await http
               .put(uri,
-                  headers: {'Content-Type': 'application/json'},
+                  headers: _headers(json: true),
                   body: body == null ? null : jsonEncode(body))
               .timeout(const Duration(seconds: 30));
           break;
         case 'DELETE':
-          res = await http.delete(uri).timeout(const Duration(seconds: 30));
+          res = await http
+              .delete(uri, headers: _headers())
+              .timeout(const Duration(seconds: 30));
           break;
         default:
           throw ApiException('Unsupported method $method');
@@ -143,8 +156,13 @@ class TurboApi {
   Future<Map<String, dynamic>> updateSettings(Map<String, dynamic> patch) async =>
       Map<String, dynamic>.from(await _send('PUT', '/api/settings', body: patch));
 
-  /// Direct URL for streaming a completed file back to the device.
-  String fileUrl(String id) => '$baseUrl/api/downloads/$id/file';
+  /// Direct URL for streaming a completed file back to the device. The token
+  /// rides in the query because the system downloader cannot set headers.
+  String fileUrl(String id) {
+    final base = '$baseUrl/api/downloads/$id/file';
+    if (apiToken.isEmpty) return base;
+    return '$base?token=${Uri.encodeQueryComponent(apiToken)}';
+  }
 
   /// Confirms the address points at a Turbo server before we commit to it.
   Future<bool> ping() async {

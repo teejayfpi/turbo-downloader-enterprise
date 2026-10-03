@@ -13,9 +13,13 @@ class TurboState extends ChangeNotifier {
   static const _kAccent = 'turbo.accent';
   static const _kMode = 'turbo.mode';
   static const _kConnections = 'turbo.connections';
+  static const _kToken = 'turbo.apiToken';
 
   String baseUrl = '';
   String accentKey = 'cyan';
+
+  /// Shared secret for servers started with TURBO_API_TOKEN.
+  String apiToken = '';
 
   /// Default segment count applied to new device downloads.
   int defaultConnections = 4;
@@ -42,7 +46,7 @@ class TurboState extends ChangeNotifier {
   bool _disposed = false;
 
   TurboState() {
-    api = TurboApi(baseUrl);
+    api = TurboApi(baseUrl, apiToken: apiToken);
     local.addListener(_safeNotify);
   }
 
@@ -52,7 +56,8 @@ class TurboState extends ChangeNotifier {
     accentKey = prefs.getString(_kAccent) ?? 'cyan';
     mode = prefs.getString(_kMode) ?? 'device';
     defaultConnections = prefs.getInt(_kConnections) ?? 4;
-    api = TurboApi(baseUrl);
+    apiToken = prefs.getString(_kToken) ?? '';
+    api = TurboApi(baseUrl, apiToken: apiToken);
     await local.init();
     if (serverConfigured) {
       _connect();
@@ -82,6 +87,7 @@ class TurboState extends ChangeNotifier {
       baseUrl,
       io.OptionBuilder()
           .setTransports(['websocket'])
+          .setAuth({'token': apiToken})
           .enableReconnection()
           .enableForceNew()
           .build(),
@@ -143,13 +149,31 @@ class TurboState extends ChangeNotifier {
 
   Future<void> setBaseUrl(String url) async {
     baseUrl = normalizeUrl(url);
-    api = TurboApi(baseUrl);
+    api = TurboApi(baseUrl, apiToken: apiToken);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kBaseUrl, baseUrl);
     loading = true;
     _safeNotify();
     _connect();
     await refresh();
+  }
+
+  /// Stores the shared secret and reconnects so REST and socket calls pick it
+  /// up immediately. Passing an empty string clears it.
+  Future<void> setApiToken(String token) async {
+    apiToken = token.trim();
+    api = TurboApi(baseUrl, apiToken: apiToken);
+    final prefs = await SharedPreferences.getInstance();
+    if (apiToken.isEmpty) {
+      await prefs.remove(_kToken);
+    } else {
+      await prefs.setString(_kToken, apiToken);
+    }
+    if (serverConfigured) {
+      _connect();
+      await refresh();
+    }
+    _safeNotify();
   }
 
   Future<void> setAccent(String key) async {

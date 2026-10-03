@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import { useDownloadStore } from '../stores/downloadStore';
+import { getToken } from '../lib/auth';
 
 export function useSocket() {
   const socketRef = useRef(null);
@@ -11,6 +12,7 @@ export function useSocket() {
   useEffect(() => {
     const socket = io({
       transports: ['websocket', 'polling'],
+      auth: { token: getToken() },
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,

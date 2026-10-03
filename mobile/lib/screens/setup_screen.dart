@@ -18,12 +18,14 @@ class SetupScreen extends StatefulWidget {
 
 class _SetupScreenState extends State<SetupScreen> {
   final _controller = TextEditingController();
+  final _tokenController = TextEditingController();
   bool _checking = false;
   String? _error;
 
   @override
   void dispose() {
     _controller.dispose();
+    _tokenController.dispose();
     super.dispose();
   }
 
@@ -34,6 +36,7 @@ class _SetupScreenState extends State<SetupScreen> {
 
   Future<void> _connect() async {
     final url = TurboState.normalizeUrl(_controller.text);
+    final token = _tokenController.text.trim();
     if (url.isEmpty) {
       setState(() => _error = 'Enter your server address');
       return;
@@ -44,7 +47,7 @@ class _SetupScreenState extends State<SetupScreen> {
       _error = null;
     });
 
-    final reachable = await TurboApi(url).ping();
+    final reachable = await TurboApi(url, apiToken: token).ping();
     if (!mounted) return;
 
     if (!reachable) {
@@ -55,7 +58,9 @@ class _SetupScreenState extends State<SetupScreen> {
       return;
     }
 
-    await context.read<TurboState>().setBaseUrl(url);
+    final state = context.read<TurboState>();
+    if (token.isNotEmpty) await state.setApiToken(token);
+    await state.setBaseUrl(url);
   }
 
   @override
@@ -160,6 +165,21 @@ class _SetupScreenState extends State<SetupScreen> {
                     decoration: const InputDecoration(
                       hintText: 'https://your-server.onrender.com',
                       prefixIcon: Icon(Icons.dns_outlined,
+                          color: TurboColors.textMuted, size: 20),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _tokenController,
+                    obscureText: true,
+                    style: const TextStyle(
+                      fontFamily: TurboFonts.mono,
+                      color: TurboColors.textPrimary,
+                      fontSize: 13,
+                    ),
+                    decoration: const InputDecoration(
+                      hintText: 'Access token (if required)',
+                      prefixIcon: Icon(Icons.key_rounded,
                           color: TurboColors.textMuted, size: 20),
                     ),
                   ),
