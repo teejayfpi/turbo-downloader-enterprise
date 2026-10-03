@@ -19,7 +19,7 @@ void main() {
       ChangeNotifierProvider<TurboState>.value(
         value: state,
         child: MaterialApp(
-          theme: buildTurboTheme(TurboColors.accent),
+          theme: buildTurboTheme(TurboAccents.of('cyan')),
           home: Scaffold(body: screen),
         ),
       ),
@@ -49,12 +49,18 @@ void main() {
       await pumpScreen(tester, const SettingsScreen());
       expect(find.text('DEVICE ENGINE'.toUpperCase()), findsOneWidget);
       expect(find.text('Default connections'.toUpperCase()), findsOneWidget);
+      // The accent picker sits below the fold on a short test surface.
+      await tester.scrollUntilVisible(
+        find.text('ACCENT COLOUR'.toUpperCase()),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('ACCENT COLOUR'.toUpperCase()), findsOneWidget);
       // No server or token fields any more.
       expect(find.text('SERVER'.toUpperCase()), findsNothing);
     });
 
-    testWidgets('home shell boots with three tabs and a ready chip',
+    testWidgets('home shell boots with four tabs and a ready chip',
         (tester) async {
       final state = TurboState()..loading = false;
       addTearDown(state.dispose);
@@ -62,7 +68,7 @@ void main() {
         ChangeNotifierProvider<TurboState>.value(
           value: state,
           child: MaterialApp(
-            theme: buildTurboTheme(TurboColors.accent),
+            theme: buildTurboTheme(TurboAccents.of('cyan')),
             home: const HomeShell(),
           ),
         ),
@@ -70,6 +76,7 @@ void main() {
       await tester.pump();
       expect(find.text('Downloads'), findsWidgets);
       expect(find.text('Add'), findsOneWidget);
+      expect(find.text('History'), findsWidgets);
       expect(find.text('Settings'), findsOneWidget);
       expect(find.text('READY'), findsOneWidget);
     });
@@ -78,13 +85,15 @@ void main() {
   group('splash screen', () {
     testWidgets('shows the brand and designer, then hands off to home',
         (tester) async {
-      final state = TurboState()..loading = false;
+      final state = TurboState()
+        ..loading = false
+        ..onboardingDone = true;
       addTearDown(state.dispose);
       await tester.pumpWidget(
         ChangeNotifierProvider<TurboState>.value(
           value: state,
           child: MaterialApp(
-            theme: buildTurboTheme(TurboColors.accent),
+            theme: buildTurboTheme(TurboAccents.of('cyan')),
             home: const SplashScreen(),
           ),
         ),

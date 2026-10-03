@@ -54,9 +54,11 @@ class _AddScreenState extends State<AddScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkClipboard());
   }
 
-  /// Looks at the clipboard once on open. If it holds a link, offer a one-tap
-  /// way to use it — the fastest path when a URL was copied from a browser.
+  /// Looks at the clipboard once on open, when the user has opted in. If it
+  /// holds a link, offer a one-tap way to use it — the fastest path when a URL
+  /// was copied from a browser.
   Future<void> _checkClipboard() async {
+    if (!context.read<TurboState>().clipboardMonitor) return;
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     final url = extractUrl(data?.text ?? '');
     if (!mounted || url == null) return;
@@ -248,21 +250,21 @@ class _AddScreenState extends State<AddScreen> {
                   _submit();
                 }
               },
-              style: const TextStyle(
+              style: TextStyle(
                   fontFamily: TurboFonts.mono,
-                  color: TurboColors.textPrimary,
+                  color: context.palette.textPrimary,
                   fontSize: 13),
               decoration: InputDecoration(
                 hintText: 'Paste a video, audio, or file link',
                 prefixIcon: Icon(
                   isPage ? Icons.auto_awesome_rounded : Icons.link_rounded,
-                  color: isPage ? TurboColors.accent : TurboColors.textMuted,
+                  color: isPage ? context.palette.accent : context.palette.textMuted,
                   size: 20,
                 ),
                 suffixIcon: IconButton(
                   tooltip: 'Paste',
-                  icon: const Icon(Icons.content_paste_rounded,
-                      color: TurboColors.textMuted, size: 20),
+                  icon: Icon(Icons.content_paste_rounded,
+                      color: context.palette.textMuted, size: 20),
                   onPressed: _paste,
                 ),
               ),
@@ -282,7 +284,7 @@ class _AddScreenState extends State<AddScreen> {
               const SizedBox(height: 10),
               Notice(
                 icon: Icons.content_paste_go_rounded,
-                color: TurboColors.success,
+                color: context.palette.success,
                 text: 'Link on your clipboard: ${_clipboardUrl!}',
                 trailing: TextButton(
                   onPressed: _useClipboard,
@@ -302,9 +304,9 @@ class _AddScreenState extends State<AddScreen> {
             ],
             if (_pastedExtracted) ...[
               const SizedBox(height: 10),
-              const Notice(
+              Notice(
                 icon: Icons.content_paste_search_rounded,
-                color: TurboColors.speedUltra,
+                color: context.palette.speedUltra,
                 text: 'Found a link in your clipboard and used it.',
               ),
             ],
@@ -325,14 +327,14 @@ class _AddScreenState extends State<AddScreen> {
             const SizedBox(height: 8),
             TextFormField(
               controller: _nameController,
-              style: const TextStyle(
+              style: TextStyle(
                   fontFamily: TurboFonts.mono,
-                  color: TurboColors.textPrimary,
+                  color: context.palette.textPrimary,
                   fontSize: 13),
               decoration: InputDecoration(
                 hintText: _probe?.title ?? 'filename.ext',
-                prefixIcon: const Icon(Icons.edit_outlined,
-                    color: TurboColors.textMuted, size: 20),
+                prefixIcon: Icon(Icons.edit_outlined,
+                    color: context.palette.textMuted, size: 20),
               ),
             ),
             const SizedBox(height: 16),
@@ -355,19 +357,19 @@ class _AddScreenState extends State<AddScreen> {
                       : 'Download to this device'),
             ),
             const SizedBox(height: 12),
-            const Row(
+            Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Icon(Icons.sd_storage_rounded,
-                    size: 13, color: TurboColors.textMuted),
-                SizedBox(width: 6),
+                    size: 13, color: context.palette.textMuted),
+                const SizedBox(width: 6),
                 Flexible(
                   child: Text(
                     'Runs here and saves to your Downloads folder',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontFamily: TurboFonts.mono,
-                      color: TurboColors.textMuted,
+                      color: context.palette.textMuted,
                       fontSize: 10,
                       letterSpacing: 0.3,
                       height: 1.4,
@@ -414,11 +416,11 @@ class _Hero extends StatelessWidget {
               ),
               borderRadius: BorderRadius.circular(6),
             ),
-            child: const Icon(Icons.bolt_rounded,
-                color: TurboColors.bgPrimary, size: 26),
+            child: Icon(Icons.bolt_rounded,
+                color: context.palette.bgPrimary, size: 26),
           ),
           const SizedBox(width: 14),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -426,20 +428,20 @@ class _Hero extends StatelessWidget {
                   'Download anything, anywhere',
                   style: TextStyle(
                     fontFamily: TurboFonts.display,
-                    color: TurboColors.textPrimary,
+                    color: context.palette.textPrimary,
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.3,
                   ),
                 ),
-                SizedBox(height: 4),
+                const SizedBox(height: 4),
                 Text(
                   'Paste a video, audio, image, archive, or file link. Turbo '
                   'detects what it is, picks the best quality, and saves it on '
                   'this device.',
                   style: TextStyle(
                     fontFamily: TurboFonts.body,
-                    color: TurboColors.textSecondary,
+                    color: context.palette.textSecondary,
                     fontSize: 11.5,
                     height: 1.45,
                   ),
@@ -493,9 +495,9 @@ class _DetectionBanner extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: TurboFonts.body,
-                color: TurboColors.textPrimary,
+                color: context.palette.textPrimary,
                 fontSize: 12.5,
                 fontWeight: FontWeight.w600,
               ),
@@ -538,16 +540,16 @@ class _MediaPreview extends StatelessWidget {
             child: Container(
               width: 96,
               height: 56,
-              color: TurboColors.bgTertiary,
+              color: context.palette.bgTertiary,
               child: thumb == null
-                  ? const Icon(Icons.movie_rounded,
-                      color: TurboColors.textMuted)
+                  ? Icon(Icons.movie_rounded,
+                      color: context.palette.textMuted)
                   : Image.network(
                       thumb,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const Icon(
+                      errorBuilder: (_, __, ___) => Icon(
                           Icons.movie_rounded,
-                          color: TurboColors.textMuted),
+                          color: context.palette.textMuted),
                     ),
             ),
           ),
@@ -560,9 +562,9 @@ class _MediaPreview extends StatelessWidget {
                   info.title,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: TurboFonts.body,
-                    color: TurboColors.textPrimary,
+                    color: context.palette.textPrimary,
                     fontSize: 13.5,
                     fontWeight: FontWeight.w700,
                     height: 1.3,
@@ -577,9 +579,9 @@ class _MediaPreview extends StatelessWidget {
                           info.author!,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: TurboFonts.body,
-                            color: TurboColors.textSecondary,
+                            color: context.palette.textSecondary,
                             fontSize: 11,
                           ),
                         ),
@@ -587,14 +589,14 @@ class _MediaPreview extends StatelessWidget {
                       const SizedBox(width: 8),
                     ],
                     if (info.durationSeconds != null) ...[
-                      const Icon(Icons.schedule_rounded,
-                          size: 12, color: TurboColors.textMuted),
+                      Icon(Icons.schedule_rounded,
+                          size: 12, color: context.palette.textMuted),
                       const SizedBox(width: 4),
                       Text(
                         formatDuration(info.durationSeconds),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontFamily: TurboFonts.mono,
-                          color: TurboColors.textMuted,
+                          color: context.palette.textMuted,
                           fontSize: 10.5,
                         ),
                       ),
@@ -609,8 +611,8 @@ class _MediaPreview extends StatelessWidget {
                           horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: (info.usedYtdlp
-                                ? TurboColors.accent
-                                : TurboColors.speedUltra)
+                                ? context.palette.accent
+                                : context.palette.speedUltra)
                             .withOpacity(0.14),
                         borderRadius: BorderRadius.circular(3),
                       ),
@@ -619,8 +621,8 @@ class _MediaPreview extends StatelessWidget {
                         style: TextStyle(
                           fontFamily: TurboFonts.mono,
                           color: info.usedYtdlp
-                              ? TurboColors.accent
-                              : TurboColors.speedUltra,
+                              ? context.palette.accent
+                              : context.palette.speedUltra,
                           fontSize: 8.5,
                           fontWeight: FontWeight.w700,
                           letterSpacing: 0.7,
@@ -630,9 +632,9 @@ class _MediaPreview extends StatelessWidget {
                     const SizedBox(width: 6),
                     Text(
                       '${info.formats.length} formats',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontFamily: TurboFonts.mono,
-                        color: TurboColors.textMuted,
+                        color: context.palette.textMuted,
                         fontSize: 9.5,
                       ),
                     ),
@@ -674,8 +676,8 @@ class _FormatPicker extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.tune_rounded,
-                  color: TurboColors.textMuted, size: 15),
+              Icon(Icons.tune_rounded,
+                  color: context.palette.textMuted, size: 15),
               const SizedBox(width: 8),
               const Kicker('Quality', letterSpacing: 1.6),
               const Spacer(),
@@ -685,11 +687,11 @@ class _FormatPicker extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           if (formats.isEmpty)
-            const Text(
+            Text(
               'No downloadable formats were listed for this page.',
               style: TextStyle(
                 fontFamily: TurboFonts.body,
-                color: TurboColors.textMuted,
+                color: context.palette.textMuted,
                 fontSize: 11,
               ),
             )
@@ -717,9 +719,9 @@ class _FormatPicker extends StatelessWidget {
                     'available.'
                 : 'Resolved on this device. The built-in engine saves a '
                     'combined stream, so quality tops out around 360p/720p.',
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: TurboFonts.body,
-              color: TurboColors.textMuted,
+              color: context.palette.textMuted,
               fontSize: 10,
               height: 1.45,
             ),
@@ -747,7 +749,7 @@ class _FormatChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = disabled ? TurboColors.textMuted : accent;
+    final color = disabled ? context.palette.textMuted : accent;
     return Opacity(
       opacity: disabled ? 0.5 : 1,
       child: GestureDetector(
@@ -755,10 +757,10 @@ class _FormatChip extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
           decoration: BoxDecoration(
-            color: selected ? color.withOpacity(0.16) : TurboColors.bgTertiary,
+            color: selected ? color.withOpacity(0.16) : context.palette.bgTertiary,
             borderRadius: BorderRadius.circular(4),
             border: Border.all(
-              color: selected ? color : TurboColors.borderSubtle,
+              color: selected ? color : context.palette.borderSubtle,
               width: selected ? 1.4 : 1,
             ),
           ),
@@ -782,8 +784,8 @@ class _FormatChip extends StatelessWidget {
                     style: TextStyle(
                       fontFamily: TurboFonts.body,
                       color: selected
-                          ? TurboColors.textPrimary
-                          : TurboColors.textSecondary,
+                          ? context.palette.textPrimary
+                          : context.palette.textSecondary,
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                     ),
@@ -797,9 +799,9 @@ class _FormatChip extends StatelessWidget {
                   if (format.size > 0) formatBytes(format.size),
                   if (format.requiresMux) 'merge',
                 ].join(' · '),
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: TurboFonts.mono,
-                  color: TurboColors.textMuted,
+                  color: context.palette.textMuted,
                   fontSize: 9,
                 ),
               ),
@@ -834,8 +836,8 @@ class _SpeedRow extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(Icons.speed_rounded,
-                  color: TurboColors.textMuted, size: 15),
+              Icon(Icons.speed_rounded,
+                  color: context.palette.textMuted, size: 15),
               const SizedBox(width: 8),
               const Kicker('Parallel connections', letterSpacing: 1.6),
               const Spacer(),
@@ -860,26 +862,26 @@ class _SpeedRow extends StatelessWidget {
           ),
           Row(
             children: [
-              const Icon(Icons.bolt_rounded, size: 12, color: TurboColors.textMuted),
+              Icon(Icons.bolt_rounded, size: 12, color: context.palette.textMuted),
               const SizedBox(width: 5),
               Text(
                 'Speed mode: ${mode.label}',
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: TurboFonts.mono,
-                  color: TurboColors.textMuted,
+                  color: context.palette.textMuted,
                   fontSize: 9.5,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'More connections can be faster, but some hosts limit them. Add '
             'blocks get up to 16 parallel segments, so multi-file downloads run '
             'wide at the same time.',
             style: TextStyle(
               fontFamily: TurboFonts.body,
-              color: TurboColors.textMuted,
+              color: context.palette.textMuted,
               fontSize: 10,
               height: 1.45,
             ),

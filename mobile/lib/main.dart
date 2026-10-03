@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'link_inbox.dart';
+import 'l10n/strings.dart';
 import 'platform_links.dart';
 import 'state.dart';
 import 'theme.dart';
@@ -66,12 +67,40 @@ class _TurboAppState extends State<TurboApp> {
       value: _state,
       child: Consumer<TurboState>(
         builder: (context, state, _) {
-          final accent =
-              TurboColors.accents[state.accentKey] ?? TurboColors.accent;
+          final accent = TurboAccents.of(state.accentKey);
           return MaterialApp(
             title: 'Turbo',
             debugShowCheckedModeBanner: false,
-            theme: buildTurboTheme(accent),
+            theme: buildTurboTheme(
+              accent,
+              brightness: Brightness.light,
+              highContrast: state.highContrast,
+            ),
+            darkTheme: buildTurboTheme(
+              accent,
+              brightness: Brightness.dark,
+              highContrast: state.highContrast,
+            ),
+            themeMode: state.themeMode,
+            locale: state.localeCode == null
+                ? null
+                : Locale(state.localeCode!),
+            supportedLocales: TurboStrings.supportedLocales,
+            localizationsDelegates: const [
+              TurboStringsDelegate(),
+            ],
+            builder: (context, child) {
+              final media = MediaQuery.of(context);
+              return MediaQuery(
+                data: media.copyWith(
+                  textScaler: TextScaler.linear(
+                    media.textScaler.scale(1) * state.textScale,
+                  ),
+                  disableAnimations: state.reducedMotion,
+                ),
+                child: child ?? const SizedBox.shrink(),
+              );
+            },
             home: const SplashScreen(),
           );
         },

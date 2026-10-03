@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -5,12 +7,13 @@ import '../credits.dart';
 import '../state.dart';
 import '../theme.dart';
 import 'home_shell.dart';
+import 'onboarding_screen.dart';
 
-/// The single, consistent launch experience shown while the local engine starts.
+/// The launch experience shown while the local engine starts.
 ///
-/// The native Android launch window uses the same palette and mark, then Flutter
-/// takes over here so the app can show meaningful initialization state and the
-/// required designer credit without introducing a second visual language.
+/// A clean, standard splash: the brand mark, the product name, a one-line
+/// descriptor, live initialization state, and the designer credit. It hands off
+/// to onboarding on first run, then to the home shell.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -51,12 +54,15 @@ class _SplashScreenState extends State<SplashScreen>
 
   void _maybeNavigate() {
     if (_navigated || !_minElapsed) return;
-    if (context.read<TurboState>().loading) return;
+    final state = context.read<TurboState>();
+    if (state.loading) return;
     _navigated = true;
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 320),
-        pageBuilder: (_, __, ___) => const HomeShell(),
+        pageBuilder: (_, __, ___) => state.onboardingDone
+            ? const HomeShell()
+            : const OnboardingScreen(),
         transitionsBuilder: (_, animation, __, child) =>
             FadeTransition(opacity: animation, child: child),
       ),
@@ -66,13 +72,14 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     final state = context.watch<TurboState>();
-    final accent = Theme.of(context).colorScheme.primary;
+    final p = context.palette;
+    final accent = p.accent;
     if (!state.loading) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _maybeNavigate());
     }
 
     return Scaffold(
-      backgroundColor: TurboColors.bgPrimary,
+      backgroundColor: p.bgPrimary,
       body: Stack(
         children: [
           const Positioned.fill(child: _LaunchBackdrop()),
@@ -81,7 +88,7 @@ class _SplashScreenState extends State<SplashScreen>
               padding: const EdgeInsets.fromLTRB(28, 24, 28, 22),
               child: Column(
                 children: [
-                  const _LaunchHeader(),
+                  _LaunchHeader(ready: !state.loading),
                   const Spacer(),
                   AnimatedBuilder(
                     animation: _pulseController,
@@ -104,26 +111,26 @@ class _SplashScreenState extends State<SplashScreen>
                         child: child,
                       );
                     },
-                    child: _BrandMark(accent: accent),
+                    child: _BrandMark(accent: accent, palette: p),
                   ),
                   const SizedBox(height: 30),
-                  const Text(
+                  Text(
                     'TURBO',
                     style: TextStyle(
                       fontFamily: TurboFonts.display,
-                      color: TurboColors.textPrimary,
+                      color: p.textPrimary,
                       fontSize: 30,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 7,
                     ),
                   ),
                   const SizedBox(height: 10),
-                  const Text(
+                  Text(
                     'ENTERPRISE DOWNLOAD OPERATIONS',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontFamily: TurboFonts.mono,
-                      color: TurboColors.textSecondary,
+                      color: p.textSecondary,
                       fontSize: 10,
                       fontWeight: FontWeight.w500,
                       letterSpacing: 1.8,
@@ -138,7 +145,7 @@ class _SplashScreenState extends State<SplashScreen>
                     'v$appVersion  •  LOCAL-FIRST  •  SECURE',
                     style: TextStyle(
                       fontFamily: TurboFonts.mono,
-                      color: TurboColors.textMuted.withOpacity(0.8),
+                      color: p.textMuted.withOpacity(0.8),
                       fontSize: 9,
                       letterSpacing: 0.9,
                     ),
@@ -154,26 +161,32 @@ class _SplashScreenState extends State<SplashScreen>
 }
 
 class _LaunchHeader extends StatelessWidget {
-  const _LaunchHeader();
+  const _LaunchHeader({required this.ready});
+
+  final bool ready;
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        const Kicker('SYSTEM BOOT', color: TurboColors.textMuted),
+        Kicker('SYSTEM BOOT', color: p.textMuted),
         Row(
           children: [
             Container(
               width: 6,
               height: 6,
-              decoration: const BoxDecoration(
-                color: TurboColors.success,
+              decoration: BoxDecoration(
+                color: ready ? p.success : p.warning,
                 shape: BoxShape.circle,
               ),
             ),
             const SizedBox(width: 7),
-            const Kicker('DEVICE READY', color: TurboColors.success),
+            Kicker(
+              ready ? 'DEVICE READY' : 'STARTING',
+              color: ready ? p.success : p.warning,
+            ),
           ],
         ),
       ],
@@ -182,9 +195,10 @@ class _LaunchHeader extends StatelessWidget {
 }
 
 class _BrandMark extends StatelessWidget {
-  const _BrandMark({required this.accent});
+  const _BrandMark({required this.accent, required this.palette});
 
   final Color accent;
+  final TurboPalette palette;
 
   @override
   Widget build(BuildContext context) {
@@ -193,10 +207,10 @@ class _BrandMark extends StatelessWidget {
         width: 86,
         height: 86,
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
+          gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [TurboColors.accent, TurboColors.success],
+            colors: [accent, palette.success],
           ),
           borderRadius: BorderRadius.circular(25),
           border: Border.all(color: Colors.white.withOpacity(0.22)),
@@ -208,9 +222,9 @@ class _BrandMark extends StatelessWidget {
             ),
           ],
         ),
-        child: const Icon(
+        child: Icon(
           Icons.bolt_rounded,
-          color: TurboColors.bgPrimary,
+          color: palette.isDark ? palette.bgPrimary : Colors.white,
           size: 50,
         ),
       ),
@@ -226,13 +240,14 @@ class _InitializationCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 15),
       decoration: BoxDecoration(
-        color: TurboColors.bgSecondary.withOpacity(0.92),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: TurboColors.borderSubtle),
+        color: p.bgSecondary.withOpacity(0.92),
+        borderRadius: TurboRadius.all(TurboRadius.md),
+        border: Border.all(color: p.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -245,7 +260,7 @@ class _InitializationCard extends StatelessWidget {
                 ready ? 'READY' : 'PLEASE WAIT',
                 style: TextStyle(
                   fontFamily: TurboFonts.mono,
-                  color: ready ? TurboColors.success : accent,
+                  color: ready ? p.success : accent,
                   fontSize: 9,
                   fontWeight: FontWeight.w600,
                   letterSpacing: 1.2,
@@ -255,13 +270,13 @@ class _InitializationCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           ClipRRect(
-            borderRadius: BorderRadius.circular(2),
+            borderRadius: TurboRadius.all(2),
             child: LinearProgressIndicator(
               minHeight: 3,
               value: ready ? 1 : null,
-              backgroundColor: TurboColors.bgTertiary,
+              backgroundColor: p.bgTertiary,
               valueColor: AlwaysStoppedAnimation<Color>(
-                ready ? TurboColors.success : accent,
+                ready ? p.success : accent,
               ),
             ),
           ),
@@ -276,24 +291,25 @@ class _LaunchCredit extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
+    final p = context.palette;
+    return Column(
       children: [
         Text(
           'designed by:',
           style: TextStyle(
             fontFamily: TurboFonts.mono,
-            color: TurboColors.textMuted,
+            color: p.textMuted,
             fontSize: 10,
             letterSpacing: 1.3,
           ),
         ),
-        SizedBox(height: 6),
+        const SizedBox(height: 6),
         Text(
-          'Ayanlowo Olatunji Ayobami',
+          Designer.name,
           textAlign: TextAlign.center,
           style: TextStyle(
             fontFamily: TurboFonts.body,
-            color: TurboColors.textPrimary,
+            color: p.textPrimary,
             fontSize: 13,
             fontWeight: FontWeight.w600,
             letterSpacing: 0.2,
@@ -309,15 +325,18 @@ class _LaunchBackdrop extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(painter: _BackdropPainter());
+    return CustomPaint(painter: _BackdropPainter(context.palette));
   }
 }
 
 class _BackdropPainter extends CustomPainter {
+  final TurboPalette palette;
+  _BackdropPainter(this.palette);
+
   @override
   void paint(Canvas canvas, Size size) {
     final linePaint = Paint()
-      ..color = TurboColors.borderSubtle.withOpacity(0.35)
+      ..color = palette.borderSubtle.withOpacity(0.35)
       ..strokeWidth = 1;
     const grid = 34.0;
     for (double x = 0; x <= size.width; x += grid) {
@@ -329,16 +348,17 @@ class _BackdropPainter extends CustomPainter {
 
     final glow = Paint()
       ..shader = RadialGradient(
-        colors: [TurboColors.accent.withOpacity(0.12), Colors.transparent],
+        colors: [palette.accent.withOpacity(0.12), Colors.transparent],
       ).createShader(
         Rect.fromCircle(
           center: Offset(size.width * 0.5, size.height * 0.38),
-          radius: size.width * 0.75,
+          radius: math.max(size.width * 0.75, 1),
         ),
       );
     canvas.drawRect(Offset.zero & size, glow);
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _BackdropPainter old) =>
+      old.palette != palette;
 }

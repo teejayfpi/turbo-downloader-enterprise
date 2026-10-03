@@ -1,10 +1,20 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'local_downloader.dart';
 import 'media_url.dart';
+import 'services/device_policy.dart';
+import 'services/diagnostics.dart';
+import 'services/history_store.dart';
+import 'services/notifications.dart';
+import 'services/retry_policy.dart';
+import 'services/secure_store.dart';
+import 'services/settings_store.dart';
+import 'services/storage_stats.dart';
+import 'services/update_checker.dart';
+import 'services/url_validator.dart';
 
 /// How aggressively the built-in engine splits a download.
 enum SpeedMode {
@@ -55,14 +65,59 @@ class ProbeResult {
 /// Everything runs on the device: the phone or computer opens the connections,
 /// writes the bytes to its own storage, and needs no server, account, or key.
 class TurboState extends ChangeNotifier {
-  static const _kAccent = 'turbo.accent';
-  static const _kConnections = 'turbo.connections';
-  static const _kPlaySound = 'turbo.playSound';
-  static const _kSpeedMode = 'turbo.speedMode';
-  static const _kPreferredEngine = 'turbo.preferredEngine';
-  static const _kYtdlpPath = 'turbo.ytdlpPath';
+  TurboState({
+    SettingsStore? settings,
+    HistoryStore? history,
+    Diagnostics? diagnostics,
+    StorageInspector? storage,
+    UpdateChecker? updater,
+    DevicePolicy? device,
+    Notifications? notifications,
+    SecureStore? secure,
+  })  : settings = settings ?? SettingsStore(),
+        history = history ?? HistoryStore(),
+        diagnostics = diagnostics ?? Diagnostics(),
+        storage = storage ?? const StorageInspector(),
+        updater = updater ?? UpdateChecker(),
+        device = device ?? DevicePolicy(),
+        notifications = notifications ?? const Notifications(),
+        secure = secure ?? SecureStore() {
+    local.addListener(_safeNotify);
+    local.history = this.history;
+    local.diagnostics = this.diagnostics;
+    local.onFinished = _onTaskFinished;
+    local.onGaveUp = _onTaskGaveUp;
+  }
+
+  final SettingsStore settings;
+  final HistoryStore history;
+  final Diagnostics diagnostics;
+  final StorageInspector storage;
+  final UpdateChecker updater;
+  final DevicePolicy device;
+  final Notifications notifications;
+  final SecureStore secure;
+
+  // --------------------------------------------------------------- appearance
 
   String accentKey = 'cyan';
+
+  /// System, light, or dark. The brand palette has a light counterpart.
+  ThemeMode themeMode = ThemeMode.dark;
+
+  /// Active UI language code ('en', 'fr', 'yo'). Null follows the system.
+  String? localeCode;
+
+  /// A high-contrast palette for accessibility.
+  bool highContrast = false;
+
+  /// Suppresses non-essential animation for reduced-motion preferences.
+  bool reducedMotion = false;
+
+  /// Extra text scaling applied on top of the system setting.
+  double textScale = 1.0;
+
+  // ------------------------------------------------------------------ engine
 
   /// Base segment count applied to new downloads.
   int defaultConnections = 4;
@@ -77,7 +132,50 @@ class TurboState extends ChangeNotifier {
   /// Play the system completion sound when a download finishes.
   bool playSound = true;
 
+  /// Retry transient failures automatically with exponential backoff.
+  bool autoRetry = true;
+
+  // --------------------------------------------------------------- behaviour
+
+  /// How many downloads may run at once.
+  int maxConcurrent = 1;
+
+  /// Pause new transfers unless the device is on Wi-Fi.
+  bool wifiOnly = false;
+
+  /// Pause new transfers on a low, unplugged battery.
+  bool batteryAware = false;
+
+  /// Notify when the whole queue finishes, every download, or never.
+  NotificationStyle notifyStyle = NotificationStyle.onQueueComplete;
+
+  /// Show the running-download progress notification.
+  bool notifyProgress = false;
+
+  /// Whether to look for a newer release at startup.
+  bool checkUpdates = true;
+
+  /// Which release channel this build follows.
+  UpdateChannel updateChannel = UpdateChannel.stable;
+
+  /// Watch the clipboard for copied links and offer them in the Add tab.
+  bool clipboardMonitor = false;
+
+  // ------------------------------------------------------------------- status
+
   bool loading = true;
+
+  /// A newer release, when one was found. Null when up to date or unchecked.
+  UpdateInfo? updateAvailable;
+
+  /// The latest storage snapshot, refreshed on demand and after transfers.
+  StorageStats storageStats = const StorageStats();
+
+  /// Live device conditions (Wi-Fi, battery).
+  DeviceState deviceState = DeviceState.unknown;
+
+  /// True when onboarding has been completed or skipped.
+  bool onboardingDone = false;
 
   /// A link handed to the app from outside (deep link, share sheet, drop).
   /// The shell watches this, jumps to Add, and the Add screen consumes it.
@@ -105,30 +203,81 @@ class TurboState extends ChangeNotifier {
   final local = LocalDownloadManager();
 
   bool _disposed = false;
+  Timer? _deviceTimer;
+  Timer? _progressTimer;
 
   /// Overridable resolver so tests can describe a page without the network.
   @visibleForTesting
   Future<MediaInfo> Function(String pageUrl)? describeOverride;
 
-  TurboState() {
-    local.addListener(_safeNotify);
-  }
-
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
-    accentKey = prefs.getString(_kAccent) ?? 'cyan';
-    defaultConnections = prefs.getInt(_kConnections) ?? 4;
-    speedMode = prefs.getString(_kSpeedMode) == 'balanced'
+    accentKey = prefs.getString('turbo.accent') ?? 'cyan';
+    defaultConnections = prefs.getInt('turbo.connections') ?? 4;
+    speedMode = prefs.getString('turbo.speedMode') == 'balanced'
         ? SpeedMode.balanced
         : SpeedMode.turbo;
-    preferEngine = prefs.getBool(_kPreferredEngine) ?? true;
-    playSound = prefs.getBool(_kPlaySound) ?? true;
-    local.ytdlp.overridePath = prefs.getString(_kYtdlpPath);
+    preferEngine = prefs.getBool('turbo.preferredEngine') ?? true;
+    playSound = prefs.getBool('turbo.playSound') ?? true;
+    local.ytdlp.overridePath = prefs.getString('turbo.ytdlpPath');
+
+    themeMode = _themeModeFrom(prefs.getString(SettingsStore.kThemeMode));
+    localeCode = prefs.getString(SettingsStore.kLocale);
+    highContrast = prefs.getBool(SettingsStore.kHighContrast) ?? false;
+    reducedMotion = prefs.getBool(SettingsStore.kReducedMotion) ?? false;
+    textScale = prefs.getDouble(SettingsStore.kTextScale) ?? 1.0;
+    maxConcurrent = prefs.getInt(SettingsStore.kMaxConcurrent) ?? 1;
+    wifiOnly = prefs.getBool(SettingsStore.kWifiOnly) ?? false;
+    batteryAware = prefs.getBool(SettingsStore.kBatteryAware) ?? false;
+    autoRetry = prefs.getBool(SettingsStore.kAutoRetry) ?? true;
+    notifyProgress = prefs.getBool(SettingsStore.kNotifyProgress) ?? false;
+    checkUpdates = prefs.getBool(SettingsStore.kCheckUpdates) ?? true;
+    onboardingDone = prefs.getBool(SettingsStore.kOnboardingDone) ?? false;
+    updateChannel = _channelFrom(prefs.getString(SettingsStore.kUpdateChannel));
+    notifyStyle =
+        _notifyStyleFrom(prefs.getString(SettingsStore.kNotifyComplete));
+    clipboardMonitor = prefs.getBool(SettingsStore.kClipboardMonitor) ?? false;
+
     local.maxConnections = speedMode.connections(defaultConnections);
+    local.maxConcurrent = maxConcurrent;
+    if (!autoRetry) local.retryPolicy = RetryPolicy.none;
+
+    await history.init();
+    await diagnostics.init();
+    await notifications.ensureChannel();
     await local.init();
     loading = false;
     _safeNotify();
+
     unawaited(refreshEngine());
+    unawaited(refreshStorage());
+    unawaited(refreshDevice());
+    _deviceTimer ??= Timer.periodic(const Duration(seconds: 20), (_) {
+      unawaited(refreshDevice());
+    });
+    _progressTimer ??= Timer.periodic(const Duration(seconds: 3), (_) {
+      _pushProgressNotification();
+    });
+    if (checkUpdates) unawaited(checkForUpdates());
+  }
+
+  /// Mirrors the queue into Android's ongoing progress notification, when the
+  /// user has asked for progress and a transfer is running.
+  void _pushProgressNotification() {
+    final active = local.activeCount + local.queuedCount;
+    if (!notifyProgress || active == 0) {
+      unawaited(notifications.setProgress(active: 0, percent: 0));
+      return;
+    }
+    final running = local.tasks
+        .where((t) => t.isRunning || t.isQueued)
+        .toList();
+    final total = running.fold<int>(
+        0, (sum, t) => sum + (t.total > 0 ? t.total : 0));
+    final done = running.fold<int>(
+        0, (sum, t) => sum + (t.total > 0 ? t.downloaded : 0));
+    final percent = total > 0 ? ((done / total) * 100).round() : 0;
+    unawaited(notifications.setProgress(active: active, percent: percent));
   }
 
   void _safeNotify() {
@@ -147,17 +296,53 @@ class TurboState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     local.ytdlp.overridePath = path;
     if (path == null || path.isEmpty) {
-      await prefs.remove(_kYtdlpPath);
+      await prefs.remove('turbo.ytdlpPath');
     } else {
-      await prefs.setString(_kYtdlpPath, path);
+      await prefs.setString('turbo.ytdlpPath', path);
     }
     await refreshEngine();
   }
 
+  // ------------------------------------------------------------- preferences
+
   Future<void> setAccent(String key) async {
     accentKey = key;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kAccent, key);
+    await prefs.setString('turbo.accent', key);
+    _safeNotify();
+  }
+
+  Future<void> setThemeMode(ThemeMode mode) async {
+    themeMode = mode;
+    await settings.setString(SettingsStore.kThemeMode, mode.name);
+    _safeNotify();
+  }
+
+  Future<void> setLocale(String? code) async {
+    localeCode = code;
+    if (code == null) {
+      await settings.remove(SettingsStore.kLocale);
+    } else {
+      await settings.setString(SettingsStore.kLocale, code);
+    }
+    _safeNotify();
+  }
+
+  Future<void> setHighContrast(bool value) async {
+    highContrast = value;
+    await settings.setBool(SettingsStore.kHighContrast, value);
+    _safeNotify();
+  }
+
+  Future<void> setReducedMotion(bool value) async {
+    reducedMotion = value;
+    await settings.setBool(SettingsStore.kReducedMotion, value);
+    _safeNotify();
+  }
+
+  Future<void> setTextScale(double value) async {
+    textScale = value.clamp(0.8, 1.6);
+    await settings.setDouble(SettingsStore.kTextScale, textScale);
     _safeNotify();
   }
 
@@ -165,7 +350,7 @@ class TurboState extends ChangeNotifier {
     defaultConnections = value.clamp(1, 16);
     local.maxConnections = speedMode.connections(defaultConnections);
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_kConnections, defaultConnections);
+    await prefs.setInt('turbo.connections', defaultConnections);
     _safeNotify();
   }
 
@@ -174,23 +359,202 @@ class TurboState extends ChangeNotifier {
     local.maxConnections = mode.connections(defaultConnections);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
-        _kSpeedMode, mode == SpeedMode.turbo ? 'turbo' : 'balanced');
+        'turbo.speedMode', mode == SpeedMode.turbo ? 'turbo' : 'balanced');
     _safeNotify();
   }
 
   Future<void> setPreferEngine(bool value) async {
     preferEngine = value;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kPreferredEngine, value);
+    await prefs.setBool('turbo.preferredEngine', value);
     _safeNotify();
   }
 
   Future<void> setPlaySound(bool value) async {
     playSound = value;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kPlaySound, value);
+    await prefs.setBool('turbo.playSound', value);
     _safeNotify();
   }
+
+  Future<void> setMaxConcurrent(int value) async {
+    maxConcurrent = value.clamp(1, 6);
+    local.maxConcurrent = maxConcurrent;
+    await settings.setInt(SettingsStore.kMaxConcurrent, maxConcurrent);
+    local.resumeAll();
+    _safeNotify();
+  }
+
+  Future<void> setAutoRetry(bool value) async {
+    autoRetry = value;
+    local.retryPolicy = value ? const RetryPolicy() : RetryPolicy.none;
+    await settings.setBool(SettingsStore.kAutoRetry, value);
+    _safeNotify();
+  }
+
+  Future<void> setWifiOnly(bool value) async {
+    wifiOnly = value;
+    await settings.setBool(SettingsStore.kWifiOnly, value);
+    await refreshDevice();
+    _safeNotify();
+  }
+
+  Future<void> setBatteryAware(bool value) async {
+    batteryAware = value;
+    await settings.setBool(SettingsStore.kBatteryAware, value);
+    await refreshDevice();
+    _safeNotify();
+  }
+
+  Future<void> setNotifyStyle(NotificationStyle style) async {
+    notifyStyle = style;
+    await settings.setString(SettingsStore.kNotifyComplete, style.name);
+    _safeNotify();
+  }
+
+  Future<void> setNotifyProgress(bool value) async {
+    notifyProgress = value;
+    await settings.setBool(SettingsStore.kNotifyProgress, value);
+    _safeNotify();
+  }
+
+  Future<void> setCheckUpdates(bool value) async {
+    checkUpdates = value;
+    await settings.setBool(SettingsStore.kCheckUpdates, value);
+    _safeNotify();
+  }
+
+  Future<void> setUpdateChannel(UpdateChannel channel) async {
+    updateChannel = channel;
+    await settings.setString(SettingsStore.kUpdateChannel, channel.name);
+    _safeNotify();
+  }
+
+  Future<void> setClipboardMonitor(bool value) async {
+    clipboardMonitor = value;
+    await settings.setBool(SettingsStore.kClipboardMonitor, value);
+    _safeNotify();
+  }
+
+  Future<void> completeOnboarding() async {
+    onboardingDone = true;
+    await settings.setBool(SettingsStore.kOnboardingDone, true);
+    _safeNotify();
+  }
+
+  // -------------------------------------------------------- device and storage
+
+  /// Re-reads Wi-Fi and battery, and applies the pause policy.
+  Future<void> refreshDevice() async {
+    deviceState = await device.read();
+    final blocked = device.blocksDownloads(
+      deviceState,
+      wifiOnly: wifiOnly,
+      batteryAware: batteryAware,
+    );
+    local.setNetworkBlocked(blocked);
+    _safeNotify();
+  }
+
+  /// Recomputes the storage snapshot shown in the storage panel.
+  Future<void> refreshStorage() async {
+    storageStats = await storage.inspect(
+      partsRoot: local.partsRoot,
+      downloadedBytes: history.totalBytes,
+    );
+    _safeNotify();
+  }
+
+  /// Deletes all partial data. Returns the bytes reclaimed.
+  Future<int> cleanUpPartials() async {
+    final reclaimed = await storage.clearTemporary(local.partsRoot);
+    await refreshStorage();
+    _safeNotify();
+    return reclaimed;
+  }
+
+  /// Looks for a newer release on the selected channel.
+  Future<void> checkForUpdates() async {
+    updateAvailable = await updater.check();
+    _safeNotify();
+  }
+
+  // ----------------------------------------------------------------- history
+
+  /// History entries matching [filter], newest first.
+  List<HistoryEntry> historyEntries(HistoryFilter filter) =>
+      history.query(filter);
+
+  Future<void> deleteHistoryEntry(String id) async {
+    await history.remove(id);
+    // Keep the live queue consistent: if the same transfer is still present,
+    // remove it too so a deleted record cannot linger as a card.
+    local.remove(id);
+    await refreshStorage();
+    _safeNotify();
+  }
+
+  /// Removes a task from the live queue by its URL, used when a history entry
+  /// is deleted while its card is still on screen.
+  void removeTaskForUrl(String url) {
+    for (final t in local.tasks) {
+      if (t.url == url) local.remove(t.id);
+    }
+  }
+
+  /// Clears the local diagnostic log and refreshes the UI.
+  Future<void> clearDiagnostics() async {
+    await diagnostics.clear();
+    _safeNotify();
+  }
+
+  Future<void> clearHistory() async {
+    await history.clear();
+    _safeNotify();
+  }
+
+  // --------------------------------------------------------------- completion
+
+  /// Raises a notification when a transfer settles, and refreshes storage.
+  void _onTaskFinished(LocalTask task) {
+    if (task.isCompleted && notifyStyle == NotificationStyle.everyDownload) {
+      unawaited(notifications.show(
+        title: 'Download complete',
+        body: task.filename,
+      ));
+    }
+    if (local.activeCount == 0 &&
+        local.queuedCount == 0 &&
+        notifyStyle != NotificationStyle.off) {
+      final completed = local.tasks.where((t) => t.isCompleted).length;
+      if (completed > 0) {
+        unawaited(notifications.show(
+          title: 'Downloads finished',
+          body: '$completed file${completed == 1 ? '' : 's'} saved to your '
+              'Downloads folder.',
+        ));
+      }
+    }
+    unawaited(refreshStorage());
+  }
+
+  void _onTaskGaveUp(LocalTask task) {
+    unawaited(notifications.show(
+      title: 'Download failed',
+      body: '${task.filename}: ${task.error ?? 'unknown error'}',
+    ));
+  }
+
+  /// Builds the copyable diagnostic bundle, including live app state.
+  String diagnosticsBundle() => diagnostics.buildBundle(extra: {
+        'downloads_active': '${local.activeCount}',
+        'downloads_queued': '${local.queuedCount}',
+        'engine_ytdlp': '$ytdlpAvailable',
+        'theme': themeMode.name,
+        'locale': localeCode ?? 'system',
+      });
+
+  // ------------------------------------------------------------------- adding
 
   /// Inspects a pasted media page (title, duration, thumbnail, formats).
   ///
@@ -282,7 +646,10 @@ class TurboState extends ChangeNotifier {
   /// URL with a query string would be misrouted to an extractor that cannot
   /// read it. YouTube uses the built-in extractor unless yt-dlp (with its HD
   /// options) is available and preferred.
-  LocalTask addLink(
+  ///
+  /// Returns null when [url] is already pending; use [LocalDownloadManager.add]
+  /// directly to force a duplicate.
+  LocalTask? addLink(
     String url, {
     String? filename,
     int? connections,
@@ -309,7 +676,7 @@ class TurboState extends ChangeNotifier {
     }
 
     final conns = speedMode.connections(connections ?? defaultConnections);
-    return local.add(
+    return local.addIfNew(
       trimmed,
       filename: filename ?? mediaInfo?.title,
       connections: conns,
@@ -343,9 +710,35 @@ class TurboState extends ChangeNotifier {
     );
   }
 
+  /// Validates a URL and reports whether it is already queued.
+  UrlValidation validateUrl(String? input) => UrlValidation.check(input);
+
+  // ------------------------------------------------------------------ helpers
+
+  static ThemeMode _themeModeFrom(String? value) => switch (value) {
+        'light' => ThemeMode.light,
+        'system' => ThemeMode.system,
+        _ => ThemeMode.dark,
+      };
+
+  static UpdateChannel _channelFrom(String? value) => switch (value) {
+        'beta' => UpdateChannel.beta,
+        'nightly' => UpdateChannel.nightly,
+        _ => UpdateChannel.stable,
+      };
+
+  static NotificationStyle _notifyStyleFrom(String? value) => switch (value) {
+        'off' => NotificationStyle.off,
+        'everyDownload' => NotificationStyle.everyDownload,
+        _ => NotificationStyle.onQueueComplete,
+      };
+
   @override
   void dispose() {
     _disposed = true;
+    _deviceTimer?.cancel();
+    _progressTimer?.cancel();
+    unawaited(notifications.setProgress(active: 0, percent: 0));
     local.removeListener(_safeNotify);
     local.dispose();
     super.dispose();

@@ -10,10 +10,11 @@ import '../state.dart';
 import '../theme.dart';
 import 'downloads_screen.dart';
 import 'add_screen.dart';
+import 'history_screen.dart';
 import 'settings_screen.dart';
 
 /// The main tabbed surface shown after the splash: the queue, the add form,
-/// and settings, all operating on this device.
+/// history, and settings, all operating on this device.
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -25,17 +26,18 @@ class _HomeShellState extends State<HomeShell> {
   int _index = 0;
   bool _dragging = false;
 
-  static const _titles = ['Downloads', 'New Transfer', 'Settings'];
+  static const _titles = ['Downloads', 'New Transfer', 'History', 'Settings'];
   static const _subtitles = [
     'Queue & live telemetry',
     'Paste a link to download',
+    'Completed & failed transfers',
     'Tune the engine',
   ];
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<TurboState>();
-    final accent = Theme.of(context).colorScheme.primary;
+    final p = context.palette;
     final activeCount = state.local.activeCount + state.local.queuedCount;
 
     // A link that arrived from anywhere (deep link, share sheet, launch arg)
@@ -59,38 +61,47 @@ class _HomeShellState extends State<HomeShell> {
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [accent, TurboColors.success],
+                  colors: [p.accent, p.success],
                 ),
-                borderRadius: BorderRadius.circular(4),
+                borderRadius: TurboRadius.all(TurboRadius.sm),
               ),
-              child: const Icon(Icons.bolt_rounded,
-                  color: TurboColors.bgPrimary, size: 20),
+              child: Icon(
+                Icons.bolt_rounded,
+                color: p.isDark ? p.bgPrimary : Colors.white,
+                size: 20,
+              ),
             ),
             const SizedBox(width: 10),
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _titles[_index],
-                  style: const TextStyle(
-                    fontFamily: TurboFonts.display,
-                    color: TurboColors.textPrimary,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.5,
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _titles[_index],
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: TurboFonts.display,
+                      color: p.textPrimary,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.5,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 1),
-                Kicker(_subtitles[_index], size: 9, letterSpacing: 1.2),
-              ],
+                  const SizedBox(height: 1),
+                  Kicker(_subtitles[_index], size: 9, letterSpacing: 1.2),
+                ],
+              ),
             ),
           ],
         ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 14),
-            child: _StatusChip(active: state.local.activeCount),
+            child: _StatusChip(
+              active: state.local.activeCount,
+              blocked: state.local.networkBlocked,
+            ),
           ),
         ],
       ),
@@ -99,12 +110,13 @@ class _HomeShellState extends State<HomeShell> {
         children: const [
           DownloadsScreen(),
           AddScreen(),
+          HistoryScreen(),
           SettingsScreen(),
         ],
       ),
       bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          border: Border(top: BorderSide(color: TurboColors.borderSubtle)),
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: p.borderSubtle)),
         ),
         child: NavigationBar(
           selectedIndex: _index,
@@ -113,7 +125,7 @@ class _HomeShellState extends State<HomeShell> {
             NavigationDestination(
               icon: Badge(
                 isLabelVisible: activeCount > 0,
-                backgroundColor: accent,
+                backgroundColor: p.accent,
                 label: Text('$activeCount'),
                 child: const Icon(Icons.download_rounded),
               ),
@@ -122,6 +134,10 @@ class _HomeShellState extends State<HomeShell> {
             const NavigationDestination(
               icon: Icon(Icons.add_circle_outline_rounded),
               label: 'Add',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.history_rounded),
+              label: 'History',
             ),
             const NavigationDestination(
               icon: Icon(Icons.tune_rounded),
@@ -169,7 +185,7 @@ class _DropSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
+    final p = context.palette;
     return DropTarget(
       onDragEntered: (_) => onDragEntered(),
       onDragExited: (_) => onDragExited(),
@@ -189,20 +205,21 @@ class _DropSurface extends StatelessWidget {
             Positioned.fill(
               child: IgnorePointer(
                 child: Container(
-                  color: TurboColors.bgPrimary.withOpacity(0.82),
+                  color: p.bgPrimary.withOpacity(0.82),
                   child: Center(
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 28, vertical: 22),
                       decoration: BoxDecoration(
-                        color: TurboColors.bgSecondary,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: accent, width: 1.4),
+                        color: p.bgSecondary,
+                        borderRadius: TurboRadius.all(TurboRadius.md),
+                        border: Border.all(color: p.accent, width: 1.4),
                       ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.download_rounded, color: accent, size: 34),
+                          Icon(Icons.download_rounded,
+                              color: p.accent, size: 34),
                           const SizedBox(height: 12),
                           const Kicker('Drop a link to download',
                               letterSpacing: 2.0, size: 11),
@@ -222,16 +239,23 @@ class _DropSurface extends StatelessWidget {
 /// Local-first status: reports whether transfers are running on this device.
 class _StatusChip extends StatelessWidget {
   final int active;
-  const _StatusChip({required this.active});
+  final bool blocked;
+  const _StatusChip({required this.active, this.blocked = false});
 
   @override
   Widget build(BuildContext context) {
-    final color = active > 0 ? TurboColors.success : TurboColors.textMuted;
+    final p = context.palette;
+    final color = blocked
+        ? p.warning
+        : (active > 0 ? p.success : p.textMuted);
+    final label = blocked
+        ? 'PAUSED'
+        : (active > 0 ? 'ACTIVE' : 'READY');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
         color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: TurboRadius.all(TurboRadius.sm),
         border: Border.all(color: color.withOpacity(0.35)),
       ),
       child: Row(
@@ -244,7 +268,7 @@ class _StatusChip extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           Text(
-            active > 0 ? 'ACTIVE' : 'READY',
+            label,
             style: TextStyle(
               fontFamily: TurboFonts.mono,
               color: color,

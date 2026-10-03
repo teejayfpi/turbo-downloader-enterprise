@@ -425,9 +425,17 @@ and set `CORS_ORIGIN` to your real origin instead of `*`.
 - **Storage**: SQLite via better-sqlite3
 - **Media**: yt-dlp + ffmpeg (optional)
 
+## Security
+
+See [`SECURITY.md`](SECURITY.md) for the full policy. In short: Turbo is
+device-only, so nothing leaves the machine; credentials are held by the
+platform's protected store; and a **Security** workflow (gitleaks secret scan,
+dependency review, CodeQL) runs on every push and pull request and weekly on a
+schedule.
+
 ## License
 
-MIT — see `LICENSE`.
+MIT — see [`LICENSE`](LICENSE).
 
 ---
 

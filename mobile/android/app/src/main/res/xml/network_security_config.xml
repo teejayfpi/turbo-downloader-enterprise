@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Users may point the app at a self-hosted server over plain http on their
-     own LAN. Cleartext is permitted only for private/loopback addresses; all
-     public hosts still require TLS. -->
+<!-- Turbo downloads from public hosts over TLS. Cleartext is permitted only
+     for loopback/emulator addresses, which the local test server uses; every
+     public host still requires TLS. -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>

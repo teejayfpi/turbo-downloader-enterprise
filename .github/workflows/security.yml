@@ -1,0 +1,77 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, so a newly disclosed advisory is caught even without a push.
+    - cron: '27 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fail the build if a secret (token, key, cookie file) was ever committed.
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Review the dependency delta on every pull request: blocks a PR that adds a
+  # package with a known vulnerability or a disallowed licence.
+  #
+  # This action needs the repository's Dependency graph (Settings → Code
+  # security → Dependency graph). Until that is on it fails with "not supported
+  # on this repository", so the job is opt-in: enable the graph, then set the
+  # repository variable ENABLE_DEPENDENCY_REVIEW to true.
+  dependencies:
+    name: Dependency review
+    if: >-
+      github.event_name == 'pull_request' &&
+      vars.ENABLE_DEPENDENCY_REVIEW == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+
+  # Static analysis of the JavaScript surfaces (server, client, extension).
+  # Dart is not a CodeQL language, so the Flutter app is covered by the
+  # Android and Desktop workflows instead.
+  codeql:
+    name: CodeQL (JavaScript)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:${{ matrix.language }}'
