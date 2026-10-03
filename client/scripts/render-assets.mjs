@@ -29,7 +29,6 @@ const targets = [
   ['icon.svg', 32, 32, 'favicon-32.png'],
   ['icon-maskable.svg', 512, 512, 'icon-maskable-512.png'],
   ['icon-maskable.svg', 192, 192, 'icon-maskable-192.png'],
-  ['splash.svg', 1290, 2796, 'splash.png'],
 ];
 
 mkdirSync(tmpDir, { recursive: true });
