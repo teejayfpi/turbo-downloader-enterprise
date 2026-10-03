@@ -206,59 +206,82 @@ class TurboState extends ChangeNotifier {
   Timer? _deviceTimer;
   Timer? _progressTimer;
 
+  static const _startupTimeout = Duration(seconds: 12);
+
   /// Overridable resolver so tests can describe a page without the network.
   @visibleForTesting
   Future<MediaInfo> Function(String pageUrl)? describeOverride;
 
   Future<void> init() async {
-    final prefs = await SharedPreferences.getInstance();
-    accentKey = prefs.getString('turbo.accent') ?? 'cyan';
-    defaultConnections = prefs.getInt('turbo.connections') ?? 4;
-    speedMode = prefs.getString('turbo.speedMode') == 'balanced'
-        ? SpeedMode.balanced
-        : SpeedMode.turbo;
-    preferEngine = prefs.getBool('turbo.preferredEngine') ?? true;
-    playSound = prefs.getBool('turbo.playSound') ?? true;
-    local.ytdlp.overridePath = prefs.getString('turbo.ytdlpPath');
+    var stage = 'preferences';
+    try {
+      final prefs = await SharedPreferences.getInstance()
+          .timeout(_startupTimeout);
+      accentKey = prefs.getString('turbo.accent') ?? 'cyan';
+      defaultConnections = prefs.getInt('turbo.connections') ?? 4;
+      speedMode = prefs.getString('turbo.speedMode') == 'balanced'
+          ? SpeedMode.balanced
+          : SpeedMode.turbo;
+      preferEngine = prefs.getBool('turbo.preferredEngine') ?? true;
+      playSound = prefs.getBool('turbo.playSound') ?? true;
+      local.ytdlp.overridePath = prefs.getString('turbo.ytdlpPath');
 
-    themeMode = _themeModeFrom(prefs.getString(SettingsStore.kThemeMode));
-    localeCode = prefs.getString(SettingsStore.kLocale);
-    highContrast = prefs.getBool(SettingsStore.kHighContrast) ?? false;
-    reducedMotion = prefs.getBool(SettingsStore.kReducedMotion) ?? false;
-    textScale = prefs.getDouble(SettingsStore.kTextScale) ?? 1.0;
-    maxConcurrent = prefs.getInt(SettingsStore.kMaxConcurrent) ?? 1;
-    wifiOnly = prefs.getBool(SettingsStore.kWifiOnly) ?? false;
-    batteryAware = prefs.getBool(SettingsStore.kBatteryAware) ?? false;
-    autoRetry = prefs.getBool(SettingsStore.kAutoRetry) ?? true;
-    notifyProgress = prefs.getBool(SettingsStore.kNotifyProgress) ?? false;
-    checkUpdates = prefs.getBool(SettingsStore.kCheckUpdates) ?? true;
-    onboardingDone = prefs.getBool(SettingsStore.kOnboardingDone) ?? false;
-    updateChannel = _channelFrom(prefs.getString(SettingsStore.kUpdateChannel));
-    notifyStyle =
-        _notifyStyleFrom(prefs.getString(SettingsStore.kNotifyComplete));
-    clipboardMonitor = prefs.getBool(SettingsStore.kClipboardMonitor) ?? false;
+      themeMode = _themeModeFrom(prefs.getString(SettingsStore.kThemeMode));
+      localeCode = prefs.getString(SettingsStore.kLocale);
+      highContrast = prefs.getBool(SettingsStore.kHighContrast) ?? false;
+      reducedMotion = prefs.getBool(SettingsStore.kReducedMotion) ?? false;
+      textScale = prefs.getDouble(SettingsStore.kTextScale) ?? 1.0;
+      maxConcurrent = prefs.getInt(SettingsStore.kMaxConcurrent) ?? 1;
+      wifiOnly = prefs.getBool(SettingsStore.kWifiOnly) ?? false;
+      batteryAware = prefs.getBool(SettingsStore.kBatteryAware) ?? false;
+      autoRetry = prefs.getBool(SettingsStore.kAutoRetry) ?? true;
+      notifyProgress = prefs.getBool(SettingsStore.kNotifyProgress) ?? false;
+      checkUpdates = prefs.getBool(SettingsStore.kCheckUpdates) ?? true;
+      onboardingDone = prefs.getBool(SettingsStore.kOnboardingDone) ?? false;
+      updateChannel = _channelFrom(prefs.getString(SettingsStore.kUpdateChannel));
+      notifyStyle =
+          _notifyStyleFrom(prefs.getString(SettingsStore.kNotifyComplete));
+      clipboardMonitor = prefs.getBool(SettingsStore.kClipboardMonitor) ?? false;
 
-    local.maxConnections = speedMode.connections(defaultConnections);
-    local.maxConcurrent = maxConcurrent;
-    if (!autoRetry) local.retryPolicy = RetryPolicy.none;
+      local.maxConnections = speedMode.connections(defaultConnections);
+      local.maxConcurrent = maxConcurrent;
+      if (!autoRetry) local.retryPolicy = RetryPolicy.none;
 
-    await history.init();
-    await diagnostics.init();
-    await notifications.ensureChannel();
-    await local.init();
-    loading = false;
-    _safeNotify();
+      stage = 'history';
+      await history.init().timeout(_startupTimeout);
+      stage = 'diagnostics';
+      await diagnostics.init().timeout(_startupTimeout);
+      stage = 'notifications';
+      await notifications.ensureChannel().timeout(_startupTimeout);
+      stage = 'download queue recovery';
+      await local.init().timeout(_startupTimeout);
 
-    unawaited(refreshEngine());
-    unawaited(refreshStorage());
-    unawaited(refreshDevice());
-    _deviceTimer ??= Timer.periodic(const Duration(seconds: 20), (_) {
+      unawaited(refreshEngine());
+      unawaited(refreshStorage());
       unawaited(refreshDevice());
-    });
-    _progressTimer ??= Timer.periodic(const Duration(seconds: 3), (_) {
-      _pushProgressNotification();
-    });
-    if (checkUpdates) unawaited(checkForUpdates());
+      _deviceTimer ??= Timer.periodic(const Duration(seconds: 20), (_) {
+        unawaited(refreshDevice());
+      });
+      _progressTimer ??= Timer.periodic(const Duration(seconds: 3), (_) {
+        _pushProgressNotification();
+      });
+      if (checkUpdates) unawaited(checkForUpdates());
+    } catch (error) {
+      // A startup failure must never strand the user on the splash. Keep the
+      // diagnostic intentionally generic: paths, URLs, and personal data do
+      // not belong in the local diagnostic bundle.
+      try {
+        await diagnostics.error(
+          'startup_failed',
+          '$stage: ${error.runtimeType}',
+        );
+      } catch (_) {}
+    } finally {
+      // This is the critical handoff. Previously, any exception or hung plugin
+      // call before this point left loading=true forever.
+      loading = false;
+      _safeNotify();
+    }
   }
 
   /// Mirrors the queue into Android's ongoing progress notification, when the
