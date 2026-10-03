@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../api.dart';
 import '../format.dart';
+import '../media_url.dart';
 import '../models.dart';
 import '../state.dart';
 import '../theme.dart';
@@ -28,7 +29,19 @@ class _AddScreenState extends State<AddScreen> {
   int _connections = 4;
 
   @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_onUrlChanged);
+  }
+
+  void _onUrlChanged() {
+    // Rebuild so the media hint appears/disappears while typing.
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    _controller.removeListener(_onUrlChanged);
     _controller.dispose();
     _nameController.dispose();
     super.dispose();
@@ -178,9 +191,16 @@ class _AddScreenState extends State<AddScreen> {
                     !(uri.isScheme('http') || uri.isScheme('https'))) {
                   return 'Enter a valid http(s) URL';
                 }
+                // A media page is not a file; fetching it directly would save
+                // HTML. Device mode has no extractor, so it must not pretend.
+                if (deviceMode && isMediaUrl(value)) {
+                  return 'This is a media page — switch to Server mode to download it';
+                }
                 return null;
               },
             ),
+            if (deviceMode && isMediaUrl(_controller.text))
+              _MediaHint(onSwitch: () => state.setMode('server')),
             if (deviceMode) ...[
               const SizedBox(height: 12),
               TextFormField(
@@ -201,6 +221,17 @@ class _AddScreenState extends State<AddScreen> {
               ),
             ] else ...[
               const SizedBox(height: 12),
+              if (isYouTubeUrl(_controller.text)) ...[
+                const _Notice(
+                  icon: Icons.warning_amber_rounded,
+                  color: TurboColors.warning,
+                  text: 'YouTube may refuse to serve the video from a hosted '
+                      'server unless cookies are configured. If the download '
+                      'fails with "403" or "Sign in to confirm", the server '
+                      'needs YT_DLP_COOKIES_DATA set.',
+                ),
+                const SizedBox(height: 12),
+              ],
               OutlinedButton.icon(
                 onPressed: _probing ? null : _probe,
                 icon: _probing
@@ -275,6 +306,66 @@ class _AddScreenState extends State<AddScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Shown when a media page is pasted in device mode, which cannot extract it.
+class _MediaHint extends StatelessWidget {
+  final VoidCallback onSwitch;
+  const _MediaHint({required this.onSwitch});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: TurboColors.warning.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: TurboColors.warning.withOpacity(0.4)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline_rounded,
+              color: TurboColors.warning, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'This looks like a media page',
+                  style: TextStyle(
+                      color: TurboColors.textPrimary,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Video and audio sites need the server\'s extractor. '
+                  'Device mode can only fetch direct file links.',
+                  style: TextStyle(
+                      color: TurboColors.textSecondary, fontSize: 12, height: 1.4),
+                ),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: onSwitch,
+                  icon: const Icon(Icons.cloud_rounded, size: 16),
+                  label: const Text('Switch to Server mode'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: TurboColors.warning,
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(0, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
