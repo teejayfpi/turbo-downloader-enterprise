@@ -102,6 +102,18 @@ These caused real, user-visible bugs. Do not regress them.
   generated the runner folders; the in-app splash and the file store are
   cross-platform, and `flutter analyze && flutter test` cover them. CI runs the
   Android build (`android.yml`) and the desktop builds (`desktop.yml`).
+- **The platform bridges live in `PlatformChannels.kt`.** `MainActivity.kt`
+  registers the `turbo_downloader/files` channel (publish/share/background) and
+  delegates the `secure`, `notify`, and `device` channels to
+  `PlatformChannels.register`. Credentials are AES/GCM encrypted under an
+  Android Keystore key (`SecureVault`); notifications and connectivity/battery
+  state have their own objects there. The Dart side degrades gracefully when a
+  channel is absent, so a desktop build or a test sees a no-op, not a crash —
+  keep that property when adding a method.
+- **A missing platform channel must never break a feature.** Every Dart bridge
+  (`SecureStore`, `Notifications`, `DevicePolicy`, `FileStore`) catches
+  `MissingPluginException` and falls back. Do not let a new bridge throw on
+  desktop or in tests.
 - **The UI is a "precision instrument console"**: bundled Sora / ChakraPetch /
   JetBrains Mono, corner-tick `TurboPanel` frames, uppercase mono `Kicker`s,
   status-railed task cards. Design primitives live in `lib/theme.dart`, shared

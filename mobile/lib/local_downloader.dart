@@ -9,6 +9,11 @@ import 'package:path_provider/path_provider.dart';
 
 import 'file_store.dart';
 import 'media_extractor.dart';
+import 'services/diagnostics.dart';
+import 'services/download_error.dart';
+import 'services/history_store.dart';
+import 'services/retry_policy.dart';
+import 'services/url_validator.dart';
 import 'ytdlp.dart';
 
 // `ResolvedMedia`/`MediaResolveException` appear in the manager's public API
@@ -67,8 +72,18 @@ class LocalTask {
   int total;
   int downloaded;
   int speed;
-  String status; // queued | active | paused | completed | failed
+  String status; // queued | preparing | active | paused | completed | failed
   String? error;
+
+  /// Actionable classification of [error], for the UI and diagnostics.
+  String? errorKind;
+  String? errorDetail;
+
+  /// Automatic attempts made so far, and when the next one is due. A task that
+  /// exhausts its retries stays failed until the user retries by hand.
+  int attempts;
+  DateTime? nextRetryAt;
+
   String? filePath;
 
   /// "http" for a direct file link, "media" for a page resolved on-device.
@@ -114,11 +129,19 @@ class LocalTask {
   /// so the task was served by the built-in extractor instead.
   bool fellBackToBuiltin = false;
 
+  /// Whether the server confirmed support for HTTP range requests. False means
+  /// an interrupted transfer must restart from the beginning.
+  bool rangeSupported = true;
+
+  /// Per-download retry budget, overridable from Settings.
+  int maxAttempts;
+
   List<int> segmentStart;
   List<int> segmentEnd;
   List<int> segmentDone;
   final DateTime createdAt;
   DateTime? completedAt;
+  DateTime? startedAt;
 
   LocalTask({
     required this.id,
@@ -130,6 +153,10 @@ class LocalTask {
     this.speed = 0,
     this.status = 'queued',
     this.error,
+    this.errorKind,
+    this.errorDetail,
+    this.attempts = 0,
+    this.nextRetryAt,
     this.filePath,
     this.kind = 'http',
     this.engine = 'http',
@@ -140,11 +167,14 @@ class LocalTask {
     this.mediaAuthor,
     this.mediaDuration,
     this.thumbnailUrl,
+    this.maxAttempts = 3,
+    this.rangeSupported = true,
     List<int>? segmentStart,
     List<int>? segmentEnd,
     List<int>? segmentDone,
     required this.createdAt,
     this.completedAt,
+    this.startedAt,
   })  : segmentStart = segmentStart ?? const [],
         segmentEnd = segmentEnd ?? const [],
         segmentDone = segmentDone ?? const [];
@@ -152,9 +182,29 @@ class LocalTask {
   bool get isActive => status == 'active';
   bool get isPaused => status == 'paused';
   bool get isQueued => status == 'queued';
+  bool get isPreparing => status == 'preparing';
   bool get isCompleted => status == 'completed';
   bool get isFailed => status == 'failed';
+  bool get isRunning => isActive || isPreparing;
   bool get canOpen => isCompleted && (filePath?.isNotEmpty ?? false);
+
+  /// True while the task is waiting for its next automatic retry.
+  bool get awaitingRetry => isQueued && nextRetryAt != null;
+
+  /// Wall-clock seconds from start to completion, when both are known.
+  int? get durationSeconds {
+    final start = startedAt;
+    final end = completedAt;
+    if (start == null || end == null) return null;
+    return end.difference(start).inSeconds;
+  }
+
+  /// Mean throughput over the whole transfer, in bytes per second.
+  int? get averageSpeed {
+    final seconds = durationSeconds;
+    if (seconds == null || seconds <= 0 || total <= 0) return null;
+    return (total / seconds).round();
+  }
 
   double get progress {
     if (total <= 0) return 0;
@@ -170,6 +220,10 @@ class LocalTask {
         'downloaded': downloaded,
         'status': status,
         'error': error,
+        'errorKind': errorKind,
+        'errorDetail': errorDetail,
+        'attempts': attempts,
+        'nextRetryAt': nextRetryAt?.toIso8601String(),
         'filePath': filePath,
         'kind': kind,
         'engine': engine,
@@ -181,10 +235,13 @@ class LocalTask {
         'mediaDuration': mediaDuration,
         'thumbnailUrl': thumbnailUrl,
         'fellBackToBuiltin': fellBackToBuiltin,
+        'rangeSupported': rangeSupported,
+        'maxAttempts': maxAttempts,
         'segmentStart': segmentStart,
         'segmentEnd': segmentEnd,
         'segmentDone': segmentDone,
         'createdAt': createdAt.toIso8601String(),
+        'startedAt': startedAt?.toIso8601String(),
         'completedAt': completedAt?.toIso8601String(),
       };
 
@@ -201,6 +258,12 @@ class LocalTask {
       downloaded: (json['downloaded'] as num?)?.toInt() ?? 0,
       status: json['status']?.toString() ?? 'queued',
       error: json['error']?.toString(),
+      errorKind: json['errorKind']?.toString(),
+      errorDetail: json['errorDetail']?.toString(),
+      attempts: (json['attempts'] as num?)?.toInt() ?? 0,
+      nextRetryAt: json['nextRetryAt'] == null
+          ? null
+          : DateTime.tryParse(json['nextRetryAt'].toString()),
       filePath: json['filePath']?.toString(),
       kind: json['kind']?.toString() ?? 'http',
       engine: json['engine']?.toString() ?? 'http',
@@ -211,11 +274,16 @@ class LocalTask {
       mediaAuthor: json['mediaAuthor']?.toString(),
       mediaDuration: (json['mediaDuration'] as num?)?.toInt(),
       thumbnailUrl: json['thumbnailUrl']?.toString(),
+      rangeSupported: json['rangeSupported'] as bool? ?? true,
+      maxAttempts: (json['maxAttempts'] as num?)?.toInt() ?? 3,
       segmentStart: ints(json['segmentStart']),
       segmentEnd: ints(json['segmentEnd']),
       segmentDone: ints(json['segmentDone']),
       createdAt:
           DateTime.tryParse(json['createdAt']?.toString() ?? '') ?? DateTime.now(),
+      startedAt: json['startedAt'] == null
+          ? null
+          : DateTime.tryParse(json['startedAt'].toString()),
       completedAt: json['completedAt'] == null
           ? null
           : DateTime.tryParse(json['completedAt'].toString()),
@@ -235,7 +303,34 @@ class LocalDownloadManager extends ChangeNotifier {
   bool _loaded = false;
   bool _disposed = false;
   Timer? _ticker;
+  Timer? _retryTimer;
   int _lastActiveForService = 0;
+
+  /// How many downloads may run at once. Surplus tasks wait in the queue.
+  int maxConcurrent = 1;
+
+  /// Automatic retry budget applied to new tasks.
+  RetryPolicy retryPolicy = const RetryPolicy();
+
+  /// Set while the network or power state forbids starting new transfers.
+  bool _networkBlocked = false;
+
+  /// Partial-data root, exposed so the storage panel can size and clean it.
+  Directory? get partsRoot =>
+      _root == null ? null : Directory('${_root!.path}/parts');
+
+  /// Records finished and failed transfers. Set by the app; null in unit tests
+  /// that do not care about history.
+  HistoryStore? history;
+
+  /// Local diagnostics sink. Set by the app; null in unit tests.
+  Diagnostics? diagnostics;
+
+  /// Called when a download finishes or fails, so the app can notify the user.
+  void Function(LocalTask task)? onFinished;
+
+  /// Called when the retry budget is exhausted, for a one-off notification.
+  void Function(LocalTask task)? onGaveUp;
 
   /// Overridden in tests to control where the queue and parts live.
   @visibleForTesting
@@ -292,8 +387,29 @@ class LocalDownloadManager extends ChangeNotifier {
   List<LocalTask> get tasks =>
       _order.map((id) => _byId[id]).whereType<LocalTask>().toList();
 
-  int get activeCount => _byId.values.where((t) => t.isActive).length;
+  int get activeCount => _byId.values.where((t) => t.isRunning).length;
   int get queuedCount => _byId.values.where((t) => t.isQueued).length;
+
+  /// True while new transfers are held back by the network or power policy.
+  bool get networkBlocked => _networkBlocked;
+
+  /// Applies the Wi-Fi-only / battery-aware policy. When [blocked], no new
+  /// transfer starts and running ones are paused.
+  void setNetworkBlocked(bool blocked) {
+    if (_networkBlocked == blocked) return;
+    _networkBlocked = blocked;
+    if (blocked) {
+      pauseAll();
+    } else {
+      resumeAll();
+    }
+    _safeNotify();
+  }
+
+  /// Total bytes still to fetch across the whole queue.
+  int get remainingBytes => _byId.values
+      .where((t) => !t.isCompleted)
+      .fold(0, (sum, t) => sum + (t.total > 0 ? t.total - t.downloaded : 0));
 
   Future<void> init() async {
     if (_loaded) return;
@@ -304,9 +420,12 @@ class LocalDownloadManager extends ChangeNotifier {
         final raw = jsonDecode(await file.readAsString());
         for (final entry in (raw as List).whereType<Map>()) {
           final task = LocalTask.fromJson(Map<String, dynamic>.from(entry));
-          // A download cannot have been running while the app was closed.
-          if (task.isActive) task.status = 'paused';
+          // A download cannot have been running while the app was closed, so
+          // requeue whatever was in flight and let the worker resume it from
+          // the byte offset already recorded.
+          if (task.isActive || task.isPreparing) task.status = 'queued';
           task.speed = 0;
+          task.nextRetryAt = null;
           _byId[task.id] = task;
           _order.add(task.id);
         }
@@ -315,13 +434,49 @@ class LocalDownloadManager extends ChangeNotifier {
       }
     }
     _loaded = true;
+    await _recoverPartialData();
     _safeNotify();
     _pump();
+  }
+
+  /// After a crash, a `.part` file can be longer than the byte count the queue
+  /// recorded (a write that landed before the state was persisted), which would
+  /// append duplicate bytes on resume. Truncating each part to its recorded
+  /// length keeps the merge byte-exact.
+  Future<void> _recoverPartialData() async {
+    for (final task in _byId.values) {
+      if (task.isCompleted) continue;
+      final dir = _taskDir(task.id);
+      if (dir == null || !await dir.exists()) continue;
+      for (var i = 0; i < task.segmentDone.length; i++) {
+        final part = File('${dir.path}/part_$i.part');
+        if (!await part.exists()) continue;
+        try {
+          final expected = task.segmentDone[i];
+          final actual = await part.length();
+          if (actual > expected) {
+            final handle = await part.open(mode: FileMode.append);
+            await handle.truncate(expected);
+            await handle.close();
+          }
+        } catch (_) {}
+      }
+    }
   }
 
   // ------------------------------------------------------------------ public
 
   LocalTask? task(String id) => _byId[id];
+
+  /// The URL of every task still in the queue (not completed or failed), for
+  /// duplicate detection before a new one is added.
+  Iterable<String> get pendingUrls => _byId.values
+      .where((t) => !t.isCompleted && !t.isFailed)
+      .map((t) => t.url);
+
+  /// True when [url] is already queued or running.
+  bool isDuplicate(String url) =>
+      isDuplicateDownload(url, pendingUrls);
 
   /// Queues a download and returns its task. The worker starts it if a slot is
   /// free. Direct file links are fetched as-is; media pages are resolved on the
@@ -340,10 +495,11 @@ class LocalDownloadManager extends ChangeNotifier {
     int? mediaDuration,
     String? thumbnailUrl,
   }) {
+    final trimmed = url.trim();
     final id = _newId();
     final task = LocalTask(
       id: id,
-      url: url.trim(),
+      url: trimmed,
       filename: filename?.trim().isNotEmpty == true
           ? filename!.trim()
           : _fallbackName(url),
@@ -357,6 +513,7 @@ class LocalDownloadManager extends ChangeNotifier {
       mediaAuthor: mediaAuthor,
       mediaDuration: mediaDuration,
       thumbnailUrl: thumbnailUrl,
+      maxAttempts: retryPolicy.maxAttempts,
       createdAt: DateTime.now(),
     );
     _byId[id] = task;
@@ -367,13 +524,48 @@ class LocalDownloadManager extends ChangeNotifier {
     return task;
   }
 
+  /// Queues [url] only when it is not already pending, returning null when it
+  /// is a duplicate. This is what the Add screen uses so a link pasted twice is
+  /// not downloaded twice.
+  LocalTask? addIfNew(
+    String url, {
+    String? filename,
+    int connections = 4,
+    String kind = 'http',
+    String engine = 'http',
+    String? formatSelector,
+    String? formatId,
+    String? extensionHint,
+    String? mediaTitle,
+    String? mediaAuthor,
+    int? mediaDuration,
+    String? thumbnailUrl,
+  }) {
+    if (isDuplicate(url)) return null;
+    return add(
+      url,
+      filename: filename,
+      connections: connections,
+      kind: kind,
+      engine: engine,
+      formatSelector: formatSelector,
+      formatId: formatId,
+      extensionHint: extensionHint,
+      mediaTitle: mediaTitle,
+      mediaAuthor: mediaAuthor,
+      mediaDuration: mediaDuration,
+      thumbnailUrl: thumbnailUrl,
+    );
+  }
+
   void pause(String id) {
     final task = _byId[id];
     if (task == null) return;
     _runs[id]?.cancel();
-    if (task.isActive || task.isQueued) {
+    if (task.isActive || task.isPreparing || task.isQueued) {
       task.status = 'paused';
       task.speed = 0;
+      task.nextRetryAt = null;
     }
     _persist();
     _safeNotify();
@@ -384,12 +576,22 @@ class LocalDownloadManager extends ChangeNotifier {
     if (task == null || task.isCompleted) return;
     task.status = 'queued';
     task.error = null;
+    task.errorKind = null;
+    task.errorDetail = null;
+    task.nextRetryAt = null;
     _persist();
     _safeNotify();
     _pump();
   }
 
-  void retry(String id) => resume(id);
+  /// Retries a task by hand, resetting its attempt counter so the automatic
+  /// backoff budget is available again.
+  void retry(String id) {
+    final task = _byId[id];
+    if (task == null) return;
+    task.attempts = 0;
+    resume(id);
+  }
 
   /// Stops the download and forgets it, deleting any partial data.
   Future<void> remove(String id) async {
@@ -398,6 +600,7 @@ class LocalDownloadManager extends ChangeNotifier {
     // Wait for the download loop to stop writing before deleting its folder,
     // otherwise a late chunk can recreate it and leave orphaned partial data.
     if (run != null) await run.done.future;
+    final task = _byId[id];
     _byId.remove(id);
     _order.remove(id);
     final dir = _taskDir(id);
@@ -406,13 +609,14 @@ class LocalDownloadManager extends ChangeNotifier {
         await dir.delete(recursive: true);
       } catch (_) {}
     }
+    if (task != null) await _recordHistory(task);
     _persist();
     _safeNotify();
   }
 
   void pauseAll() {
     for (final id in List.of(_order)) {
-      if (_byId[id]!.isActive || _byId[id]!.isQueued) pause(id);
+      if (_byId[id]!.isRunning || _byId[id]!.isQueued) pause(id);
     }
   }
 
@@ -420,6 +624,21 @@ class LocalDownloadManager extends ChangeNotifier {
     for (final id in List.of(_order)) {
       if (_byId[id]!.isPaused || _byId[id]!.isFailed) resume(id);
     }
+  }
+
+  /// Cancels every queued and running task, keeping them in the list so the
+  /// user can restart one later.
+  void cancelAll() {
+    for (final id in List.of(_order)) {
+      final task = _byId[id]!;
+      if (task.isCompleted || task.isFailed) continue;
+      _runs[id]?.cancel();
+      task.status = 'paused';
+      task.speed = 0;
+      task.nextRetryAt = null;
+    }
+    _persist();
+    _safeNotify();
   }
 
   void clearCompleted() {
@@ -433,23 +652,63 @@ class LocalDownloadManager extends ChangeNotifier {
     _safeNotify();
   }
 
+  /// Deletes the partial-data folder for a failed or cancelled task, keeping
+  /// the task itself so it can be retried. Returns the bytes reclaimed.
+  Future<int> clearPartialData(String id) async {
+    final dir = _taskDir(id);
+    var reclaimed = 0;
+    if (dir != null && await dir.exists()) {
+      try {
+        await for (final entity in dir.list(recursive: true)) {
+          if (entity is File) {
+            try {
+              reclaimed += await entity.length();
+            } catch (_) {}
+          }
+        }
+        await dir.delete(recursive: true);
+      } catch (_) {}
+    }
+    final task = _byId[id];
+    if (task != null && task.isFailed) {
+      task.segmentStart = const [];
+      task.segmentEnd = const [];
+      task.segmentDone = const [];
+      task.downloaded = 0;
+    }
+    _persist();
+    return reclaimed;
+  }
+
   /// Where a completed file was saved, if it is still present.
   String? filePathOf(String id) => _byId[id]?.filePath;
 
   // ------------------------------------------------------------------ worker
 
+  /// Starts queued tasks until the concurrency limit is reached. A task waiting
+  /// for its backoff window is skipped until its timer fires.
   void _pump() {
-    if (_runs.isNotEmpty) return;
-    final next = _order
-        .map((id) => _byId[id]!)
-        .where((t) => t.isQueued)
-        .toList();
-    if (next.isEmpty) return;
-    final task = next.first;
+    if (_networkBlocked) return;
+    final now = DateTime.now();
+    for (final id in List.of(_order)) {
+      if (_runs.length >= maxConcurrent) break;
+      final task = _byId[id]!;
+      if (!task.isQueued) continue;
+      if (task.nextRetryAt != null && task.nextRetryAt!.isAfter(now)) continue;
+      _start(task);
+    }
+    if (_runs.isEmpty) _stopTicker();
+  }
+
+  void _start(LocalTask task) {
     final run = _Run();
     _runs[task.id] = run;
-    task.status = 'active';
+    task.status = 'preparing';
     task.error = null;
+    task.errorKind = null;
+    task.errorDetail = null;
+    task.nextRetryAt = null;
+    task.startedAt ??= DateTime.now();
     _syncBackground();
     _safeNotify();
     _startTicker();
@@ -461,7 +720,6 @@ class LocalDownloadManager extends ChangeNotifier {
       _persist();
       _syncBackground();
       _safeNotify();
-      if (_runs.isEmpty) _stopTicker();
       _pump();
     });
   }
@@ -481,17 +739,90 @@ class LocalDownloadManager extends ChangeNotifier {
       // (ranges, resume, multi-connection) handles everything else.
       if (task.usesYtdlp) {
         await _executeYtdlp(task, run);
-        return;
+      } else {
+        await _executeBuiltin(task, run);
       }
-      await _executeBuiltin(task, run);
+      if (run.cancelled) return;
+      task.status = 'completed';
+      task.completedAt = DateTime.now();
+      task.attempts = 0;
+      unawaited(_recordHistory(task));
+      unawaited(diagnostics?.info('download.completed', 'task completed'));
+      onFinished?.call(task);
     } catch (e) {
       if (run.cancelled) return;
-      task.status = 'failed';
-      task.error = _friendly(e);
+      await _handleFailure(task, e);
     } finally {
       _persist();
       _safeNotify();
     }
+  }
+
+  /// Turns a thrown error into an actionable state, and schedules an automatic
+  /// retry with exponential backoff when the failure is transient and attempts
+  /// remain.
+  Future<void> _handleFailure(LocalTask task, Object error) async {
+    final failure = _classify(error);
+    task.error = failure.message;
+    task.errorKind = failure.kind.name;
+    task.errorDetail = failure.technicalDetails;
+    task.attempts += 1;
+
+    unawaited(diagnostics?.error('download.failed', failure.kind.name));
+
+    if (failure.retryable && retryPolicy.shouldRetry(task.attempts)) {
+      final delay = retryPolicy.delayFor(task.attempts);
+      task.status = 'queued';
+      task.nextRetryAt = DateTime.now().add(delay);
+      _scheduleRetry(delay);
+      return;
+    }
+
+    task.status = 'failed';
+    task.nextRetryAt = null;
+    unawaited(_recordHistory(task));
+    onFinished?.call(task);
+    if (failure.retryable) onGaveUp?.call(task);
+  }
+
+  static DownloadError _classify(Object error) {
+    if (error is MediaResolveException) {
+      return DownloadError(DownloadErrorKind.media, error.message);
+    }
+    if (error is YtdlpException) {
+      return DownloadError(
+        DownloadErrorKind.engine,
+        error.message,
+        retryable: true,
+      );
+    }
+    return DownloadError.from(error);
+  }
+
+  void _scheduleRetry(Duration delay) {
+    _retryTimer?.cancel();
+    _retryTimer = Timer(delay + const Duration(milliseconds: 50), _pump);
+  }
+
+  /// Appends a finished or failed task to the history store, if one is wired.
+  Future<void> _recordHistory(LocalTask task) async {
+    final store = history;
+    if (store == null) return;
+    if (!task.isCompleted && !task.isFailed) return;
+    await store.add(HistoryEntry(
+      id: task.id,
+      url: task.url,
+      filename: task.filename,
+      status: task.status,
+      filePath: task.filePath,
+      destination: task.filePath == null ? null : FileStore.subfolderFor(task.filename),
+      size: task.total > 0 ? task.total : task.downloaded,
+      durationMs: task.durationSeconds == null ? null : task.durationSeconds! * 1000,
+      averageSpeed: task.averageSpeed,
+      errorKind: task.errorKind,
+      errorMessage: task.error,
+      finishedAt: task.completedAt ?? DateTime.now(),
+    ));
   }
 
   Future<void> _executeBuiltin(LocalTask task, _Run run) async {
@@ -517,10 +848,12 @@ class LocalDownloadManager extends ChangeNotifier {
       }
 
       final probe = await _probe(client, task.fetchUrl);
+      task.rangeSupported = probe.range;
       task.filename = _chooseName(task.filename, probe.filename);
       if (probe.total > 0) task.total = probe.total;
 
       _planSegments(task, probe);
+      task.status = 'active';
       await _fetch(client, task, run);
       if (run.cancelled) return;
 
@@ -530,8 +863,6 @@ class LocalDownloadManager extends ChangeNotifier {
 
       final saved = await publishOverride(merged, task.filename);
       task.filePath = saved.path;
-      task.status = 'completed';
-      task.completedAt = DateTime.now();
       await _cleanupParts(task);
     } finally {
       client.close(force: true);
@@ -546,6 +877,7 @@ class LocalDownloadManager extends ChangeNotifier {
     final stem = _safeStem(task.filename);
     final selector = task.formatSelector ?? 'best';
     final run_ = ytdlpOverride ?? _runYtdlp;
+    task.status = 'active';
 
     final file = await run_(
       url: task.url,
@@ -569,8 +901,6 @@ class LocalDownloadManager extends ChangeNotifier {
     task.downloaded = task.total > 0 ? task.total : await file.length();
     final saved = await publishOverride(file, task.filename);
     task.filePath = saved.path;
-    task.status = 'completed';
-    task.completedAt = DateTime.now();
     await _cleanupParts(task);
   }
 
@@ -694,16 +1024,18 @@ class LocalDownloadManager extends ChangeNotifier {
           res.contentLength == end + 1 &&
           index != 0) {
         await res.drain<void>();
-        throw HttpException(
-            'Server ignored range requests for segment ${index + 1}');
+        throw DownloadErrors.rangeIgnored(index);
+      } else if (res.statusCode == HttpStatus.requestedRangeNotSatisfiable) {
+        await res.drain<void>();
+        throw DownloadErrors.fileChanged;
       } else if (res.statusCode != HttpStatus.ok &&
           res.statusCode != HttpStatus.partialContent) {
         await res.drain<void>();
-        throw HttpException('Server responded ${res.statusCode}');
+        throw DownloadErrors.httpStatus(res.statusCode);
       }
       if (restarted) done = 0;
 
-      final part = File('${dir.path}/part_$index');
+      final part = File('${dir.path}/part_$index.part');
       final sink = part.openWrite(
           mode: restarted || done == 0 ? FileMode.write : FileMode.append);
       try {
@@ -720,7 +1052,7 @@ class LocalDownloadManager extends ChangeNotifier {
       }
 
       if (!run.cancelled && end >= 0 && done != end - start + 1) {
-        throw const HttpException('Connection ended early');
+        throw DownloadErrors.endedEarly(end - start + 1, done);
       }
     }
 
@@ -739,7 +1071,7 @@ class LocalDownloadManager extends ChangeNotifier {
     final sink = out.openWrite();
     try {
       for (var i = 0; i < task.segmentStart.length; i++) {
-        final part = File('${dir.path}/part_$i');
+        final part = File('${dir.path}/part_$i.part');
         if (!await part.exists()) continue;
         final reader = part.openRead();
         await for (final chunk in reader) {
@@ -876,17 +1208,6 @@ class LocalDownloadManager extends ChangeNotifier {
     return '$stem.$ext';
   }
 
-  static String _friendly(Object e) {
-    if (e is MediaResolveException) return e.message;
-    if (e is YtdlpException) return e.message;
-    if (e is SocketException) {
-      return 'Network error. Check your connection.';
-    }
-    if (e is HttpException) return e.message;
-    if (e is HandshakeException) return 'Secure connection failed.';
-    return e.toString();
-  }
-
   String _newId() {
     final r = Random();
     return '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}'
@@ -897,6 +1218,7 @@ class LocalDownloadManager extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _stopTicker();
+    _retryTimer?.cancel();
     for (final run in _runs.values) {
       run.cancel();
     }

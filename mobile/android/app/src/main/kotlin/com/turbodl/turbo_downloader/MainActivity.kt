@@ -25,6 +25,11 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        // A second, independent channel set: credentials, notifications, and
+        // device state. Kept out of the files channel so a failure to read one
+        // capability cannot disable the others.
+        PlatformChannels.register(this, flutterEngine)
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {

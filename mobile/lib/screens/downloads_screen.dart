@@ -27,10 +27,8 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   /// Plays the completion chime when a task finishes, without firing for the
   /// tasks that were already complete when the app opened.
   void _maybeChime(TurboState state) {
-    final completed = state.local.tasks
-        .where((t) => t.isCompleted)
-        .map((t) => t.id)
-        .toSet();
+    final completed =
+        state.local.tasks.where((t) => t.isCompleted).map((t) => t.id).toSet();
     if (!_primed) {
       _seenCompleted.addAll(completed);
       _primed = true;
@@ -59,24 +57,52 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     }
 
     return RefreshIndicator(
-      onRefresh: () async {},
+      onRefresh: () async {
+        // Re-read the device conditions and let the worker pick up again.
+        await state.refreshDevice();
+        state.local.resumeAll();
+      },
       child: CustomScrollView(
         slivers: [
           SliverToBoxAdapter(
             child: _StatsBar(
-              active: all.where((t) => t.isActive).length,
+              active: all.where((t) => t.isRunning).length,
               speed: all.fold<int>(0, (n, t) => n + t.speed),
               done: all.where((t) => t.isCompleted).length,
               bytes: all.fold<int>(0, (n, t) => n + t.downloaded),
             ),
           ),
+          if (state.local.networkBlocked)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                child: Notice(
+                  icon: Icons.wifi_off_rounded,
+                  color: context.palette.warning,
+                  text: state.wifiOnly && !state.deviceState.onWifi
+                      ? 'Wi-Fi only is on and this device is not on Wi-Fi. '
+                          'Transfers are paused.'
+                      : 'Battery is low and the device is unplugged. Transfers '
+                          'are paused to save power.',
+                  trailing: TextButton(
+                    onPressed: () async {
+                      await state.setWifiOnly(false);
+                      await state.setBatteryAware(false);
+                    },
+                    child: const Text('Allow'),
+                  ),
+                ),
+              ),
+            ),
           SliverToBoxAdapter(
             child: _Toolbar(
               hasCompleted: all.any((t) => t.isCompleted),
               anyPaused: all.any((t) => t.isPaused || t.isFailed),
+              anyRunning: all.any((t) => t.isRunning || t.isQueued),
               onPauseAll: state.local.pauseAll,
               onResumeAll: state.local.resumeAll,
               onClearCompleted: state.local.clearCompleted,
+              onCancelAll: state.local.cancelAll,
             ),
           ),
           SliverToBoxAdapter(
@@ -127,7 +153,7 @@ class _FilterBar extends StatelessWidget {
     final ordered = FileKind.values.where(present.contains).toList();
     if (ordered.length <= 1) return const SizedBox.shrink();
 
-    final accent = Theme.of(context).colorScheme.primary;
+    final accent = context.palette.accent;
     return SizedBox(
       height: 44,
       child: ListView(
@@ -174,23 +200,24 @@ class _Chip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: selected ? accent.withOpacity(0.16) : TurboColors.bgSecondary,
-          borderRadius: BorderRadius.circular(4),
+          color: selected ? accent.withOpacity(0.16) : p.bgSecondary,
+          borderRadius: TurboRadius.all(TurboRadius.sm),
           border: Border.all(
-            color: selected ? accent : TurboColors.borderSubtle,
+            color: selected ? accent : p.borderSubtle,
           ),
         ),
         child: Text(
           '$label · $count',
           style: TextStyle(
             fontFamily: TurboFonts.body,
-            color: selected ? TurboColors.textPrimary : TurboColors.textSecondary,
+            color: selected ? p.textPrimary : p.textSecondary,
             fontSize: 11.5,
             fontWeight: FontWeight.w600,
           ),
@@ -203,42 +230,54 @@ class _Chip extends StatelessWidget {
 class _Toolbar extends StatelessWidget {
   final bool hasCompleted;
   final bool anyPaused;
+  final bool anyRunning;
   final VoidCallback onPauseAll;
   final VoidCallback onResumeAll;
   final VoidCallback onClearCompleted;
+  final VoidCallback onCancelAll;
 
   const _Toolbar({
     required this.hasCompleted,
     required this.anyPaused,
+    required this.anyRunning,
     required this.onPauseAll,
     required this.onResumeAll,
     required this.onClearCompleted,
+    required this.onCancelAll,
   });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
-      child: Row(
-        children: [
-          TextButton.icon(
-            onPressed: onPauseAll,
-            icon: const Icon(Icons.pause_circle_outline_rounded, size: 16),
-            label: const Text('Pause all'),
-          ),
-          TextButton.icon(
-            onPressed: anyPaused ? onResumeAll : null,
-            icon: const Icon(Icons.play_circle_outline_rounded, size: 16),
-            label: const Text('Resume all'),
-          ),
-          const Spacer(),
-          if (hasCompleted)
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 2),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
             TextButton.icon(
-              onPressed: onClearCompleted,
-              icon: const Icon(Icons.cleaning_services_rounded, size: 16),
-              label: const Text('Clear done'),
+              onPressed: anyRunning ? onPauseAll : null,
+              icon: const Icon(Icons.pause_circle_outline_rounded, size: 16),
+              label: const Text('Pause all'),
             ),
-        ],
+            TextButton.icon(
+              onPressed: anyPaused ? onResumeAll : null,
+              icon: const Icon(Icons.play_circle_outline_rounded, size: 16),
+              label: const Text('Resume all'),
+            ),
+            if (anyRunning)
+              TextButton.icon(
+                onPressed: onCancelAll,
+                icon: const Icon(Icons.stop_circle_outlined, size: 16),
+                label: const Text('Cancel all'),
+              ),
+            if (hasCompleted)
+              TextButton.icon(
+                onPressed: onClearCompleted,
+                icon: const Icon(Icons.cleaning_services_rounded, size: 16),
+                label: const Text('Clear done'),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -258,6 +297,7 @@ class _StatsBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 14, 12, 0),
       child: Row(
@@ -265,25 +305,25 @@ class _StatsBar extends StatelessWidget {
           StatTile(
             label: 'Active',
             value: '$active',
-            color: TurboColors.accent,
+            color: p.accent,
             icon: Icons.bolt_rounded,
           ),
           StatTile(
             label: 'Speed',
             value: formatSpeed(speed),
-            color: TurboColors.speedUltra,
+            color: turboSpeedColor(context, speed),
             icon: Icons.speed_rounded,
           ),
           StatTile(
             label: 'Done',
             value: '$done',
-            color: TurboColors.success,
+            color: p.success,
             icon: Icons.check_rounded,
           ),
           StatTile(
             label: 'Total',
             value: formatBytes(bytes),
-            color: TurboColors.textSecondary,
+            color: p.textSecondary,
             icon: Icons.sd_storage_rounded,
           ),
         ],
@@ -298,47 +338,13 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: TurboColors.bgSecondary,
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: TurboColors.borderSubtle),
-            ),
-            child: Icon(
-              Icons.download_for_offline_outlined,
-              size: 32,
-              color: accent.withOpacity(0.7),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Kicker(
-            filtered ? 'Nothing of this type' : 'Queue empty',
-            letterSpacing: 2.4,
-            size: 11,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            filtered
-                ? 'No downloads match this filter.'
-                : 'Open the Add tab to start a transfer.\nFiles land in your '
-                    'Downloads folder.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontFamily: TurboFonts.body,
-              color: TurboColors.textSecondary,
-              fontSize: 13,
-              height: 1.5,
-            ),
-          ),
-        ],
-      ),
+    return EmptyState(
+      icon: Icons.download_for_offline_outlined,
+      title: filtered ? 'Nothing of this type' : 'Queue empty',
+      message: filtered
+          ? 'No downloads match this filter.'
+          : 'Open the Add tab to start a transfer.\nFiles land in your '
+              'Downloads folder.',
     );
   }
 }
@@ -357,15 +363,16 @@ class _TaskCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: TurboColors.bgSecondary,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: TurboColors.borderSubtle),
+        color: p.bgSecondary,
+        borderRadius: TurboRadius.all(TurboRadius.sm),
+        border: Border.all(color: p.borderSubtle),
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: TurboRadius.all(TurboRadius.sm),
         child: IntrinsicHeight(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -405,6 +412,7 @@ class _CardHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -413,7 +421,7 @@ class _CardHeader extends StatelessWidget {
           height: 38,
           decoration: BoxDecoration(
             color: color.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: TurboRadius.all(TurboRadius.sm),
           ),
           child: Icon(icon, color: color, size: 19),
         ),
@@ -426,9 +434,9 @@ class _CardHeader extends StatelessWidget {
                 filename,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: TurboFonts.body,
-                  color: TurboColors.textPrimary,
+                  color: p.textPrimary,
                   fontSize: 13.5,
                   fontWeight: FontWeight.w600,
                   height: 1.3,
@@ -452,35 +460,39 @@ class _DownloadCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final kind = kindOf(task.filename);
-    final meta = _meta();
+    final meta = _meta(context);
 
     return _TaskCard(
       railColor: meta.$2,
-      railStrong: task.isActive,
+      railStrong: task.isRunning,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _CardHeader(
             icon: kindIcon(kind),
-            color: kindColor(kind),
+            color: kindColor(context, kind),
             filename: task.filename,
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     StatusPill(status: task.status),
-                    const SizedBox(width: 6),
                     Kicker('${task.connections} conn',
                         size: 9, letterSpacing: 1.0),
-                    if (task.usesYtdlp) ...[
-                      const SizedBox(width: 6),
-                      const _Tag('YT-DLP', TurboColors.accent),
-                    ] else if (task.kind == 'media') ...[
-                      const SizedBox(width: 6),
-                      const _Tag('BUILT-IN', TurboColors.speedUltra),
-                    ],
+                    if (task.kind == 'media')
+                      EngineTag(usesYtdlp: task.usesYtdlp),
+                    if (task.attempts > 0 && !task.isCompleted)
+                      TurboChip(
+                        label: 'Attempt ${task.attempts}',
+                        tone: p.warning,
+                        dense: true,
+                      ),
                   ],
                 ),
                 if (task.mediaAuthor != null &&
@@ -494,9 +506,9 @@ class _DownloadCard extends StatelessWidget {
                     ].join(' · '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: TurboFonts.body,
-                      color: TurboColors.textMuted,
+                      color: p.textMuted,
                       fontSize: 10.5,
                     ),
                   ),
@@ -505,47 +517,55 @@ class _DownloadCard extends StatelessWidget {
             ),
             trailing: _actions(context),
           ),
-          if (task.isActive || task.isPaused) ...[
+          if (task.isRunning || task.isPaused) ...[
             const SizedBox(height: 12),
             TurboProgressBar(
               value: task.progress,
-              color: task.isPaused
-                  ? TurboColors.warning
-                  : Theme.of(context).colorScheme.primary,
+              color: task.isPaused ? p.warning : p.accent,
             ),
             const SizedBox(height: 7),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  '${formatBytes(task.downloaded)} / '
-                  '${task.total > 0 ? formatBytes(task.total) : '—'}',
-                  style: const TextStyle(
-                    fontFamily: TurboFonts.mono,
-                    color: TurboColors.textSecondary,
-                    fontSize: 11,
+                Flexible(
+                  child: Text(
+                    '${formatBytes(task.downloaded)} / '
+                    '${task.total > 0 ? formatBytes(task.total) : '—'}',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: TurboFonts.mono,
+                      color: p.textSecondary,
+                      fontSize: 11,
+                    ),
                   ),
                 ),
                 Text(
-                  task.isActive ? formatSpeed(task.speed) : 'Paused',
+                  task.isPaused
+                      ? 'Paused'
+                      : (task.isPreparing
+                          ? 'Connecting…'
+                          : '${formatSpeed(task.speed)} · '
+                              '${formatEta(task.total - task.downloaded, task.speed)}'),
                   style: TextStyle(
                     fontFamily: TurboFonts.mono,
-                    color: task.isActive
-                        ? Theme.of(context).colorScheme.primary
-                        : TurboColors.warning,
+                    color: task.isPaused ? p.warning : p.accent,
                     fontSize: 11,
                   ),
                 ),
               ],
             ),
           ],
-          if (task.isFailed && task.error != null) ...[
+          if (task.awaitingRetry) ...[
             const SizedBox(height: 10),
             Notice(
-              icon: Icons.error_outline_rounded,
-              color: TurboColors.error,
-              text: task.error!,
+              icon: Icons.restart_alt_rounded,
+              color: p.warning,
+              text: 'Retrying automatically — attempt ${task.attempts + 1}.',
             ),
+          ],
+          if (task.isFailed && task.error != null) ...[
+            const SizedBox(height: 10),
+            _ErrorNotice(task: task),
           ],
           if (task.canOpen) ...[
             const SizedBox(height: 12),
@@ -561,16 +581,14 @@ class _DownloadCard extends StatelessWidget {
     );
   }
 
-  (IconData, Color) _meta() {
-    if (task.isFailed) return (Icons.error_outline_rounded, TurboColors.error);
-    if (task.isCompleted) {
-      return (Icons.check_circle_rounded, TurboColors.success);
-    }
-    if (task.isPaused) {
-      return (Icons.pause_circle_rounded, TurboColors.warning);
-    }
-    if (task.isActive) return (Icons.downloading_rounded, TurboColors.accent);
-    return (Icons.schedule_rounded, TurboColors.textSecondary);
+  (IconData, Color) _meta(BuildContext context) {
+    final p = context.palette;
+    if (task.isFailed) return (Icons.error_outline_rounded, p.error);
+    if (task.isCompleted) return (Icons.check_circle_rounded, p.success);
+    if (task.isPaused) return (Icons.pause_circle_rounded, p.warning);
+    if (task.isRunning) return (Icons.downloading_rounded, p.accent);
+    if (task.awaitingRetry) return (Icons.restart_alt_rounded, p.warning);
+    return (Icons.schedule_rounded, p.textSecondary);
   }
 
   void _open(BuildContext context) {
@@ -592,11 +610,11 @@ class _DownloadCard extends StatelessWidget {
   }
 
   Widget _actions(BuildContext context) {
+    final p = context.palette;
     final state = context.read<TurboState>();
     return PopupMenuButton<String>(
-      icon: const Icon(Icons.more_vert_rounded,
-          color: TurboColors.textSecondary, size: 20),
-      color: TurboColors.bgTertiary,
+      icon: Icon(Icons.more_vert_rounded, color: p.textSecondary, size: 20),
+      color: p.bgTertiary,
       onSelected: (value) {
         switch (value) {
           case 'pause':
@@ -614,40 +632,130 @@ class _DownloadCard extends StatelessWidget {
           case 'share':
             _share(context);
             break;
+          case 'details':
+            showDialog<void>(
+              context: context,
+              builder: (_) => _ErrorDialog(task: task),
+            );
+            break;
           case 'remove':
             state.local.remove(task.id);
             break;
         }
       },
       itemBuilder: (context) => [
-        if (task.isActive || task.isQueued)
-          _menuItem('pause', Icons.pause_rounded, 'Pause'),
+        if (task.isRunning || task.isQueued)
+          _menuItem(context, 'pause', Icons.pause_rounded, 'Pause'),
         if (task.isPaused)
-          _menuItem('resume', Icons.play_arrow_rounded, 'Resume'),
-        if (task.isFailed) _menuItem('retry', Icons.refresh_rounded, 'Retry'),
-        if (task.canOpen) _menuItem('open', Icons.open_in_new_rounded, 'Open'),
+          _menuItem(context, 'resume', Icons.play_arrow_rounded, 'Resume'),
+        if (task.isFailed) _menuItem(context, 'retry', Icons.refresh_rounded, 'Retry'),
+        if (task.canOpen) _menuItem(context, 'open', Icons.open_in_new_rounded, 'Open'),
         if (task.canOpen)
-          _menuItem('share', Icons.ios_share_rounded, 'Share'),
-        _menuItem('remove', Icons.delete_outline_rounded, 'Delete'),
+          _menuItem(context, 'share', Icons.ios_share_rounded, 'Share'),
+        if (task.errorDetail != null)
+          _menuItem(context, 'details', Icons.info_outline_rounded, 'Details'),
+        _menuItem(context, 'remove', Icons.delete_outline_rounded, 'Delete'),
       ],
     );
   }
 
-  PopupMenuItem<String> _menuItem(String value, IconData icon, String label) =>
+  PopupMenuItem<String> _menuItem(
+          BuildContext context, String value, IconData icon, String label) =>
       PopupMenuItem(
         value: value,
         child: Row(
           children: [
-            Icon(icon, size: 18, color: TurboColors.textSecondary),
+            Icon(icon, size: 18, color: context.palette.textSecondary),
             const SizedBox(width: 10),
             Text(label,
-                style: const TextStyle(
+                style: TextStyle(
                     fontFamily: TurboFonts.body,
-                    color: TurboColors.textPrimary,
+                    color: context.palette.textPrimary,
                     fontSize: 13)),
           ],
         ),
       );
+}
+
+/// The failure banner on a card, with an affordance for technical details.
+class _ErrorNotice extends StatelessWidget {
+  final LocalTask task;
+  const _ErrorNotice({required this.task});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Notice(
+      icon: Icons.error_outline_rounded,
+      color: p.error,
+      text: task.error!,
+      trailing: task.errorDetail == null
+          ? null
+          : IconButton(
+              tooltip: 'Technical details',
+              visualDensity: VisualDensity.compact,
+              icon: Icon(Icons.info_outline_rounded, color: p.error, size: 18),
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => _ErrorDialog(task: task),
+              ),
+            ),
+    );
+  }
+}
+
+class _ErrorDialog extends StatelessWidget {
+  final LocalTask task;
+  const _ErrorDialog({required this.task});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return AlertDialog(
+      title: const Text('Download error'),
+      content: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(task.error ?? 'Unknown error',
+                style: TextStyle(
+                    fontFamily: TurboFonts.body, color: p.textPrimary)),
+            if (task.errorKind != null) ...[
+              const SizedBox(height: 12),
+              Kicker('Category: ${task.errorKind}'),
+            ],
+            if (task.errorDetail != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: p.bgTertiary,
+                  borderRadius: TurboRadius.all(TurboRadius.sm),
+                ),
+                child: SelectableText(
+                  task.errorDetail!,
+                  style: TextStyle(
+                    fontFamily: TurboFonts.mono,
+                    color: p.textSecondary,
+                    fontSize: 11,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
 }
 
 /// "Saved to your Downloads" strip shown on completed downloads.
@@ -665,17 +773,17 @@ class _SavedRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return Container(
       padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
       decoration: BoxDecoration(
-        color: TurboColors.success.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: TurboColors.success.withOpacity(0.25)),
+        color: p.success.withOpacity(0.08),
+        borderRadius: TurboRadius.all(TurboRadius.sm),
+        border: Border.all(color: p.success.withOpacity(0.25)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.folder_rounded,
-              color: TurboColors.success, size: 15),
+          Icon(Icons.folder_rounded, color: p.success, size: 15),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
@@ -685,9 +793,9 @@ class _SavedRow extends StatelessWidget {
                   'Saved to Downloads/${FileStore.subfolderFor(filename)}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: TurboFonts.body,
-                    color: TurboColors.success,
+                    color: p.success,
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
                   ),
@@ -698,9 +806,9 @@ class _SavedRow extends StatelessWidget {
                     meta!,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: TurboFonts.mono,
-                      color: TurboColors.textMuted,
+                      color: p.textMuted,
                       fontSize: 9.5,
                     ),
                   ),
@@ -711,8 +819,7 @@ class _SavedRow extends StatelessWidget {
           IconButton(
             tooltip: 'Share',
             onPressed: onShare,
-            icon: const Icon(Icons.ios_share_rounded,
-                color: TurboColors.textSecondary, size: 18),
+            icon: Icon(Icons.ios_share_rounded, color: p.textSecondary, size: 18),
             visualDensity: VisualDensity.compact,
           ),
           TextButton.icon(
@@ -725,33 +832,6 @@ class _SavedRow extends StatelessWidget {
                     fontWeight: FontWeight.w600)),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _Tag extends StatelessWidget {
-  final String label;
-  final Color color;
-  const _Tag(this.label, this.color);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.16),
-        borderRadius: BorderRadius.circular(3),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontFamily: TurboFonts.mono,
-          color: color,
-          fontSize: 8.5,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.8,
-        ),
       ),
     );
   }

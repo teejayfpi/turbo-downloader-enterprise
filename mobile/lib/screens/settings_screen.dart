@@ -6,9 +6,16 @@ import 'package:provider/provider.dart';
 
 import '../contact.dart';
 import '../credits.dart';
+import '../format.dart';
+import '../l10n/strings.dart';
+import '../services/notifications.dart';
+import '../services/update_checker.dart';
 import '../state.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'credentials_screen.dart';
+import 'diagnostics_screen.dart';
+import 'storage_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -21,7 +28,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<TurboState>();
-    final accent = Theme.of(context).colorScheme.primary;
+    final accent = context.palette.accent;
+    final strings = TurboStrings.of(context);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
@@ -32,8 +40,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             Row(
               children: [
-                const Icon(Icons.speed_rounded,
-                    color: TurboColors.textMuted, size: 15),
+                Icon(Icons.speed_rounded,
+                    color: context.palette.textMuted, size: 15),
                 const SizedBox(width: 8),
                 const Kicker('Default connections', letterSpacing: 1.6),
                 const Spacer(),
@@ -56,15 +64,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               label: '${state.defaultConnections}',
               onChanged: (v) => state.setDefaultConnections(v.round()),
             ),
-            const Text(
+            const _Hint(
               'Segments used for new downloads. Range-capable hosts split the '
               'transfer across these; others fall back to one.',
-              style: TextStyle(
-                fontFamily: TurboFonts.body,
-                color: TurboColors.textMuted,
-                fontSize: 10,
-                height: 1.45,
-              ),
             ),
             const SizedBox(height: 14),
             const Kicker('Speed mode', letterSpacing: 1.6),
@@ -74,57 +76,159 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onChanged: (v) => state.setSpeedMode(
                   v == 'turbo' ? SpeedMode.turbo : SpeedMode.balanced),
               options: const [
-                ModeSegmentOption('balanced', Icons.shield_moon_rounded,
-                    'Balanced'),
+                ModeSegmentOption(
+                    'balanced', Icons.shield_moon_rounded, 'Balanced'),
                 ModeSegmentOption('turbo', Icons.bolt_rounded, 'Turbo'),
               ],
             ),
             const SizedBox(height: 6),
-            Text(
-              state.speedMode == SpeedMode.turbo
-                  ? 'Turbo splits range-capable downloads across up to 16 '
-                      'segments for maximum speed.'
-                  : 'Balanced uses fewer segments to stay gentle on hosts.',
-              style: const TextStyle(
-                fontFamily: TurboFonts.body,
-                color: TurboColors.textMuted,
-                fontSize: 10,
-                height: 1.45,
-              ),
-            ),
-            const SizedBox(height: 8),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              value: state.playSound,
-              onChanged: (v) => state.setPlaySound(v),
-              title: const Text(
-                'Completion sound',
-                style: TextStyle(
-                  fontFamily: TurboFonts.body,
-                  color: TurboColors.textPrimary,
-                  fontSize: 13,
+            _Hint(state.speedMode == SpeedMode.turbo
+                ? 'Turbo splits range-capable downloads across up to 16 '
+                    'segments for maximum speed.'
+                : 'Balanced uses fewer segments to stay gentle on hosts.'),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Icon(Icons.layers_rounded,
+                    color: context.palette.textMuted, size: 15),
+                const SizedBox(width: 8),
+                const Kicker('Simultaneous downloads', letterSpacing: 1.6),
+                const Spacer(),
+                Text(
+                  '${state.maxConcurrent}',
+                  style: TextStyle(
+                    fontFamily: TurboFonts.mono,
+                    color: accent,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-              subtitle: const Text(
-                'Play a chime when a download finishes.',
-                style: TextStyle(
-                  fontFamily: TurboFonts.body,
-                  color: TurboColors.textMuted,
-                  fontSize: 10.5,
-                ),
-              ),
+              ],
             ),
+            Slider(
+              value: state.maxConcurrent.toDouble(),
+              min: 1,
+              max: 6,
+              divisions: 5,
+              label: '${state.maxConcurrent}',
+              onChanged: (v) => state.setMaxConcurrent(v.round()),
+            ),
+            const _Hint('How many downloads run at the same time. Extra jobs wait in '
+                'the queue.'),
           ],
         ),
         const SizedBox(height: 16),
         _Section(
-          title: 'Accent colour',
+          title: 'Reliability',
           accent: accent,
           children: [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: state.autoRetry,
+              onChanged: state.setAutoRetry,
+              title: Text('Automatic retry',
+                  style: TextStyle(
+                      fontFamily: TurboFonts.body,
+                      color: context.palette.textPrimary,
+                      fontSize: 13)),
+              subtitle: Text(
+                'Retry transient failures with exponential backoff.',
+                style: TextStyle(
+                    fontFamily: TurboFonts.body,
+                    color: context.palette.textMuted,
+                    fontSize: 10.5),
+              ),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: state.wifiOnly,
+              onChanged: state.setWifiOnly,
+              title: Text('Wi-Fi only',
+                  style: TextStyle(
+                      fontFamily: TurboFonts.body,
+                      color: context.palette.textPrimary,
+                      fontSize: 13)),
+              subtitle: Text(
+                'Pause transfers when the device is on mobile data.',
+                style: TextStyle(
+                    fontFamily: TurboFonts.body,
+                    color: context.palette.textMuted,
+                    fontSize: 10.5),
+              ),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: state.batteryAware,
+              onChanged: state.setBatteryAware,
+              title: Text('Battery aware',
+                  style: TextStyle(
+                      fontFamily: TurboFonts.body,
+                      color: context.palette.textPrimary,
+                      fontSize: 13)),
+              subtitle: Text(
+                'Pause transfers on a low, unplugged battery.',
+                style: TextStyle(
+                    fontFamily: TurboFonts.body,
+                    color: context.palette.textMuted,
+                    fontSize: 10.5),
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (!state.deviceState.charging || state.deviceState.batteryLevel >= 0)
+              _InfoRow(
+                label: 'Device',
+                value: state.deviceState.batteryLevel >= 0
+                    ? '${state.deviceState.onWifi ? 'Wi-Fi' : 'Mobile'} · '
+                        '${state.deviceState.batteryLevel}%'
+                        '${state.deviceState.charging ? ' · charging' : ''}'
+                    : state.deviceState.onWifi
+                        ? 'Wi-Fi'
+                        : 'Mobile',
+              ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _NotificationsSection(state: state),
+        const SizedBox(height: 16),
+        _Section(
+          title: 'Appearance',
+          accent: accent,
+          children: [
+            const Kicker('Theme', letterSpacing: 1.6),
+            const SizedBox(height: 8),
+            ModeSegment(
+              value: state.themeMode.name,
+              onChanged: (v) => state.setThemeMode(switch (v) {
+                'light' => ThemeMode.light,
+                'system' => ThemeMode.system,
+                _ => ThemeMode.dark,
+              }),
+              options: const [
+                ModeSegmentOption('system', Icons.brightness_auto_rounded, 'System'),
+                ModeSegmentOption('light', Icons.light_mode_rounded, 'Light'),
+                ModeSegmentOption('dark', Icons.dark_mode_rounded, 'Dark'),
+              ],
+            ),
+            const SizedBox(height: 14),
+            const Kicker('Language', letterSpacing: 1.6),
+            const SizedBox(height: 8),
+            ModeSegment(
+              value: state.localeCode ?? 'system',
+              onChanged: (v) => state.setLocale(v == 'system' ? null : v),
+              options: [
+                const ModeSegmentOption('system', Icons.translate_rounded, 'Auto'),
+                for (final code in TurboStrings.localeNames.keys)
+                  ModeSegmentOption(code, Icons.language_rounded,
+                      TurboStrings.localeNames[code]!),
+              ],
+            ),
+            const SizedBox(height: 14),
+            const Kicker('Accent colour', letterSpacing: 1.6),
+            const SizedBox(height: 10),
             Wrap(
               spacing: 12,
               runSpacing: 12,
-              children: TurboColors.accents.entries.map((entry) {
+              children: TurboAccents.all.entries.map((entry) {
                 final selected = state.accentKey == entry.key;
                 return GestureDetector(
                   onTap: () => state.setAccent(entry.key),
@@ -133,60 +237,417 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     height: 44,
                     decoration: BoxDecoration(
                       color: entry.value,
-                      borderRadius: BorderRadius.circular(4),
+                      borderRadius: TurboRadius.all(TurboRadius.sm),
                       border: Border.all(
                         color: selected
-                            ? TurboColors.textPrimary
+                            ? context.palette.textPrimary
                             : Colors.transparent,
                         width: 2.5,
                       ),
                     ),
                     child: selected
-                        ? const Icon(Icons.check_rounded,
-                            color: TurboColors.bgPrimary, size: 20)
+                        ? Icon(Icons.check_rounded,
+                            color: context.palette.isDark
+                                ? context.palette.bgPrimary
+                                : Colors.white,
+                            size: 20)
                         : null,
                   ),
                 );
               }).toList(),
+            ),
+            const SizedBox(height: 12),
+            const Kicker('Accessibility', letterSpacing: 1.6),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: state.highContrast,
+              onChanged: state.setHighContrast,
+              title: Text('High contrast',
+                  style: TextStyle(
+                      fontFamily: TurboFonts.body,
+                      color: context.palette.textPrimary,
+                      fontSize: 13)),
+              subtitle: Text(
+                'Stronger text and border contrast.',
+                style: TextStyle(
+                    fontFamily: TurboFonts.body,
+                    color: context.palette.textMuted,
+                    fontSize: 10.5),
+              ),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: state.reducedMotion,
+              onChanged: state.setReducedMotion,
+              title: Text('Reduce motion',
+                  style: TextStyle(
+                      fontFamily: TurboFonts.body,
+                      color: context.palette.textPrimary,
+                      fontSize: 13)),
+              subtitle: Text(
+                'Limit non-essential animation.',
+                style: TextStyle(
+                    fontFamily: TurboFonts.body,
+                    color: context.palette.textMuted,
+                    fontSize: 10.5),
+              ),
+            ),
+            Row(
+              children: [
+                Text('Text size',
+                    style: TextStyle(
+                        fontFamily: TurboFonts.body,
+                        color: context.palette.textPrimary,
+                        fontSize: 13)),
+                const Spacer(),
+                Text('${(state.textScale * 100).round()}%',
+                    style: TextStyle(
+                        fontFamily: TurboFonts.mono,
+                        color: accent,
+                        fontSize: 12)),
+              ],
+            ),
+            Slider(
+              value: state.textScale,
+              min: 0.8,
+              max: 1.6,
+              divisions: 8,
+              label: '${(state.textScale * 100).round()}%',
+              onChanged: state.setTextScale,
             ),
           ],
         ),
         const SizedBox(height: 16),
         _EngineSection(state: state, accent: accent),
         const SizedBox(height: 16),
+        _PrivacySection(state: state, accent: accent),
+        const SizedBox(height: 16),
+        _StorageSection(state: state, accent: accent),
+        const SizedBox(height: 16),
+        _UpdatesSection(state: state, accent: accent),
+        const SizedBox(height: 16),
         _Section(
-          title: 'About',
+          title: strings.diagnosticsTitle,
           accent: accent,
-          children: const [
-            _InfoRow(label: 'App', value: 'Turbo Downloader'),
-            _InfoRow(label: 'Version', value: appVersion),
-            _InfoRow(label: 'Designer', value: Designer.name),
-            SizedBox(height: 10),
-            Text(
-              'Turbo downloads entirely on this device. It opens the '
-              'connections itself, saves into your Downloads folder, and needs '
-              'no server, account, or key.',
-              style: TextStyle(
-                fontFamily: TurboFonts.body,
-                color: TurboColors.textMuted,
-                fontSize: 11,
-                height: 1.5,
+          children: [
+            TurboButton(
+              label: 'Open diagnostics',
+              icon: Icons.bug_report_outlined,
+              outline: true,
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                    builder: (_) => const DiagnosticsScreen()),
               ),
             ),
-            SizedBox(height: 14),
-            Divider(color: TurboColors.borderSubtle, height: 1),
-            SizedBox(height: 14),
-            Kicker('Designed & engineered by', letterSpacing: 1.6),
-            SizedBox(height: 8),
-            _ContactRow(icon: Icons.person_rounded, value: Designer.name),
-            _ContactRow(
-              icon: Icons.email_outlined,
-              value: Designer.email,
-              copyValue: Designer.email,
-            ),
-            SizedBox(height: 12),
-            WhatsAppTile(),
           ],
+        ),
+        const SizedBox(height: 16),
+        _AboutSection(strings: strings, accent: accent),
+      ],
+    );
+  }
+}
+
+class _NotificationsSection extends StatelessWidget {
+  final TurboState state;
+  const _NotificationsSection({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return _Section(
+      title: 'Notifications',
+      accent: p.accent,
+      children: [
+        const Kicker('When to notify', letterSpacing: 1.6),
+        const SizedBox(height: 8),
+        ModeSegment(
+          value: state.notifyStyle.name,
+          onChanged: (v) => state.setNotifyStyle(switch (v) {
+            'off' => NotificationStyle.off,
+            'everyDownload' => NotificationStyle.everyDownload,
+            _ => NotificationStyle.onQueueComplete,
+          }),
+          options: const [
+            ModeSegmentOption('off', Icons.notifications_off_rounded, 'Off'),
+            ModeSegmentOption(
+                'onQueueComplete', Icons.done_all_rounded, 'When done'),
+            ModeSegmentOption(
+                'everyDownload', Icons.notifications_active_rounded, 'Each'),
+          ],
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: state.notifyProgress,
+          onChanged: state.setNotifyProgress,
+          title: Text('Show progress',
+              style: TextStyle(
+                  fontFamily: TurboFonts.body,
+                  color: p.textPrimary,
+                  fontSize: 13)),
+          subtitle: Text(
+            'Keep a progress notification while downloads run.',
+            style: TextStyle(
+                fontFamily: TurboFonts.body,
+                color: p.textMuted,
+                fontSize: 10.5),
+          ),
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: state.playSound,
+          onChanged: state.setPlaySound,
+          title: Text('Completion sound',
+              style: TextStyle(
+                  fontFamily: TurboFonts.body,
+                  color: p.textPrimary,
+                  fontSize: 13)),
+          subtitle: Text(
+            'Play a chime when a download finishes.',
+            style: TextStyle(
+                fontFamily: TurboFonts.body,
+                color: p.textMuted,
+                fontSize: 10.5),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StorageSection extends StatelessWidget {
+  final TurboState state;
+  final Color accent;
+  const _StorageSection({required this.state, required this.accent});
+
+  @override
+  Widget build(BuildContext context) {
+    final stats = state.storageStats;
+    return _Section(
+      title: 'Storage',
+      accent: accent,
+      children: [
+        _StorageRow(
+          icon: Icons.sd_storage_rounded,
+          label: 'Available',
+          value: stats.freeBytes < 0
+              ? 'Unknown'
+              : formatBytes(stats.freeBytes),
+          warn: stats.isLow || stats.isCritical,
+        ),
+        _StorageRow(
+          icon: Icons.download_done_rounded,
+          label: 'Downloaded',
+          value: formatBytes(stats.downloadedBytes),
+        ),
+        _StorageRow(
+          icon: Icons.hourglass_bottom_rounded,
+          label: 'Temporary',
+          value: formatBytes(stats.temporaryBytes),
+          detail: stats.partialFileCount > 0
+              ? '${stats.partialFileCount} partial file(s)'
+              : null,
+        ),
+        if (stats.isCritical)
+          Notice(
+            icon: Icons.warning_amber_rounded,
+            color: context.palette.error,
+            text: TurboStrings.of(context).storageCriticalWarning,
+          )
+        else if (stats.isLow)
+          Notice(
+            icon: Icons.warning_amber_rounded,
+            color: context.palette.warning,
+            text: TurboStrings.of(context).storageLowWarning,
+          ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: TurboButton(
+                label: 'Manage',
+                icon: Icons.folder_open_rounded,
+                outline: true,
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const StorageScreen()),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TurboButton(
+                label: 'Clean up',
+                icon: Icons.cleaning_services_rounded,
+                onPressed: state.cleanUpPartials,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _StorageRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final String? detail;
+  final bool warn;
+  const _StorageRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.detail,
+    this.warn = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: warn ? p.warning : p.textMuted),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: TextStyle(
+                        fontFamily: TurboFonts.body,
+                        color: p.textSecondary,
+                        fontSize: 13)),
+                if (detail != null)
+                  Text(detail!,
+                      style: TextStyle(
+                          fontFamily: TurboFonts.mono,
+                          color: p.textMuted,
+                          fontSize: 9.5)),
+              ],
+            ),
+          ),
+          Text(value,
+              style: TextStyle(
+                  fontFamily: TurboFonts.mono,
+                  color: warn ? p.warning : p.textPrimary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+}
+
+class _UpdatesSection extends StatelessWidget {
+  final TurboState state;
+  final Color accent;
+  const _UpdatesSection({required this.state, required this.accent});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final update = state.updateAvailable;
+    final channel = state.updateChannel;
+    return _Section(
+      title: 'Updates',
+      accent: accent,
+      children: [
+        _InfoRow(label: 'Channel', value: channel.label),
+        const SizedBox(height: 8),
+        ModeSegment(
+          value: channel.name,
+          onChanged: (v) => state.setUpdateChannel(switch (v) {
+            'beta' => UpdateChannel.beta,
+            'nightly' => UpdateChannel.nightly,
+            _ => UpdateChannel.stable,
+          }),
+          options: const [
+            ModeSegmentOption('stable', Icons.verified_rounded, 'Stable'),
+            ModeSegmentOption('beta', Icons.science_rounded, 'Beta'),
+            ModeSegmentOption('nightly', Icons.nightlight_round, 'Nightly'),
+          ],
+        ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: state.checkUpdates,
+          onChanged: state.setCheckUpdates,
+          title: Text('Check on launch',
+              style: TextStyle(
+                  fontFamily: TurboFonts.body,
+                  color: p.textPrimary,
+                  fontSize: 13)),
+          subtitle: Text(
+            'Look for a newer release at startup.',
+            style: TextStyle(
+                fontFamily: TurboFonts.body,
+                color: p.textMuted,
+                fontSize: 10.5),
+          ),
+        ),
+        if (update != null) ...[
+          Notice(
+            icon: Icons.system_update_alt_rounded,
+            color: p.accent,
+            text: 'Version ${update.version} is available.',
+          ),
+          const SizedBox(height: 8),
+        ] else
+          const _InfoRow(label: 'Status', value: 'Up to date (v$appVersion)'),
+        const SizedBox(height: 12),
+        TurboButton(
+          label: 'Check now',
+          icon: Icons.refresh_rounded,
+          outline: true,
+          onPressed: state.checkForUpdates,
+        ),
+      ],
+    );
+  }
+}
+
+/// Privacy and local-security controls: clipboard watching, metadata
+/// stripping, and the credential vault.
+class _PrivacySection extends StatelessWidget {
+  final TurboState state;
+  final Color accent;
+  const _PrivacySection({required this.state, required this.accent});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return _Section(
+      title: 'Privacy & security',
+      accent: accent,
+      children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: state.clipboardMonitor,
+          onChanged: state.setClipboardMonitor,
+          title: Text('Watch clipboard for links',
+              style: TextStyle(
+                  fontFamily: TurboFonts.body,
+                  color: p.textPrimary,
+                  fontSize: 13)),
+          subtitle: Text(
+            'Offer a copied link in the Add tab. Read only when the app is '
+            'open; never uploaded.',
+            style: TextStyle(
+                fontFamily: TurboFonts.body,
+                color: p.textMuted,
+                fontSize: 10.5),
+          ),
+        ),
+        const SizedBox(height: 8),
+        TurboButton(
+          label: 'Manage credentials',
+          icon: Icons.key_rounded,
+          outline: true,
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const CredentialsScreen()),
+          ),
         ),
       ],
     );
@@ -201,6 +662,7 @@ class _EngineSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     final available = state.ytdlpAvailable;
     return _Section(
       title: 'Download engine',
@@ -217,14 +679,12 @@ class _EngineSection extends StatelessWidget {
           ),
         const SizedBox(height: 10),
         Notice(
-          icon: available
-              ? Icons.verified_rounded
-              : Icons.info_outline_rounded,
-          color: available ? TurboColors.success : TurboColors.warning,
+          icon: available ? Icons.verified_rounded : Icons.info_outline_rounded,
+          color: available ? p.success : p.warning,
           text: available
               ? 'The built-in engine handles direct files and YouTube. yt-dlp '
-                  'unlocks other platforms and high-resolution merged downloads, '
-                  'all on this device.'
+                  'unlocks other platforms and high-resolution merged '
+                  'downloads, all on this device.'
               : 'The built-in engine handles direct files and YouTube, so the '
                   'app already works. Install yt-dlp to download from more '
                   'platforms and in higher resolution.',
@@ -232,22 +692,18 @@ class _EngineSection extends StatelessWidget {
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           value: state.preferEngine,
-          onChanged: (v) => state.setPreferEngine(v),
-          title: const Text(
-            'Prefer yt-dlp when installed',
-            style: TextStyle(
-              fontFamily: TurboFonts.body,
-              color: TurboColors.textPrimary,
-              fontSize: 13,
-            ),
-          ),
-          subtitle: const Text(
+          onChanged: state.setPreferEngine,
+          title: Text('Prefer yt-dlp when installed',
+              style: TextStyle(
+                  fontFamily: TurboFonts.body,
+                  color: p.textPrimary,
+                  fontSize: 13)),
+          subtitle: Text(
             'Otherwise YouTube uses the built-in extractor.',
             style: TextStyle(
-              fontFamily: TurboFonts.body,
-              color: TurboColors.textMuted,
-              fontSize: 10.5,
-            ),
+                fontFamily: TurboFonts.body,
+                color: p.textMuted,
+                fontSize: 10.5),
           ),
         ),
         if (!available) ...[
@@ -256,21 +712,21 @@ class _EngineSection extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             _installHint,
-            style: const TextStyle(
+            style: TextStyle(
               fontFamily: TurboFonts.mono,
-              color: TurboColors.textSecondary,
+              color: p.textSecondary,
               fontSize: 10.5,
               height: 1.6,
             ),
           ),
-          const SizedBox(height: 10),
-          TurboButton(
-            label: 'Re-check',
-            icon: Icons.refresh_rounded,
-            outline: true,
-            onPressed: state.refreshEngine,
-          ),
         ],
+        const SizedBox(height: 10),
+        TurboButton(
+          label: 'Re-check',
+          icon: Icons.refresh_rounded,
+          outline: true,
+          onPressed: state.refreshEngine,
+        ),
       ],
     );
   }
@@ -288,6 +744,51 @@ class _EngineSection extends StatelessWidget {
           '(ffmpeg optional: sudo apt install ffmpeg)';
     }
     return 'Install yt-dlp, then tap Re-check.';
+  }
+}
+
+class _AboutSection extends StatelessWidget {
+  final TurboStrings strings;
+  final Color accent;
+  const _AboutSection({required this.strings, required this.accent});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return _Section(
+      title: 'About',
+      accent: accent,
+      children: [
+        const _InfoRow(label: 'App', value: 'Turbo Downloader'),
+        const _InfoRow(label: 'Version', value: appVersion),
+        const _InfoRow(label: 'Designer', value: Designer.name),
+        const SizedBox(height: 10),
+        Text(
+          'Turbo downloads entirely on this device. It opens the connections '
+          'itself, saves into your Downloads folder, and needs no server, '
+          'account, or key.',
+          style: TextStyle(
+            fontFamily: TurboFonts.body,
+            color: p.textMuted,
+            fontSize: 11,
+            height: 1.5,
+          ),
+        ),
+        const SizedBox(height: 14),
+        Divider(color: p.borderSubtle, height: 1),
+        const SizedBox(height: 14),
+        const Kicker('Designed & engineered by', letterSpacing: 1.6),
+        const SizedBox(height: 8),
+        const _ContactRow(icon: Icons.person_rounded, value: Designer.name),
+        const _ContactRow(
+          icon: Icons.email_outlined,
+          value: Designer.email,
+          copyValue: Designer.email,
+        ),
+        const SizedBox(height: 12),
+        const WhatsAppTile(),
+      ],
+    );
   }
 }
 
@@ -323,6 +824,22 @@ class _Section extends StatelessWidget {
   }
 }
 
+class _Hint extends StatelessWidget {
+  final String text;
+  const _Hint(this.text);
+
+  @override
+  Widget build(BuildContext context) => Text(
+        text,
+        style: TextStyle(
+          fontFamily: TurboFonts.body,
+          color: context.palette.textMuted,
+          fontSize: 10,
+          height: 1.45,
+        ),
+      );
+}
+
 class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
@@ -330,24 +847,25 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: TurboFonts.body,
-                color: TurboColors.textSecondary,
+                color: p.textSecondary,
                 fontSize: 13,
               )),
           Flexible(
             child: Text(
               value,
               textAlign: TextAlign.right,
-              style: const TextStyle(
+              style: TextStyle(
                 fontFamily: TurboFonts.mono,
-                color: TurboColors.textPrimary,
+                color: p.textPrimary,
                 fontSize: 12,
               ),
             ),
@@ -372,7 +890,7 @@ class _ContactRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
+    final p = context.palette;
     return InkWell(
       onTap: copyValue == null
           ? null
@@ -384,25 +902,25 @@ class _ContactRow extends StatelessWidget {
                 );
               }
             },
-      borderRadius: BorderRadius.circular(4),
+      borderRadius: TurboRadius.all(TurboRadius.sm),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(
           children: [
-            Icon(icon, size: 16, color: TurboColors.textMuted),
+            Icon(icon, size: 16, color: p.textMuted),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 value,
-                style: const TextStyle(
+                style: TextStyle(
                   fontFamily: TurboFonts.mono,
-                  color: TurboColors.textPrimary,
+                  color: p.textPrimary,
                   fontSize: 12,
                 ),
               ),
             ),
             if (copyValue != null)
-              Icon(Icons.copy_rounded, size: 14, color: accent.withOpacity(0.7)),
+              Icon(Icons.copy_rounded, size: 14, color: p.accent.withOpacity(0.7)),
           ],
         ),
       ),

@@ -61,19 +61,19 @@ class WhatsAppTile extends StatelessWidget {
                 children: [
                   Text(
                     label,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontFamily: TurboFonts.body,
-                      color: TurboColors.textPrimary,
+                      color: context.palette.textPrimary,
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
                   const SizedBox(height: 2),
-                  const Text(
+                  Text(
                     Designer.phoneDisplay,
                     style: TextStyle(
                       fontFamily: TurboFonts.mono,
-                      color: TurboColors.textSecondary,
+                      color: context.palette.textSecondary,
                       fontSize: 11,
                       letterSpacing: 0.6,
                     ),
@@ -81,8 +81,8 @@ class WhatsAppTile extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.open_in_new_rounded,
-                color: TurboColors.textMuted, size: 15),
+            Icon(Icons.open_in_new_rounded,
+                color: context.palette.textMuted, size: 15),
           ],
         ),
       ),
