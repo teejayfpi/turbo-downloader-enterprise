@@ -483,4 +483,112 @@ void main() {
     expect(task.isCompleted, isTrue, reason: task.error ?? '');
     expect(await File(task.filePath!).readAsBytes(), equals(data));
   });
+
+  test('a video-only rendition downloads both tracks and merges them',
+      () async {
+    final video = _blob(700 * 1024);
+    final audio = _blob(120 * 1024);
+    final videoOrigin = _Origin(video)..start();
+    final audioOrigin = _Origin(audio)..start();
+    addTearDown(videoOrigin.stop);
+    addTearDown(audioOrigin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    // A 1080p video-only pick resolves to the video stream plus an audio track.
+    manager.resolveMediaOverride = (page, {String? formatId}) async {
+      expect(formatId, 'video:1080p:mp4');
+      return ResolvedMedia(
+        url: videoOrigin.url,
+        title: 'Keynote',
+        extension: 'mp4',
+        size: video.length + audio.length,
+        qualityLabel: '1080p',
+        kind: 'video',
+        audioUrl: audioOrigin.url,
+        audioExtension: 'm4a',
+        audioSize: audio.length,
+      );
+    };
+
+    String? seenVideo;
+    String? seenAudio;
+    String? seenContainer;
+    manager.muxOverride = ({
+      required String videoPath,
+      required String audioPath,
+      required String outPath,
+      required String container,
+    }) async {
+      seenVideo = videoPath;
+      seenAudio = audioPath;
+      seenContainer = container;
+      // Stand in for FFmpeg: prove both tracks were fetched to disk, then
+      // concatenate them into the merged output.
+      final v = await File(videoPath).readAsBytes();
+      final a = await File(audioPath).readAsBytes();
+      await File(outPath).writeAsBytes([...v, ...a]);
+    };
+
+    final task = manager.add(
+      'https://youtube.com/watch?v=hd',
+      filename: 'Keynote',
+      kind: 'media',
+      formatId: 'video:1080p:mp4',
+      extensionHint: 'mp4',
+    );
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    expect(seenVideo, isNotNull);
+    expect(seenAudio, isNotNull);
+    expect(seenContainer, 'mp4');
+    expect(task.filename, 'Keynote.mp4');
+    // Progress covered both transfers.
+    expect(task.total, video.length + audio.length);
+    expect(task.downloaded, video.length + audio.length);
+    expect(await File(task.filePath!).readAsBytes(),
+        equals([...video, ...audio]));
+  });
+
+  test('a merge failure is reported as an actionable mux error', () async {
+    final video = _blob(200 * 1024);
+    final audio = _blob(60 * 1024);
+    final videoOrigin = _Origin(video)..start();
+    final audioOrigin = _Origin(audio)..start();
+    addTearDown(videoOrigin.stop);
+    addTearDown(audioOrigin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    manager.resolveMediaOverride = (page, {String? formatId}) async =>
+        ResolvedMedia(
+          url: videoOrigin.url,
+          title: 'Clip',
+          extension: 'mp4',
+          size: video.length + audio.length,
+          qualityLabel: '720p',
+          kind: 'video',
+          audioUrl: audioOrigin.url,
+          audioExtension: 'm4a',
+          audioSize: audio.length,
+        );
+    manager.muxOverride = ({
+      required String videoPath,
+      required String audioPath,
+      required String outPath,
+      required String container,
+    }) async =>
+        throw const MediaMuxException('Could not merge the tracks.');
+
+    final task = manager.add('https://youtube.com/watch?v=hd',
+        kind: 'media', formatId: 'video:720p:mp4');
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isFailed, isTrue);
+    expect(task.error, 'Could not merge the tracks.');
+    expect(task.errorKind, 'mux');
+  });
 }

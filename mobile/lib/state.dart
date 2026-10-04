@@ -200,6 +200,10 @@ class TurboState extends ChangeNotifier {
   bool ytdlpAvailable = false;
   bool ytdlpHasFfmpeg = false;
 
+  /// True when the bundled FFmpeg can merge separate video and audio tracks,
+  /// which is what unlocks HD quality through the built-in extractor.
+  bool ffmpegAvailable = false;
+
   final local = LocalDownloadManager();
 
   bool _disposed = false;
@@ -284,11 +288,13 @@ class TurboState extends ChangeNotifier {
     if (!_disposed) notifyListeners();
   }
 
-  /// Re-detects yt-dlp and ffmpeg; called at startup and from Settings.
+  /// Re-detects yt-dlp, ffmpeg, and the bundled muxer; called at startup and
+  /// from Settings.
   Future<void> refreshEngine() async {
     final bin = await local.ytdlp.refresh();
     ytdlpAvailable = bin != null;
     ytdlpHasFfmpeg = ytdlpAvailable && await local.ytdlp.hasFfmpeg();
+    ffmpegAvailable = await local.muxer.isAvailable();
     _safeNotify();
   }
 
@@ -572,7 +578,7 @@ class TurboState extends ChangeNotifier {
         thumbnailUrl: info.thumbnailUrl,
         formats: info.formats,
         usedYtdlp: false,
-        canMux: ytdlpHasFfmpeg,
+        canMux: ffmpegAvailable,
       );
     }
 
@@ -635,7 +641,7 @@ class TurboState extends ChangeNotifier {
       thumbnailUrl: info.thumbnailUrl,
       formats: info.formats,
       usedYtdlp: false,
-      canMux: false,
+      canMux: ffmpegAvailable,
     );
   }
 

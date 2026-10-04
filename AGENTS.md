@@ -153,9 +153,11 @@ These caused real, user-visible bugs. Do not regress them.
   when the segment count or total length changed.
 - **Media is resolved on the device.** `lib/media_extractor.dart` uses
   `youtube_explode_dart` to turn a page URL into a direct stream, and the
-  on-device engine downloads it. Only a combined (muxed) stream, an HLS stream,
-  or audio-only is offered, because muxing separate HD tracks needs ffmpeg, which
-  is not on the phone. There is no server fallback any more.
+  on-device engine downloads it. YouTube serves resolutions above 360p as
+  video-only DASH streams, so the extractor pairs each with the best audio
+  track and `lib/services/ffmpeg.dart` remuxes them (`-c copy`, no re-encode)
+  with the bundled FFmpeg. Combined, HLS, and audio-only streams are still
+  offered directly. There is no server fallback any more.
 - **Persist the page URL, re-resolve the stream.** Signed stream URLs expire, so
   `LocalTask.url` keeps the page and `fetchUrl` is transient; a resume
   re-resolves rather than reusing a stale URL.

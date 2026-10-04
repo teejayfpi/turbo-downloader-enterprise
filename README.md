@@ -24,8 +24,10 @@ is stored anywhere but your device.
   range-capable transfers across up to 16 parallel segments.
 - **Saves to the device** — Android's Downloads collection via MediaStore,
   or the OS Downloads folder on desktop.
-- **Optional yt-dlp engine** for non-YouTube platforms and 1080p/4K merged
-  downloads. It is a local program; the app just runs it on your machine.
+- **HD downloads on the device** — the built-in engine downloads YouTube's
+  separate video and audio tracks and merges them with bundled FFmpeg, so 720p,
+  1080p and higher work with no setup. The optional yt-dlp engine adds
+  non-YouTube platforms and its own merging.
 - **Beautiful branded splash screen** on every platform.
 
 See [`mobile/README.md`](mobile/README.md) for build instructions and details.
