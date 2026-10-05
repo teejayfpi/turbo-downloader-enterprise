@@ -133,10 +133,17 @@ jobs:
           if-no-files-found: error
 
   # Publish from a single job so the three platforms do not race to create the
-  # same release, and so a build failure never leaves a half-filled release.
+  # same release. Missing platforms (a failed build) are simply omitted.
   release:
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Publish whatever built successfully. A single platform failing (e.g. an
+    # unsigned vendored framework on macOS) must not hold back the Windows
+    # installer and Linux archive for everyone else.
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.build.result != 'cancelled'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
