@@ -165,7 +165,9 @@ jobs:
         with:
           tag_name: v${{ steps.version.outputs.value }}
           name: Turbo Downloader v${{ steps.version.outputs.value }}
-          fail_on_unmatched_files: true
+          # Publish the platforms that built; skip any that failed so one
+          # platform can't block the others from shipping.
+          fail_on_unmatched_files: false
           files: |
             artifacts/turbo-windows-installer/TurboSetup-windows.exe
             artifacts/turbo-release-macos/Turbo-macos.zip
