@@ -34,6 +34,7 @@ class TurboStrings {
   // Navigation
   String get tabDownloads => _t('tab.downloads');
   String get tabAdd => _t('tab.add');
+  String get tabBrowse => _t('tab.browse');
   String get tabHistory => _t('tab.history');
   String get tabSettings => _t('tab.settings');
 
@@ -110,6 +111,7 @@ class TurboStrings {
     'en': {
       'tab.downloads': 'Downloads',
       'tab.add': 'Add',
+      'tab.browse': 'Browse',
       'tab.history': 'History',
       'tab.settings': 'Settings',
       'action.retry': 'Retry',
@@ -171,6 +173,7 @@ class TurboStrings {
     'fr': {
       'tab.downloads': 'Téléchargements',
       'tab.add': 'Ajouter',
+      'tab.browse': 'Explorer',
       'tab.history': 'Historique',
       'tab.settings': 'Réglages',
       'action.retry': 'Réessayer',
@@ -234,6 +237,7 @@ class TurboStrings {
     'yo': {
       'tab.downloads': 'Ìgbasílẹ̀',
       'tab.add': 'Fikún',
+      'tab.browse': 'Ṣàwárí',
       'tab.history': 'Ìtàn',
       'tab.settings': 'Ètò',
       'action.retry': 'Gbìyànjú',

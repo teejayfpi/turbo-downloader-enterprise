@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../link_inbox.dart';
 import '../state.dart';
 import '../theme.dart';
+import 'browse_screen.dart';
 import 'downloads_screen.dart';
 import 'add_screen.dart';
 import 'history_screen.dart';
@@ -26,9 +27,10 @@ class _HomeShellState extends State<HomeShell> {
   int _index = 0;
   bool _dragging = false;
 
-  static const _titles = ['Downloads', 'New Transfer', 'History', 'Settings'];
+  static const _titles = ['Downloads', 'Browse', 'New Transfer', 'History', 'Settings'];
   static const _subtitles = [
     'Queue & live telemetry',
+    'Find videos to download',
     'Paste a link to download',
     'Completed & failed transfers',
     'Tune the engine',
@@ -42,9 +44,9 @@ class _HomeShellState extends State<HomeShell> {
 
     // A link that arrived from anywhere (deep link, share sheet, launch arg)
     // brings the Add tab forward so the user sees it land.
-    if (state.pendingUrl != null && _index != 1) {
+    if (state.pendingUrl != null && _index != 2) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() => _index = 1);
+        if (mounted) setState(() => _index = 2);
       });
     }
 
@@ -109,6 +111,7 @@ class _HomeShellState extends State<HomeShell> {
         index: _index,
         children: const [
           DownloadsScreen(),
+          BrowseScreen(),
           AddScreen(),
           HistoryScreen(),
           SettingsScreen(),
@@ -130,6 +133,10 @@ class _HomeShellState extends State<HomeShell> {
                 child: const Icon(Icons.download_rounded),
               ),
               label: 'Downloads',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.travel_explore_rounded),
+              label: 'Browse',
             ),
             const NavigationDestination(
               icon: Icon(Icons.add_circle_outline_rounded),
@@ -156,7 +163,7 @@ class _HomeShellState extends State<HomeShell> {
       onDrop: (url) {
         setState(() => _dragging = false);
         state.receiveLink(url);
-        setState(() => _index = 1);
+        setState(() => _index = 2);
       },
       child: shell,
     );

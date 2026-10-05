@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'package:turbo_downloader/credits.dart';
 import 'package:turbo_downloader/screens/add_screen.dart';
+import 'package:turbo_downloader/screens/browse_screen.dart';
 import 'package:turbo_downloader/screens/downloads_screen.dart';
 import 'package:turbo_downloader/screens/home_shell.dart';
 import 'package:turbo_downloader/screens/settings_screen.dart';
@@ -60,7 +61,7 @@ void main() {
       expect(find.text('SERVER'.toUpperCase()), findsNothing);
     });
 
-    testWidgets('home shell boots with four tabs and a ready chip',
+    testWidgets('home shell boots with five tabs and a ready chip',
         (tester) async {
       final state = TurboState()..loading = false;
       addTearDown(state.dispose);
@@ -75,10 +76,20 @@ void main() {
       );
       await tester.pump();
       expect(find.text('Downloads'), findsWidgets);
+      expect(find.text('Browse'), findsOneWidget);
       expect(find.text('Add'), findsOneWidget);
       expect(find.text('History'), findsWidgets);
       expect(find.text('Settings'), findsOneWidget);
       expect(find.text('READY'), findsOneWidget);
+    });
+
+    testWidgets('browse screen offers search and categories offline',
+        (tester) async {
+      await pumpScreen(tester, const BrowseScreen());
+      expect(find.text('Browse & download'.toUpperCase()), findsWidgets);
+      expect(find.text('Categories'.toUpperCase()), findsOneWidget);
+      expect(find.text('Music'), findsOneWidget);
+      expect(find.text('Gaming'), findsOneWidget);
     });
   });
 

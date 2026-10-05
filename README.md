@@ -86,8 +86,11 @@ modules. Nothing is simulated:
 - SHA-256 / SHA-1 / MD5 checksum verification
 
 ### Media
+- Browse YouTube in the app: search, categories, channels, and playlists
+- Open any result and download it without leaving the app
 - Metadata preview (title, thumbnail, duration, uploader)
 - Format selection before download
+- HD downloads (720p, 1080p and up) by merging video and audio on-device
 - Graceful degradation when yt-dlp is not installed
 
 ### UI

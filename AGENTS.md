@@ -15,6 +15,10 @@ Repository knowledge for agents working on Turbo Downloader.
   media pages are resolved on-device by `lib/media_extractor.dart`. YouTube is
   handled by the built-in extractor; other platforms (and HD merged downloads)
   go through an optional on-device `yt-dlp` binary driven by `lib/ytdlp.dart`.
+  In-app YouTube browsing (search, channels, playlists) lives in
+  `lib/services/youtube_browser.dart` and `lib/screens/browse_screen.dart`; a
+  tapped result opens `lib/widgets/media_download_sheet.dart`, which resolves
+  the watch URL through the same `TurboState.addLink` path as a pasted link.
   See `mobile/README.md`. The `server/` and `client/` trees below are the legacy
   web deployment and are no longer used by the mobile app.
 - Deployed on Render from `main` via `Dockerfile`. `main` is the production branch.
