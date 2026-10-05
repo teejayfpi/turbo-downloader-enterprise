@@ -272,6 +272,53 @@ class YoutubeBrowser {
     }
   }
 
+  // ------------------------------------------------------------ bulk listing
+
+  /// Walks a channel's uploads until [limit] videos are collected or the
+  /// listing ends. Used by "download all" to enumerate a channel up front.
+  Future<List<BrowseVideo>> collectChannel(
+    String channelId, {
+    ChannelTab tab = ChannelTab.videos,
+    int limit = 100,
+  }) async {
+    final videos = <BrowseVideo>[];
+    try {
+      var list = await _client.channels.getUploadsFromPage(
+        channelId,
+        videoSorting: yt.VideoSorting.newest,
+        videoType: _videoType(tab),
+      );
+      while (true) {
+        for (final v in list) {
+          videos.add(_videoFrom(v));
+          if (videos.length >= limit) return videos;
+        }
+        final next = await list.nextPage();
+        if (next == null) return videos;
+        list = next;
+      }
+    } catch (e) {
+      throw BrowseException('Could not list this channel: $e');
+    }
+  }
+
+  /// Collects a playlist's videos up to [limit]. Used by "download all".
+  Future<List<BrowseVideo>> collectPlaylist(
+    String playlistId, {
+    int limit = 100,
+  }) async {
+    final videos = <BrowseVideo>[];
+    try {
+      await for (final v in _client.playlists.getVideos(playlistId)) {
+        videos.add(_videoFrom(v));
+        if (videos.length >= limit) break;
+      }
+      return videos;
+    } catch (e) {
+      throw BrowseException('Could not list this playlist: $e');
+    }
+  }
+
   // ---------------------------------------------------------------- mapping
 
   BrowsePage _pageFromVideos(yt.VideoSearchList list) => BrowsePage(

@@ -4,8 +4,10 @@ import '../contact.dart';
 import '../credits.dart';
 import '../format.dart';
 import '../services/youtube_browser.dart';
+import '../state.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import '../widgets/batch_download_sheet.dart';
 import '../widgets/media_download_sheet.dart';
 
 /// In-app YouTube discovery: search, browse channels and playlists, and send
@@ -67,6 +69,10 @@ class _BrowseScreenState extends State<BrowseScreen> {
   // Playlist state.
   String _playlistId = '';
   String _playlistTitle = '';
+
+  // Multi-select state for the results list.
+  bool _selecting = false;
+  final _selected = <String, BrowseVideo>{};
 
   @override
   void dispose() {
@@ -201,6 +207,74 @@ class _BrowseScreenState extends State<BrowseScreen> {
     }
   }
 
+  Future<void> _downloadWholeChannel() => _batch(
+        title: _channelName,
+        subtitle: 'Every video in this channel',
+        collect: (limit) =>
+            _browser.collectChannel(_channelId, tab: _channelTab, limit: limit),
+      );
+
+  Future<void> _downloadWholePlaylist() => _batch(
+        title: _playlistTitle,
+        subtitle: 'Every video in this playlist',
+        collect: (limit) => _browser.collectPlaylist(_playlistId, limit: limit),
+      );
+
+  Future<void> _downloadSelection() async {
+    final videos = _selected.values.toList();
+    if (videos.isEmpty) return;
+    final result = await showBatchDownloadSheet(
+      context,
+      title: 'Selected videos',
+      subtitle: '${videos.length} videos you picked',
+      preselected: videos,
+      collect: (_) async => videos,
+    );
+    _afterBatch(result);
+  }
+
+  Future<void> _batch({
+    required String title,
+    required String subtitle,
+    required Future<List<BrowseVideo>> Function(int limit) collect,
+  }) async {
+    final result = await showBatchDownloadSheet(
+      context,
+      title: title,
+      subtitle: subtitle,
+      collect: collect,
+    );
+    _afterBatch(result);
+  }
+
+  void _afterBatch(BatchResult? result) {
+    if (result == null || !mounted) return;
+    setState(() {
+      _selecting = false;
+      _selected.clear();
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Batch: ${result.summary}')),
+    );
+  }
+
+  void _toggleSelection(BrowseVideo video) {
+    setState(() {
+      if (_selected.containsKey(video.id)) {
+        _selected.remove(video.id);
+      } else {
+        _selected[video.id] = video;
+      }
+    });
+  }
+
+  void _toggleSelecting() {
+    setState(() {
+      _selecting = !_selecting;
+      if (!_selecting) _selected.clear();
+    });
+  }
+
   void _back() {
     setState(() {
       _view = _View.home;
@@ -209,11 +283,16 @@ class _BrowseScreenState extends State<BrowseScreen> {
       _playlists = [];
       _cursor = null;
       _error = null;
+      _selecting = false;
+      _selected.clear();
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final showSelectBar =
+        (_view == _View.results || _view == _View.channel || _view == _View.playlist) &&
+            _videos.isNotEmpty;
     return Column(
       children: [
         _SearchBar(
@@ -221,6 +300,13 @@ class _BrowseScreenState extends State<BrowseScreen> {
           onSubmitted: _search,
           onBack: _view == _View.home ? null : _back,
         ),
+        if (showSelectBar)
+          _SelectBar(
+            selecting: _selecting,
+            selectedCount: _selected.length,
+            onToggle: _toggleSelecting,
+            onDownload: _selected.isEmpty ? null : _downloadSelection,
+          ),
         Expanded(child: _body()),
       ],
     );
@@ -244,10 +330,13 @@ class _BrowseScreenState extends State<BrowseScreen> {
           playlists: _playlists,
           hasMore: _cursor != null,
           loading: _loading,
+          selecting: _selecting,
+          selectedIds: _selected.keys.toSet(),
           onOpenVideo: _openVideo,
           onOpenChannel: _openChannel,
           onOpenPlaylist: _openPlaylist,
           onLoadMore: _loadMoreResults,
+          onToggleSelect: _toggleSelection,
         ),
       _View.channel => _ChannelBody(
           name: _channelName,
@@ -255,17 +344,25 @@ class _BrowseScreenState extends State<BrowseScreen> {
           videos: _videos,
           hasMore: _cursor != null,
           loading: _loading,
+          selecting: _selecting,
+          selectedIds: _selected.keys.toSet(),
           onTab: _switchChannelTab,
           onOpenVideo: _openVideo,
           onLoadMore: () => _loadMoreChannel(_channelTab),
+          onToggleSelect: _toggleSelection,
+          onDownloadAll: _downloadWholeChannel,
         ),
       _View.playlist => _PlaylistBody(
           title: _playlistTitle,
           videos: _videos,
           hasMore: _cursor != null,
           loading: _loading,
+          selecting: _selecting,
+          selectedIds: _selected.keys.toSet(),
           onOpenVideo: _openVideo,
           onLoadMore: _loadMorePlaylist,
+          onToggleSelect: _toggleSelection,
+          onDownloadAll: _downloadWholePlaylist,
         ),
     };
   }
@@ -339,6 +436,69 @@ class _SearchBar extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bar above a listing that toggles multi-select and queues the selection.
+class _SelectBar extends StatelessWidget {
+  final bool selecting;
+  final int selectedCount;
+  final VoidCallback onToggle;
+  final VoidCallback? onDownload;
+
+  const _SelectBar({
+    required this.selecting,
+    required this.selectedCount,
+    required this.onToggle,
+    required this.onDownload,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+      child: Row(
+        children: [
+          InkWell(
+            onTap: onToggle,
+            borderRadius: BorderRadius.circular(4),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+              child: Row(
+                children: [
+                  Icon(
+                    selecting
+                        ? Icons.check_box_rounded
+                        : Icons.check_box_outline_blank_rounded,
+                    size: 17,
+                    color: selecting ? p.accent : p.textMuted,
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    selecting ? 'Selecting' : 'Select',
+                    style: TextStyle(
+                      fontFamily: TurboFonts.body,
+                      color: selecting ? p.accent : p.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const Spacer(),
+          if (selecting && selectedCount > 0)
+            TurboButton(
+              expand: false,
+              icon: Icons.download_rounded,
+              label: 'Download $selectedCount',
+              onPressed: onDownload,
+            ),
         ],
       ),
     );
@@ -451,10 +611,13 @@ class _ResultsBody extends StatelessWidget {
   final List<BrowsePlaylist> playlists;
   final bool hasMore;
   final bool loading;
+  final bool selecting;
+  final Set<String> selectedIds;
   final ValueChanged<BrowseVideo> onOpenVideo;
   final ValueChanged<BrowseChannel> onOpenChannel;
   final ValueChanged<BrowsePlaylist> onOpenPlaylist;
   final VoidCallback onLoadMore;
+  final ValueChanged<BrowseVideo> onToggleSelect;
 
   const _ResultsBody({
     required this.heading,
@@ -463,10 +626,13 @@ class _ResultsBody extends StatelessWidget {
     required this.playlists,
     required this.hasMore,
     required this.loading,
+    required this.selecting,
+    required this.selectedIds,
     required this.onOpenVideo,
     required this.onOpenChannel,
     required this.onOpenPlaylist,
     required this.onLoadMore,
+    required this.onToggleSelect,
   });
 
   @override
@@ -501,8 +667,11 @@ class _ResultsBody extends StatelessWidget {
           const _SectionHeader('Videos', Icons.videocam_rounded),
           ...videos.map((v) => _VideoCard(
                 video: v,
+                selecting: selecting,
+                selected: selectedIds.contains(v.id),
                 onTap: () => onOpenVideo(v),
                 onDownload: () => onOpenVideo(v),
+                onToggleSelect: () => onToggleSelect(v),
               )),
         ],
         if (hasMore)
@@ -518,9 +687,13 @@ class _ChannelBody extends StatelessWidget {
   final List<BrowseVideo> videos;
   final bool hasMore;
   final bool loading;
+  final bool selecting;
+  final Set<String> selectedIds;
   final ValueChanged<ChannelTab> onTab;
   final ValueChanged<BrowseVideo> onOpenVideo;
   final VoidCallback onLoadMore;
+  final ValueChanged<BrowseVideo> onToggleSelect;
+  final VoidCallback onDownloadAll;
 
   const _ChannelBody({
     required this.name,
@@ -528,13 +701,18 @@ class _ChannelBody extends StatelessWidget {
     required this.videos,
     required this.hasMore,
     required this.loading,
+    required this.selecting,
+    required this.selectedIds,
     required this.onTab,
     required this.onOpenVideo,
     required this.onLoadMore,
+    required this.onToggleSelect,
+    required this.onDownloadAll,
   });
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 6, 16, 28),
       children: [
@@ -542,7 +720,7 @@ class _ChannelBody extends StatelessWidget {
           name,
           style: TextStyle(
             fontFamily: TurboFonts.display,
-            color: context.palette.textPrimary,
+            color: p.textPrimary,
             fontSize: 17,
             fontWeight: FontWeight.w700,
           ),
@@ -557,6 +735,14 @@ class _ChannelBody extends StatelessWidget {
             ChannelTab.values.firstWhere((t) => t.name == v, orElse: () => tab),
           ),
         ),
+        const SizedBox(height: 12),
+        TurboButton(
+          expand: false,
+          outline: true,
+          icon: Icons.download_for_offline_rounded,
+          label: 'Download this channel',
+          onPressed: onDownloadAll,
+        ),
         const SizedBox(height: 16),
         if (videos.isEmpty)
           const _EmptyState(
@@ -567,8 +753,11 @@ class _ChannelBody extends StatelessWidget {
         else
           ...videos.map((v) => _VideoCard(
                 video: v,
+                selecting: selecting,
+                selected: selectedIds.contains(v.id),
                 onTap: () => onOpenVideo(v),
                 onDownload: () => onOpenVideo(v),
+                onToggleSelect: () => onToggleSelect(v),
               )),
         if (hasMore)
           _LoadMoreButton(loading: loading, onPressed: onLoadMore),
@@ -582,34 +771,42 @@ class _PlaylistBody extends StatelessWidget {
   final List<BrowseVideo> videos;
   final bool hasMore;
   final bool loading;
+  final bool selecting;
+  final Set<String> selectedIds;
   final ValueChanged<BrowseVideo> onOpenVideo;
   final VoidCallback onLoadMore;
+  final ValueChanged<BrowseVideo> onToggleSelect;
+  final VoidCallback onDownloadAll;
 
   const _PlaylistBody({
     required this.title,
     required this.videos,
     required this.hasMore,
     required this.loading,
+    required this.selecting,
+    required this.selectedIds,
     required this.onOpenVideo,
     required this.onLoadMore,
+    required this.onToggleSelect,
+    required this.onDownloadAll,
   });
 
   @override
   Widget build(BuildContext context) {
+    final p = context.palette;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 6, 16, 28),
       children: [
         Row(
           children: [
-            Icon(Icons.playlist_play_rounded,
-                color: context.palette.accent, size: 20),
+            Icon(Icons.playlist_play_rounded, color: p.accent, size: 20),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 title,
                 style: TextStyle(
                   fontFamily: TurboFonts.display,
-                  color: context.palette.textPrimary,
+                  color: p.textPrimary,
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
                 ),
@@ -617,7 +814,15 @@ class _PlaylistBody extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
+        TurboButton(
+          expand: false,
+          outline: true,
+          icon: Icons.download_for_offline_rounded,
+          label: 'Download this playlist',
+          onPressed: onDownloadAll,
+        ),
+        const SizedBox(height: 16),
         if (videos.isEmpty)
           const _EmptyState(
             icon: Icons.playlist_remove_rounded,
@@ -627,8 +832,11 @@ class _PlaylistBody extends StatelessWidget {
         else
           ...videos.map((v) => _VideoCard(
                 video: v,
+                selecting: selecting,
+                selected: selectedIds.contains(v.id),
                 onTap: () => onOpenVideo(v),
                 onDownload: () => onOpenVideo(v),
+                onToggleSelect: () => onToggleSelect(v),
               )),
         if (hasMore)
           _LoadMoreButton(loading: loading, onPressed: onLoadMore),
@@ -640,13 +848,19 @@ class _PlaylistBody extends StatelessWidget {
 /// A video row: thumbnail with duration badge, title, author, and download.
 class _VideoCard extends StatelessWidget {
   final BrowseVideo video;
+  final bool selecting;
+  final bool selected;
   final VoidCallback onTap;
   final VoidCallback onDownload;
+  final VoidCallback onToggleSelect;
 
   const _VideoCard({
     required this.video,
+    required this.selecting,
+    required this.selected,
     required this.onTap,
     required this.onDownload,
+    required this.onToggleSelect,
   });
 
   @override
@@ -655,14 +869,26 @@ class _VideoCard extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: InkWell(
-        onTap: onTap,
+        onTap: selecting ? onToggleSelect : onTap,
         borderRadius: BorderRadius.circular(6),
         child: TurboPanel(
           padding: const EdgeInsets.all(10),
-          accentColor: p.accent,
+          accentColor: selected ? p.accent : p.borderSubtle,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (selecting) ...[
+                Padding(
+                  padding: const EdgeInsets.only(top: 24, right: 8),
+                  child: Icon(
+                    selected
+                        ? Icons.check_circle_rounded
+                        : Icons.radio_button_unchecked_rounded,
+                    size: 20,
+                    color: selected ? p.accent : p.textMuted,
+                  ),
+                ),
+              ],
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),
                 child: SizedBox(
@@ -745,15 +971,16 @@ class _VideoCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TurboButton(
-                        expand: false,
-                        icon: Icons.download_rounded,
-                        label: 'Download',
-                        onPressed: onDownload,
+                    if (!selecting)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: TurboButton(
+                          expand: false,
+                          icon: Icons.download_rounded,
+                          label: 'Download',
+                          onPressed: onDownload,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),

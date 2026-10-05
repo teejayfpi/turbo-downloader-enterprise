@@ -88,6 +88,7 @@ modules. Nothing is simulated:
 ### Media
 - Browse YouTube in the app: search, categories, channels, and playlists
 - Open any result and download it without leaving the app
+- Download a whole channel or playlist, or multi-select videos, in one batch
 - Metadata preview (title, thumbnail, duration, uploader)
 - Format selection before download
 - HD downloads (720p, 1080p and up) by merging video and audio on-device

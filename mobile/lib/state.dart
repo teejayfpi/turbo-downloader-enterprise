@@ -15,6 +15,7 @@ import 'services/settings_store.dart';
 import 'services/storage_stats.dart';
 import 'services/update_checker.dart';
 import 'services/url_validator.dart';
+import 'services/youtube_browser.dart';
 
 /// How aggressively the built-in engine splits a download.
 enum SpeedMode {
@@ -58,6 +59,29 @@ class ProbeResult {
     this.thumbnailUrl,
     this.canMux = false,
   });
+}
+
+/// Outcome of queueing a batch (a channel, a playlist, or a multi-selection).
+class BatchResult {
+  final int queued;
+  final int duplicates;
+  final int failed;
+  final int total;
+
+  const BatchResult({
+    required this.queued,
+    required this.duplicates,
+    required this.failed,
+    required this.total,
+  });
+
+  /// A short, user-facing summary of what happened.
+  String get summary {
+    final parts = <String>['$queued queued'];
+    if (duplicates > 0) parts.add('$duplicates already queued');
+    if (failed > 0) parts.add('$failed failed');
+    return parts.join(' · ');
+  }
 }
 
 /// Application state for the on-device download manager.
@@ -718,6 +742,62 @@ class TurboState extends ChangeNotifier {
       mediaAuthor: mediaInfo?.author,
       mediaDuration: mediaInfo?.durationSeconds,
       thumbnailUrl: mediaInfo?.thumbnailUrl,
+    );
+  }
+
+  /// Queues a whole channel, playlist, or hand-picked set of videos as one
+  /// batch.
+  ///
+  /// The first [probeLimit] links are inspected and queued at the best
+  /// available quality immediately; the remainder are queued as media pages
+  /// and resolved on-device just before each transfer starts. Probing a large
+  /// listing in full would keep the user waiting, so the queue fills fast and
+  /// stays responsive.
+  Future<BatchResult> addBatch(
+    List<BrowseVideo> videos, {
+    int probeLimit = 5,
+  }) async {
+    var queued = 0;
+    var duplicates = 0;
+    var failed = 0;
+
+    for (var i = 0; i < videos.length; i++) {
+      final video = videos[i];
+      ProbeResult? probe;
+      MediaFormat? format;
+      if (i < probeLimit) {
+        try {
+          probe = await probeMedia(video.watchUrl);
+          format = probe.formats.isEmpty ? null : probe.formats.first;
+        } catch (_) {
+          // Leave it to the per-task resolver; a probe failure here should not
+          // drop the video from the batch.
+          probe = null;
+          format = null;
+        }
+      }
+      final task = addLink(
+        video.watchUrl,
+        filename: probe?.title ?? video.title,
+        engine: probe != null && probe.usedYtdlp ? 'ytdlp' : null,
+        mediaInfo: probe,
+        formatSelector:
+            probe != null && probe.usedYtdlp ? format?.id : null,
+        formatId: probe != null && !probe.usedYtdlp ? format?.id : null,
+        extensionHint: format?.extension,
+      );
+      if (task == null) {
+        duplicates++;
+      } else {
+        queued++;
+      }
+    }
+
+    return BatchResult(
+      queued: queued,
+      duplicates: duplicates,
+      failed: failed,
+      total: videos.length,
     );
   }
 

@@ -19,6 +19,11 @@ Repository knowledge for agents working on Turbo Downloader.
   `lib/services/youtube_browser.dart` and `lib/screens/browse_screen.dart`; a
   tapped result opens `lib/widgets/media_download_sheet.dart`, which resolves
   the watch URL through the same `TurboState.addLink` path as a pasted link.
+  Batch downloads (a whole channel, a whole playlist, or a multi-selection) go
+  through `TurboState.addBatch`, driven by `lib/widgets/batch_download_sheet.dart`;
+  the first few links are probed for a concrete format and the rest are queued
+  as media pages for the per-task resolver, so a large listing fills the queue
+  without a long up-front wait.
   See `mobile/README.md`. The `server/` and `client/` trees below are the legacy
   web deployment and are no longer used by the mobile app.
 - Deployed on Render from `main` via `Dockerfile`. `main` is the production branch.
