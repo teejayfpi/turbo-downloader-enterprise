@@ -11,6 +11,7 @@ import 'file_store.dart';
 import 'media_extractor.dart';
 import 'services/diagnostics.dart';
 import 'services/download_error.dart';
+import 'services/ffmpeg.dart';
 import 'services/history_store.dart';
 import 'services/retry_policy.dart';
 import 'services/url_validator.dart';
@@ -23,6 +24,9 @@ export 'media_extractor.dart'
 
 // The yt-dlp engine types cross the manager boundary for the UI and resolver.
 export 'ytdlp.dart' show YtdlpEngine, YtdlpException, YtdlpFormat, YtdlpProbe;
+
+// The muxer and its failure type are part of the manager's public surface.
+export 'services/ffmpeg.dart' show FfmpegMuxer, MediaMuxException;
 
 /// Moves a finished file into its final location. The default hands it to
 /// Android's MediaStore; tests substitute a plain move.
@@ -48,6 +52,15 @@ typedef YtdlpDownloadFn = Future<File?> Function({
   required String stem,
   void Function(int downloaded, int total, int speed)? onProgress,
   bool Function()? isCancelled,
+});
+
+/// Merges a downloaded video-only stream with its audio track. Tests
+/// substitute a fake so they never reach the bundled FFmpeg.
+typedef MediaMuxFn = Future<void> Function({
+  required String videoPath,
+  required String audioPath,
+  required String outPath,
+  required String container,
 });
 
 Future<void> _deviceBackground(int active) async {
@@ -353,8 +366,15 @@ class LocalDownloadManager extends ChangeNotifier {
   @visibleForTesting
   YtdlpDownloadFn? ytdlpOverride;
 
+  /// Overridden in tests so muxing never reaches the bundled FFmpeg.
+  @visibleForTesting
+  MediaMuxFn? muxOverride;
+
   /// The yt-dlp engine, shared with Settings for detection and install help.
   final YtdlpEngine ytdlp = YtdlpEngine();
+
+  /// Merges separate video and audio tracks with the bundled FFmpeg.
+  final FfmpegMuxer muxer = FfmpegMuxer();
 
   /// Segment ceiling for range-capable hosts. Raised by Turbo speed mode.
   int maxConnections = 16;
@@ -789,6 +809,13 @@ class LocalDownloadManager extends ChangeNotifier {
     if (error is MediaResolveException) {
       return DownloadError(DownloadErrorKind.media, error.message);
     }
+    if (error is MediaMuxException) {
+      return DownloadError(
+        DownloadErrorKind.mux,
+        error.message,
+        retryable: true,
+      );
+    }
     if (error is YtdlpException) {
       return DownloadError(
         DownloadErrorKind.engine,
@@ -845,6 +872,14 @@ class LocalDownloadManager extends ChangeNotifier {
           task.filename = '${task.filename}.${media.extension}';
         }
         if (media.size > 0) task.total = media.size;
+
+        // A video-only rendition above 360p: fetch the video and a separate
+        // audio track, then merge them with the bundled FFmpeg. Nothing is
+        // re-encoded, and everything still lands on this device.
+        if (media.audioUrl != null) {
+          await _downloadMuxed(client, task, run, media);
+          return;
+        }
       }
 
       final probe = await _probe(client, task.fetchUrl);
@@ -867,6 +902,116 @@ class LocalDownloadManager extends ChangeNotifier {
     } finally {
       client.close(force: true);
     }
+  }
+
+  /// Downloads a video-only stream and its audio track, then muxes them into
+  /// the final container. Progress covers both transfers; the merge itself is
+  /// a fast container remux.
+  Future<void> _downloadMuxed(
+    HttpClient client,
+    LocalTask task,
+    _Run run,
+    ResolvedMedia media,
+  ) async {
+    final dir = _taskDir(task.id)!;
+    if (!await dir.exists()) await dir.create(recursive: true);
+
+    final videoPath = '${dir.path}/video';
+    final audioPath = '${dir.path}/audio';
+    final total = media.size > 0 ? media.size : 0;
+    if (total > 0) task.total = total;
+    task.status = 'active';
+
+    // Fetch the video first, so the audio download reports a rising total
+    // rather than double-counting bytes already on disk.
+    final videoDone = await _downloadToFile(
+      client,
+      media.url,
+      videoPath,
+      run,
+      onBytes: (n) {
+        task.downloaded = n;
+        _safeNotify();
+      },
+    );
+    if (run.cancelled) return;
+
+    await _downloadToFile(
+      client,
+      media.audioUrl!,
+      audioPath,
+      run,
+      onBytes: (n) {
+        task.downloaded = videoDone + n;
+        _safeNotify();
+      },
+    );
+    if (run.cancelled) return;
+
+    if (total > 0) task.downloaded = total;
+
+    final container = media.extension.isEmpty ? 'mp4' : media.extension;
+    task.filename = _withExtension(task.filename, container, 'out.$container');
+    final out = '${dir.path}/.merged';
+    final mux = muxOverride ??
+        ({
+          required String videoPath,
+          required String audioPath,
+          required String outPath,
+          required String container,
+        }) =>
+            muxer.mux(
+              videoPath: videoPath,
+              audioPath: audioPath,
+              outPath: outPath,
+              container: container,
+            );
+    await mux(
+      videoPath: videoPath,
+      audioPath: audioPath,
+      outPath: out,
+      container: container,
+    );
+    if (run.cancelled) return;
+
+    final merged = File(out);
+    final saved = await publishOverride(merged, task.filename);
+    task.filePath = saved.path;
+    await _cleanupParts(task);
+  }
+
+  /// Streams [url] into [path], reporting the running byte count. Uses a
+  /// single connection because the caller is already fetching in parallel and
+  /// these signed URLs expire quickly.
+  Future<int> _downloadToFile(
+    HttpClient client,
+    String url,
+    String path,
+    _Run run, {
+    required void Function(int bytes) onBytes,
+  }) async {
+    final file = File(path);
+    final req = await client.getUrl(Uri.parse(url));
+    final res = await req.close();
+    if (res.statusCode != HttpStatus.ok &&
+        res.statusCode != HttpStatus.partialContent) {
+      await res.drain<void>();
+      throw DownloadErrors.httpStatus(res.statusCode);
+    }
+    final sink = file.openWrite();
+    var done = 0;
+    try {
+      await for (final chunk in res) {
+        if (run.cancelled) break;
+        sink.add(chunk);
+        done += chunk.length;
+        run.addBytes(chunk.length);
+        onBytes(done);
+      }
+    } finally {
+      await sink.close();
+    }
+    return done;
   }
 
   /// Runs the task through yt-dlp, reporting progress into the same fields the

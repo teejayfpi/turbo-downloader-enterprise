@@ -4,6 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   desktop_drop
+  ffmpeg_kit_flutter_new_min
   gtk
   url_launcher_linux
 )

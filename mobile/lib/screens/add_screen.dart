@@ -122,6 +122,17 @@ class _AddScreenState extends State<AddScreen> {
 
   bool get _isPage => needsExtraction(_controller.text);
 
+  /// Default pick: the best rendition the engine can actually produce. HD
+  /// (video-only) formats need a muxer, so fall back to the best muxed stream
+  /// when FFmpeg is unavailable rather than preselecting something disabled.
+  static MediaFormat? _defaultFormat(ProbeResult probe) {
+    if (probe.formats.isEmpty) return null;
+    for (final f in probe.formats) {
+      if (!(f.requiresMux && !probe.canMux)) return f;
+    }
+    return probe.formats.first;
+  }
+
   /// Reads whatever the clipboard holds and pulls a URL out of it, so a link
   /// copied alongside other text still lands cleanly in the field.
   Future<void> _paste() async {
@@ -153,8 +164,7 @@ class _AddScreenState extends State<AddScreen> {
       if (!mounted) return;
       setState(() {
         _probe = result;
-        _selectedFormat =
-            result.formats.isNotEmpty ? result.formats.first : null;
+        _selectedFormat = _defaultFormat(result);
       });
     } catch (e) {
       if (!mounted) return;
@@ -717,8 +727,13 @@ class _FormatPicker extends StatelessWidget {
                 ? 'Powered by the yt-dlp engine on this device. HD options '
                     'merge separate video and audio tracks when ffmpeg is '
                     'available.'
-                : 'Resolved on this device. The built-in engine saves a '
-                    'combined stream, so quality tops out around 360p/720p.',
+                : canMux
+                    ? 'Resolved on this device. HD options download the video '
+                        'and audio tracks separately and merge them with the '
+                        'bundled FFmpeg, so 720p, 1080p, and higher are '
+                        'available.'
+                    : 'Resolved on this device. The built-in engine saves a '
+                        'combined stream, so quality tops out around 360p.',
             style: TextStyle(
               fontFamily: TurboFonts.body,
               color: context.palette.textMuted,

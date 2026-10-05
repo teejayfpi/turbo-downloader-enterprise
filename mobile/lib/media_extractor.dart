@@ -94,7 +94,7 @@ class MediaFormat {
 
 /// A media page resolved to a direct stream the device can fetch on its own.
 class ResolvedMedia {
-  /// Direct, fetchable stream URL.
+  /// Direct, fetchable stream URL for the video (or the sole stream).
   final String url;
 
   /// Human title, used for the saved filename.
@@ -103,7 +103,8 @@ class ResolvedMedia {
   /// File extension for the saved container (mp4, webm, m4a, ts).
   final String extension;
 
-  /// Size in bytes when the extractor knows it, otherwise 0.
+  /// Size in bytes when the extractor knows it, otherwise 0. When [audioUrl]
+  /// is set this is the sum of the video and audio sizes.
   final int size;
 
   /// Resolution/quality label for display, e.g. "360p" or "128kbps".
@@ -112,6 +113,17 @@ class ResolvedMedia {
   /// "video" for a combined stream, "audio" for an audio-only stream.
   final String kind;
 
+  /// A separate audio-only track that must be merged into [url] before the
+  /// file is usable. Set only for video-only renditions above YouTube's 360p
+  /// muxed ceiling; the device muxes the two streams with the bundled FFmpeg.
+  final String? audioUrl;
+
+  /// Container extension for [audioUrl] (m4a or webm).
+  final String? audioExtension;
+
+  /// Size of [audioUrl] in bytes when known, otherwise 0.
+  final int audioSize;
+
   const ResolvedMedia({
     required this.url,
     required this.title,
@@ -119,7 +131,13 @@ class ResolvedMedia {
     required this.size,
     required this.qualityLabel,
     required this.kind,
+    this.audioUrl,
+    this.audioExtension,
+    this.audioSize = 0,
   });
+
+  /// True when this rendition needs a separate audio track merged in.
+  bool get needsMux => audioUrl != null;
 }
 
 /// A resolution failure with a message that is safe to show the user.
@@ -160,11 +178,16 @@ class MediaExtractor {
 
       final formats = <MediaFormat>[];
 
+      // Combined streams are the only ones a device without a muxer can save
+      // directly; YouTube caps them at 360p.
       final muxed = manifest.muxed.toList()
         ..sort((a, b) =>
             b.videoResolution.height.compareTo(a.videoResolution.height));
+      final muxedHeights = <int>{};
+      final videoFormats = <MediaFormat>[];
       for (final s in muxed) {
-        formats.add(MediaFormat(
+        muxedHeights.add(s.videoResolution.height);
+        videoFormats.add(MediaFormat(
           id: 'muxed:${s.qualityLabel}:${s.container.name}',
           label: _videoLabel(s.qualityLabel, s.videoResolution.height),
           kind: 'video',
@@ -174,20 +197,31 @@ class MediaExtractor {
         ));
       }
 
-      final videoOnly = manifest.videoOnly.toList()
-        ..sort((a, b) =>
-            b.videoResolution.height.compareTo(a.videoResolution.height));
-      for (final s in videoOnly) {
-        formats.add(MediaFormat(
+      // Video-only streams carry every resolution above 360p. Keep one per
+      // height (YouTube serves each as AVC/MP4 and VP9/WebM), preferring MP4
+      // so the merged file plays everywhere, and skip heights already covered
+      // by a muxed stream so the picker lists each quality once.
+      final videoOnlyByHeight = <int, MediaFormat>{};
+      for (final s in manifest.videoOnly) {
+        final h = s.videoResolution.height;
+        if (h <= 0 || muxedHeights.contains(h)) continue;
+        final f = MediaFormat(
           id: 'video:${s.qualityLabel}:${s.container.name}',
-          label: '${_videoLabel(s.qualityLabel, s.videoResolution.height)} HD',
+          label: _videoLabel(s.qualityLabel, h),
           kind: 'video-only',
           extension: _extensionFor(s.container.name),
           size: s.size.totalBytes,
-          height: s.videoResolution.height,
+          height: h,
           requiresMux: true,
-        ));
+        );
+        final existing = videoOnlyByHeight[h];
+        if (existing == null || _preferContainer(f, existing)) {
+          videoOnlyByHeight[h] = f;
+        }
       }
+      videoFormats.addAll(videoOnlyByHeight.values);
+      videoFormats.sort((a, b) => b.height.compareTo(a.height));
+      formats.addAll(videoFormats);
 
       final audio = manifest.audioOnly.toList()
         ..sort(
@@ -230,22 +264,36 @@ class MediaExtractor {
   /// Resolves [pageUrl] to a single stream that can be saved standalone.
   ///
   /// When [formatId] matches one of the formats from [describe], that
-  /// rendition is returned. Otherwise a combined (muxed) stream is preferred,
-  /// then audio-only. Separate high-resolution tracks cannot be merged without
-  /// an on-device muxer, and an HLS manifest is a playlist rather than a file,
-  /// so neither is offered here.
-  Future<ResolvedMedia> resolve(String pageUrl, {String? formatId}) async {
+  /// rendition is returned. A `video:` id (a video-only stream above 360p)
+  /// resolves to the video plus a separate audio track in [ResolvedMedia], so
+  /// the caller can merge them with the bundled FFmpeg. Otherwise a combined
+  /// (muxed) stream is preferred, then audio-only.
+  ///
+  /// The optional overrides let tests supply canned metadata instead of
+  /// reaching the network.
+  Future<ResolvedMedia> resolve(
+    String pageUrl, {
+    String? formatId,
+    yt.Video? videoOverride,
+    yt.StreamManifest? manifestOverride,
+  }) async {
     final client = yt.YoutubeExplode();
     try {
-      final video = await client.videos.get(pageUrl);
-      final manifest = await client.videos.streamsClient.getManifest(
-        video.id,
-        ytClients: _apiClients,
-      );
+      final video = videoOverride ?? await client.videos.get(pageUrl);
+      final manifest = manifestOverride ??
+          await client.videos.streamsClient.getManifest(
+            video.id,
+            ytClients: _apiClients,
+          );
 
       if (formatId != null) {
         final picked = _pick(manifest, formatId);
-        if (picked != null) return _toResolved(picked, video.title, formatId);
+        if (picked != null) {
+          if (picked is yt.VideoOnlyStreamInfo) {
+            return _muxedResolved(picked, manifest, video.title);
+          }
+          return _toResolved(picked, video.title, formatId);
+        }
       }
 
       final muxed = manifest.muxed.toList()
@@ -284,9 +332,9 @@ class MediaExtractor {
     yt.YoutubeApiClient.tv,
   ];
 
-  /// Matches a format id from [describe] back to a concrete stream. Only
-  /// combined (`muxed:`) and audio (`audio:`) ids resolve to a standalone
-  /// file; `video:` ids need muxing and are declined here.
+  /// Matches a format id from [describe] back to a concrete stream. Combined
+  /// (`muxed:`), audio (`audio:`) and video-only (`video:`) ids all resolve;
+  /// a video-only id is paired with an audio track by the caller.
   static yt.StreamInfo? _pick(yt.StreamManifest manifest, String formatId) {
     final parts = formatId.split(':');
     if (parts.length < 3) return null;
@@ -299,19 +347,101 @@ class MediaExtractor {
       case 'muxed':
         pool = manifest.muxed;
         break;
+      case 'video':
+        pool = manifest.videoOnly;
+        break;
       case 'audio':
         pool = manifest.audioOnly;
         break;
       default:
-        return null; // video-only requires muxing
+        return null;
     }
+    yt.StreamInfo? match;
     for (final s in pool) {
       final label = group == 'audio'
           ? '${s.bitrate.kiloBitsPerSecond.round()}'
           : s.qualityLabel;
-      if (label == quality && s.container.name == container) return s;
+      // Ids use the saved extension ("m4a" for an MP4 audio track), not the
+      // raw container name, so compare the same normalised token.
+      if (label == quality && _containerToken(group, s.container.name) == container) {
+        // Prefer the AVC/MP4 rendition when a height is served twice.
+        if (group == 'video' && _containerRank(s.container.name) >= 2) return s;
+        match ??= s;
+      }
     }
-    return pool.isEmpty ? null : pool.first;
+    // No exact match: return null so the caller falls back to the best muxed
+    // stream instead of saving an arbitrary resolution.
+    return match;
+  }
+
+  /// Maps a container to the token used in format ids. Audio-only MP4 streams
+  /// are saved as `.m4a`, so they use that extension in their id.
+  static String _containerToken(String group, String container) {
+    if (group == 'audio') return container == 'webm' ? 'webm' : 'm4a';
+    return _extensionFor(container);
+  }
+
+  /// Builds a [ResolvedMedia] for a video-only stream, pairing it with the
+  /// best audio track so the caller can mux them. Prefers an AAC/MP4 audio
+  /// track for an MP4 video, since that pair remuxes without re-encoding.
+  static ResolvedMedia _muxedResolved(
+    yt.VideoOnlyStreamInfo video,
+    yt.StreamManifest manifest,
+    String title,
+  ) {
+    final container = video.container.name;
+    final audio = _bestAudio(manifest, preferMp4: container != 'webm');
+    return ResolvedMedia(
+      url: video.url.toString(),
+      title: title,
+      extension: _extensionFor(container),
+      size: video.size.totalBytes + (audio?.size.totalBytes ?? 0),
+      qualityLabel: video.qualityLabel,
+      kind: 'video',
+      audioUrl: audio?.url.toString(),
+      audioExtension: audio == null
+          ? null
+          : (audio.container.name == 'webm' ? 'webm' : 'm4a'),
+      audioSize: audio?.size.totalBytes ?? 0,
+    );
+  }
+
+  /// Picks the highest-bitrate audio track, preferring MP4/AAC when the video
+  /// is MP4 so the pair remuxes cleanly.
+  static yt.AudioOnlyStreamInfo? _bestAudio(
+    yt.StreamManifest manifest, {
+    required bool preferMp4,
+  }) {
+    final audio = manifest.audioOnly.toList()
+      ..sort(
+          (a, b) => b.bitrate.bitsPerSecond.compareTo(a.bitrate.bitsPerSecond));
+    if (audio.isEmpty) return null;
+    if (preferMp4) {
+      final mp4 = audio.where((a) => a.container.name == 'mp4').toList();
+      if (mp4.isNotEmpty) return mp4.first;
+    }
+    return audio.first;
+  }
+
+  /// Ranks containers for the picker; MP4/AVC first so merged files play on
+  /// the widest range of devices.
+  static bool _preferContainer(MediaFormat candidate, MediaFormat current) {
+    final c = _containerRank(candidate.extension);
+    final k = _containerRank(current.extension);
+    if (c != k) return c > k;
+    return candidate.size > current.size;
+  }
+
+  static int _containerRank(String extension) {
+    switch (extension) {
+      case 'mp4':
+      case 'm4v':
+        return 2;
+      case 'webm':
+        return 1;
+      default:
+        return 0;
+    }
   }
 
   static ResolvedMedia _toResolved(

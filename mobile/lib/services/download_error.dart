@@ -15,6 +15,7 @@ enum DownloadErrorKind {
   corrupt,
   engine,
   media,
+  mux,
   cancelled,
   unknown,
 }

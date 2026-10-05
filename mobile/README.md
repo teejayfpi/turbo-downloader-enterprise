@@ -27,11 +27,12 @@ device:
   stuck behind a hard-coded list.
 
 The page URL is what is stored, so a resume re-resolves rather than reusing an
-expired stream URL. When ffmpeg is present, yt-dlp can merge separate HD video
-and audio tracks and offer 1080p/4K; without it, the app offers combined streams
-(and the built-in engine tops out around 360p/720p). Everything is optional —
-install yt-dlp to unlock more platforms and higher quality, or use the app
-as-is.
+expired stream URL. YouTube serves every resolution above 360p as separate
+video and audio tracks; the app downloads both and merges them on the device
+with the bundled FFmpeg, so 720p, 1080p and higher are available with no extra
+setup. yt-dlp is still optional and adds non-YouTube platforms; when its own
+ffmpeg is present it can merge tracks too. Everything works out of the box —
+install yt-dlp only to unlock more platforms.
 
 ## Install
 
