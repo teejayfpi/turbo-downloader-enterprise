@@ -43,4 +43,24 @@ post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_macos_build_settings(target)
   end
+
+  # The FFmpeg plugin's setup script unzips prebuilt frameworks with `unzip`,
+  # which leaves AppleDouble (._*) metadata files inside them - including at
+  # each framework's root. Those stray files make codesign fail with
+  # "unsealed contents present in the root directory of an embedded framework".
+  # Strip them before Xcode embeds the frameworks into the app.
+  pub_cache = ENV['PUB_CACHE']
+  roots = []
+  roots << File.join(pub_cache, 'hosted', 'pub.dev') if pub_cache
+  roots << File.join(Dir.home, '.pub-cache', 'hosted', 'pub.dev')
+  roots << File.join(__dir__, 'Flutter', 'ephemeral', '.symlinks', 'plugins')
+  roots.each do |root|
+    patterns = [
+      File.join(root, '*', 'macos', 'Frameworks', '._*'),
+      File.join(root, '*', 'macos', 'Frameworks', '**', '._*'),
+    ]
+    Dir.glob(patterns, File::FNM_DOTMATCH).each do |f|
+      File.delete(f) if File.file?(f)
+    end
+  end
 end
