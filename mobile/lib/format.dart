@@ -64,3 +64,24 @@ String _clock(DateTime time) {
   final m = time.minute.toString().padLeft(2, '0');
   return '$h:$m';
 }
+
+/// A compact countdown for a remaining access window, e.g. "6 days left" or
+/// "2 h 05 min left". Null (perpetual access) renders as "Never expires".
+String formatRemaining(Duration? remaining) {
+  if (remaining == null) return 'Never expires';
+  if (remaining.isNegative) return 'Expired';
+  if (remaining.inDays >= 1) {
+    final hours = remaining.inHours % 24;
+    return hours == 0
+        ? '${remaining.inDays} days left'
+        : '${remaining.inDays} d $hours h left';
+  }
+  if (remaining.inHours >= 1) {
+    final m = remaining.inMinutes % 60;
+    return m == 0
+        ? '${remaining.inHours} h left'
+        : '${remaining.inHours} h ${m.toString().padLeft(2, '0')} min left';
+  }
+  if (remaining.inMinutes >= 1) return '${remaining.inMinutes} min left';
+  return 'Under a minute left';
+}

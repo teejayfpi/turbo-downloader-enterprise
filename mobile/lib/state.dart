@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'local_downloader.dart';
 import 'media_url.dart';
+import 'services/access.dart';
 import 'services/device_policy.dart';
 import 'services/diagnostics.dart';
 import 'services/history_store.dart';
@@ -101,6 +102,7 @@ class TurboState extends ChangeNotifier {
     SecureStore? secure,
     SessionStore? session,
     UpdateInstaller? installer,
+    AccessManager? access,
   })  : settings = settings ?? SettingsStore(),
         history = history ?? HistoryStore(),
         diagnostics = diagnostics ?? Diagnostics(),
@@ -110,7 +112,8 @@ class TurboState extends ChangeNotifier {
         notifications = notifications ?? const Notifications(),
         secure = secure ?? SecureStore(),
         session = session ?? SessionStore(),
-        installer = installer ?? UpdateInstaller() {
+        installer = installer ?? UpdateInstaller(),
+        access = access ?? AccessManager() {
     local.addListener(_safeNotify);
     local.history = this.history;
     local.diagnostics = this.diagnostics;
@@ -128,6 +131,7 @@ class TurboState extends ChangeNotifier {
   final SecureStore secure;
   final SessionStore session;
   final UpdateInstaller installer;
+  final AccessManager access;
 
   // --------------------------------------------------------------- appearance
 
@@ -196,6 +200,56 @@ class TurboState extends ChangeNotifier {
   /// the built-in engine and yt-dlp through [LocalDownloadManager].
   int bandwidthLimit = 0;
 
+  // ------------------------------------------------------------------- access
+
+  /// The latest access snapshot. Null until [init] has read the licence.
+  AccessStatus? accessStatus;
+
+  /// True when the app is licensed or still inside its trial.
+  bool get hasAccess => accessStatus?.hasAccess ?? true;
+
+  /// True when the stored licence is a Pro key that has not expired.
+  bool get isPro => accessStatus?.isPro ?? false;
+
+  /// True when this build was compiled with a licence public key, so it can
+  /// accept signed keys. False means the app runs on the trial alone.
+  bool get licensingEnabled => access.isLicensingEnabled;
+
+  /// The app's effective clock: never earlier than the last time it was seen.
+  DateTime get accessNow => access.effectiveNow();
+
+  /// Time left before access ends, or null when it never does.
+  Duration? timeRemaining() => accessStatus?.remainingAt(accessNow);
+
+  /// 0..1 of the access window already used, for a progress bar.
+  double accessUsedFraction() => accessStatus?.usedFractionAt(accessNow) ?? 0;
+
+  /// The concurrency the user may actually run, capped for unlicensed installs.
+  int get effectiveMaxConcurrent => hasAccess ? maxConcurrent : 1;
+
+  /// Whether queuing a download for later is allowed.
+  bool get canSchedule => hasAccess;
+
+  /// Re-reads the access snapshot and re-applies any tier limits.
+  void refreshAccess() {
+    accessStatus = access.status();
+    local.maxConcurrent = effectiveMaxConcurrent;
+    _safeNotify();
+  }
+
+  /// Verifies and stores a licence key. Returns null on success, or a reason.
+  Future<String?> activateLicence(String token) async {
+    final error = await access.activate(token);
+    if (error == null) refreshAccess();
+    return error;
+  }
+
+  /// Removes the stored licence, returning to trial or free access.
+  Future<void> deactivateLicence() async {
+    await access.deactivate();
+    refreshAccess();
+  }
+
   /// Named presets shown in Settings, in bytes per second (0 = unlimited).
   static const bandwidthPresets = <String, int>{
     'Unlimited': 0,
@@ -263,6 +317,7 @@ class TurboState extends ChangeNotifier {
   bool _disposed = false;
   Timer? _deviceTimer;
   Timer? _progressTimer;
+  Timer? _accessTimer;
 
   static const _startupTimeout = Duration(seconds: 12);
 
@@ -307,6 +362,12 @@ class TurboState extends ChangeNotifier {
       local.setBandwidthLimit(bandwidthLimit);
       if (!autoRetry) local.retryPolicy = RetryPolicy.none;
 
+      stage = 'access';
+      await access.init().timeout(_startupTimeout);
+      await access.ensureStarted().timeout(_startupTimeout);
+      accessStatus = access.status();
+      local.maxConcurrent = effectiveMaxConcurrent;
+
       stage = 'history';
       await history.init().timeout(_startupTimeout);
       stage = 'diagnostics';
@@ -324,6 +385,9 @@ class TurboState extends ChangeNotifier {
       });
       _progressTimer ??= Timer.periodic(const Duration(seconds: 3), (_) {
         _pushProgressNotification();
+      });
+      _accessTimer ??= Timer.periodic(const Duration(seconds: 30), (_) {
+        _refreshAccess();
       });
       if (checkUpdates) unawaited(checkForUpdates());
     } catch (error) {
@@ -495,7 +559,7 @@ class TurboState extends ChangeNotifier {
 
   Future<void> setMaxConcurrent(int value) async {
     maxConcurrent = value.clamp(1, 6);
-    local.maxConcurrent = maxConcurrent;
+    local.maxConcurrent = effectiveMaxConcurrent;
     await settings.setInt(SettingsStore.kMaxConcurrent, maxConcurrent);
     local.resumeAll();
     _safeNotify();
@@ -577,6 +641,16 @@ class TurboState extends ChangeNotifier {
       batteryAware: batteryAware,
     );
     local.setNetworkBlocked(blocked);
+    _safeNotify();
+  }
+
+  /// Advances the access high-water mark and re-reads the countdown. Runs on a
+  /// timer so a licence that expires mid-session locks without a restart.
+  Future<void> _refreshAccess() async {
+    if (_disposed) return;
+    await access.markSeen();
+    accessStatus = access.status();
+    local.maxConcurrent = effectiveMaxConcurrent;
     _safeNotify();
   }
 
@@ -844,6 +918,8 @@ class TurboState extends ChangeNotifier {
     }
 
     final conns = speedMode.connections(connections ?? defaultConnections);
+    // Scheduling is part of the paid tier; an unlicensed install downloads now.
+    final scheduleAt = canSchedule ? startAt : null;
     return local.addIfNew(
       trimmed,
       filename: filename ?? mediaInfo?.title,
@@ -857,7 +933,7 @@ class TurboState extends ChangeNotifier {
       mediaAuthor: mediaInfo?.author,
       mediaDuration: mediaInfo?.durationSeconds,
       thumbnailUrl: mediaInfo?.thumbnailUrl,
-      startAt: startAt,
+      startAt: scheduleAt,
     );
   }
 
@@ -873,12 +949,17 @@ class TurboState extends ChangeNotifier {
     List<BrowseVideo> videos, {
     int probeLimit = 5,
   }) async {
+    // Batch downloads are part of the paid tier. Without access, queue only the
+    // first video so the core downloader still works.
+    final requested = videos.length;
+    final allowed = hasAccess ? videos : videos.take(1).toList();
+
     var queued = 0;
     var duplicates = 0;
     var failed = 0;
 
-    for (var i = 0; i < videos.length; i++) {
-      final video = videos[i];
+    for (var i = 0; i < allowed.length; i++) {
+      final video = allowed[i];
       ProbeResult? probe;
       MediaFormat? format;
       if (i < probeLimit) {
@@ -913,7 +994,7 @@ class TurboState extends ChangeNotifier {
       queued: queued,
       duplicates: duplicates,
       failed: failed,
-      total: videos.length,
+      total: requested,
     );
   }
 
@@ -963,6 +1044,7 @@ class TurboState extends ChangeNotifier {
     _disposed = true;
     _deviceTimer?.cancel();
     _progressTimer?.cancel();
+    _accessTimer?.cancel();
     unawaited(notifications.setProgress(active: 0, percent: 0));
     local.removeListener(_safeNotify);
     local.dispose();

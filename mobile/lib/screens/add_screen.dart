@@ -12,6 +12,7 @@ import '../media_url.dart';
 import '../state.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import '../widgets/access_widgets.dart';
 import '../widgets/media_widgets.dart';
 import '../widgets/schedule_sheet.dart';
 import '../link_inbox.dart' show extractUrl;
@@ -376,7 +377,9 @@ class _AddScreenState extends State<AddScreen> {
             const SizedBox(height: 14),
             _ScheduleRow(
               startAt: _startAt,
+              locked: !state.canSchedule,
               onTap: _pickSchedule,
+              onLockedTap: () => showLicenceDialog(context),
               onClear: () => setState(() => _startAt = null),
             ),
             const SizedBox(height: 22),
@@ -635,29 +638,39 @@ class _SpeedRow extends StatelessWidget {
 }
 
 /// A tappable row that shows the pending start time and opens the scheduler.
+/// When [locked] the row advertises the Pro tier and opens the licence dialog.
 class _ScheduleRow extends StatelessWidget {
   final DateTime? startAt;
+  final bool locked;
   final VoidCallback onTap;
+  final VoidCallback onLockedTap;
   final VoidCallback onClear;
 
   const _ScheduleRow({
     required this.startAt,
     required this.onTap,
+    required this.onLockedTap,
     required this.onClear,
+    this.locked = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final scheduled = startAt != null;
+    final tone = locked ? p.warning : p.accent;
     return TurboPanel(
       padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
-      accentColor: p.accent,
+      accentColor: tone,
       child: Row(
         children: [
           Icon(
-            scheduled ? Icons.event_available_rounded : Icons.schedule_rounded,
-            color: scheduled ? p.accent : p.textMuted,
+            locked
+                ? Icons.lock_outline_rounded
+                : scheduled
+                    ? Icons.event_available_rounded
+                    : Icons.schedule_rounded,
+            color: locked || scheduled ? tone : p.textMuted,
             size: 18,
           ),
           const SizedBox(width: 10),
@@ -668,12 +681,14 @@ class _ScheduleRow extends StatelessWidget {
                 const Kicker('Start time', letterSpacing: 1.6),
                 const SizedBox(height: 2),
                 Text(
-                  scheduled
-                      ? 'Queued — starts ${formatStartAt(startAt)}'
-                      : 'Starts as soon as a slot is free',
+                  locked
+                      ? 'Scheduling is a Pro feature'
+                      : scheduled
+                          ? 'Queued — starts ${formatStartAt(startAt)}'
+                          : 'Starts as soon as a slot is free',
                   style: TextStyle(
                     fontFamily: TurboFonts.body,
-                    color: scheduled ? p.accent : p.textMuted,
+                    color: locked || scheduled ? tone : p.textMuted,
                     fontSize: 11.5,
                     height: 1.3,
                   ),
@@ -681,15 +696,21 @@ class _ScheduleRow extends StatelessWidget {
               ],
             ),
           ),
-          if (scheduled)
+          if (scheduled && !locked)
             IconButton(
               tooltip: 'Start now',
               icon: Icon(Icons.close_rounded, color: p.textMuted, size: 18),
               onPressed: onClear,
             ),
           TextButton(
-            onPressed: onTap,
-            child: Text(scheduled ? 'Change' : 'Schedule'),
+            onPressed: locked ? onLockedTap : onTap,
+            child: Text(
+              locked
+                  ? 'Unlock'
+                  : scheduled
+                      ? 'Change'
+                      : 'Schedule',
+            ),
           ),
         ],
       ),

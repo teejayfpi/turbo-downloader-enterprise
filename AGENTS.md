@@ -49,6 +49,20 @@ real tests in `mobile/test/local_downloader_test.dart`; they bind a loopback
 `HttpServer` and check exact bytes for segmented, non-range, lying-server,
 unknown-length, and resume cases. Run them before touching `local_downloader.dart`.
 
+Access/licence: `mobile/test/access_test.dart` covers the trial clock, signed
+keys, and the tier gates. To exercise the signing tool:
+
+```bash
+cd mobile
+dart run tools/license_tool.dart keygen
+dart run tools/license_tool.dart issue --seed <seed> --days 365 --holder "Ada"
+```
+
+A release build only accepts keys when compiled with
+`--dart-define=TURBO_LICENCE_PUBLIC_KEY=<public key>`. Without it the app runs on
+the trial alone and hides the key-entry controls; `flutter build bundle` is
+enough to confirm the whole app compiles when a platform toolchain is missing.
+
 `npm run build` builds the client. After pushing to `main`, confirm the Render
 deploy reaches `live` and re-check `GET /health`.
 
@@ -234,3 +248,8 @@ Render service: `srv-davrc8lg1s2s73bjjsb0`. Env vars can be set per key with
 
 Never commit cookies or tokens. `YT_DLP_COOKIES_DATA` holds a live signed-in
 session and must be rotated after use.
+
+The workspace `GITHUB_TOKEN` may belong to a different account than the repo
+owner and can be **read-only** on the upstream repository. If `git push` returns
+403 and the token cannot fork, the commit is still valid — report the branch and
+SHA to the user instead of retrying, and do not rewrite history to work around it.

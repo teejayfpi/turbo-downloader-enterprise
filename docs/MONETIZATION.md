@@ -71,15 +71,30 @@ and local payment methods, and Selar is built for one-time digital sales.
 ## 4. Licensing and activation without a server
 
 Because the app is device-only, do not build license checks that require a
-server. Instead:
+server. This is now implemented:
 
-- Sign a license key with your private key and verify it in the app with the
-  public key (the app already bundles `crypto` for SHA-256; add Ed25519 for
-  signatures).
-- Bind the key to nothing, or to a device fingerprint stored locally, and
-  accept that a determined user can share it. For a utility at this price that
-  is an acceptable trade; it keeps honest users honest without hurting them.
-- Store the key in the existing secure store, not in plain preferences.
+- **Trial.** A fresh install gets a fixed free window (7 days by default). The
+  clock starts on first run and is stored locally.
+- **Signed keys.** A Pro key is `base64url(payload).base64url(signature)` where
+  the payload is the licence claims and the signature is Ed25519. The app
+  bundles only the **public** key, so it can verify but never mint keys.
+- **Time-limited access.** A key may carry an expiry. The app shows a live
+  countdown and locks back to the free tier when it ends.
+- **Tamper resistance.** The app remembers the latest wall-clock time it has
+  seen, so winding the clock back cannot extend a trial or a licence.
+- **Storage.** The key lives in the existing secure store, not in plain
+  preferences.
+- **Binding.** Keys are not bound to a device. For a utility at this price that
+  is an acceptable trade: it keeps honest users honest without hurting them.
+  Device binding is possible later via a locally stored fingerprint.
+
+See `docs/LICENSING.md` for the exact commands to generate a keypair, issue a
+key, and ship a build that accepts it.
+
+What is gated on access (matches the free/Pro split above): simultaneous
+downloads, batch/playlist downloads, and scheduled downloads. Everything else
+— single downloads, resume, pause, the built-in engine — works with or without
+a licence.
 
 ## 5. Compliance and trust
 

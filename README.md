@@ -36,10 +36,14 @@ is stored anywhere but your device.
   system share sheet) or reveal it in the file manager on desktop.
 - **Beautiful branded splash screen** on every platform, crediting the designer,
   with a tap-to-chat WhatsApp contact link in Settings and on the home screen.
+- **Time-limited access** — every install starts a 7-day trial with a live
+  countdown; a signed, offline-verifiable Pro key lifts the concurrency, batch,
+  and scheduling limits. No server, account, or API key is involved.
 
 See [`mobile/README.md`](mobile/README.md) for build instructions and details,
-and [`docs/MONETIZATION.md`](docs/MONETIZATION.md) for advice on turning the app
-into income.
+[`docs/MONETIZATION.md`](docs/MONETIZATION.md) for advice on turning the app
+into income, and [`docs/LICENSING.md`](docs/LICENSING.md) for how to issue
+licence keys and ship a build that accepts them.
 
 ```bash
 cd mobile
