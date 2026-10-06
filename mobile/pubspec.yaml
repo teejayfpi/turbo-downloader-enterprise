@@ -21,7 +21,7 @@ dependencies:
   # app_links is pinned to 6.3.x: 6.4+ reads `flutter.compileSdkVersion` in its
   # Android Gradle script, which the Flutter 3.24 Gradle template does not
   # expose.
-  app_links: ">=6.3.0 <6.4.0"
+  app_links: ^7.2.1
   receive_sharing_intent: ^1.8.1
   desktop_drop: ^0.5.0
   # Opens external links from the app, e.g. the designer's WhatsApp chat.
