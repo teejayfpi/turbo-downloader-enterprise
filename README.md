@@ -101,7 +101,15 @@ modules. Nothing is simulated:
 - Metadata preview (title, thumbnail, duration, uploader)
 - Format selection before download
 - HD downloads (720p, 1080p and up) by merging video and audio on-device
+- Optional signed-in session (imported `cookies.txt` or a local browser
+  profile) so bot-checked, age-restricted, private and members-only videos work
 - Graceful degradation when yt-dlp is not installed
+
+### Updates
+- Checks GitHub Releases for a newer version on the chosen channel
+- Downloads the correct asset for the platform and opens the installer in place
+  (APK on Android, `.exe` on Windows, `.dmg`/`.zip` on macOS, AppImage/deb on
+  Linux) — no store or server in the loop
 
 ### UI
 - Dark and light themes with four accent colours

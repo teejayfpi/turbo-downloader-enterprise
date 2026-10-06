@@ -119,6 +119,20 @@ These caused real, user-visible bugs. Do not regress them.
   state have their own objects there. The Dart side degrades gracefully when a
   channel is absent, so a desktop build or a test sees a no-op, not a crash —
   keep that property when adding a method.
+- **Signed-in sessions are optional and encrypted.** `lib/services/session_store.dart`
+  keeps a Netscape `cookies.txt` (or a chosen browser profile) in `SecureStore`
+  and writes it to a temp file for yt-dlp via `YtdlpEngine.cookiesPath` /
+  `cookiesFromBrowser` (`--cookies` / `--cookies-from-browser`). This is what
+  makes bot-checked, age-restricted, private, and members-only videos work.
+  Never write a cookie jar to plain preferences or a log; go through
+  `SessionStore`/`SecureStore`. `TurboState.refreshSession` re-applies it to the
+  engine on startup and after any change.
+- **The updater installs, not just checks.** `UpdateChecker.pickAsset` chooses
+  the right release asset for the platform (APK / EXE / DMG-ZIP / AppImage-deb),
+  and `UpdateInstaller` downloads it and opens the platform installer
+  (`TurboState.installUpdate`). Keep `pickAsset` pure and platform-parameterised
+  so it stays testable; keep the installer's failure path non-throwing so a
+  failed update never crashes Settings.
 - **A missing platform channel must never break a feature.** Every Dart bridge
   (`SecureStore`, `Notifications`, `DevicePolicy`, `FileStore`) catches
   `MissingPluginException` and falls back. Do not let a new bridge throw on

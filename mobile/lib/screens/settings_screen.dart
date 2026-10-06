@@ -9,6 +9,7 @@ import '../credits.dart';
 import '../format.dart';
 import '../l10n/strings.dart';
 import '../services/notifications.dart';
+import '../services/session_store.dart';
 import '../services/update_checker.dart';
 import '../state.dart';
 import '../theme.dart';
@@ -320,6 +321,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 16),
         _EngineSection(state: state, accent: accent),
         const SizedBox(height: 16),
+        _SessionSection(state: state, accent: accent),
+        const SizedBox(height: 16),
         _PrivacySection(state: state, accent: accent),
         const SizedBox(height: 16),
         _StorageSection(state: state, accent: accent),
@@ -541,13 +544,26 @@ class _StorageRow extends StatelessWidget {
   }
 }
 
-class _UpdatesSection extends StatelessWidget {
+class _UpdatesSection extends StatefulWidget {
   final TurboState state;
   final Color accent;
   const _UpdatesSection({required this.state, required this.accent});
 
   @override
+  State<_UpdatesSection> createState() => _UpdatesSectionState();
+}
+
+class _UpdatesSectionState extends State<_UpdatesSection> {
+  Future<void> _install() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final message = await widget.state.installUpdate();
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final state = widget.state;
+    final accent = widget.accent;
     final p = context.palette;
     final update = state.updateAvailable;
     final channel = state.updateChannel;
@@ -594,6 +610,23 @@ class _UpdatesSection extends StatelessWidget {
             text: 'Version ${update.version} is available.',
           ),
           const SizedBox(height: 8),
+          if (state.updateInstalling) ...[
+            ClipRRect(
+              borderRadius: TurboRadius.all(TurboRadius.pill),
+              child: LinearProgressIndicator(
+                value: state.updateProgress,
+                minHeight: 5,
+                backgroundColor: p.bgTertiary,
+                valueColor: AlwaysStoppedAnimation(accent),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+          TurboButton(
+            label: state.updateInstalling ? 'Downloading…' : 'Download & install',
+            icon: Icons.download_rounded,
+            onPressed: state.updateInstalling ? null : _install,
+          ),
         ] else
           const _InfoRow(label: 'Status', value: 'Up to date (v$appVersion)'),
         const SizedBox(height: 12),
@@ -746,6 +779,191 @@ class _EngineSection extends StatelessWidget {
     return 'Install yt-dlp, then tap Re-check.';
   }
 }
+
+/// The optional signed-in session. Some sites (notably YouTube's bot check)
+/// refuse to serve a video unless the request carries a logged-in session.
+/// This lets the user supply one — either a cookie file or a local browser
+/// profile — and keeps it in the encrypted vault.
+class _SessionSection extends StatelessWidget {
+  final TurboState state;
+  final Color accent;
+  const _SessionSection({required this.state, required this.accent});
+
+  Future<void> _import(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final text = await showDialog<String>(
+      context: context,
+      builder: (_) => const _CookieImportDialog(),
+    );
+    if (text == null) return;
+    await state.setSessionCookies(text);
+    messenger.showSnackBar(SnackBar(
+      content: Text('Session saved (${state.sessionCookieCount} cookies).'),
+    ));
+  }
+
+  Future<void> _chooseBrowser(BuildContext context) async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (_) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            for (final entry in SessionStore.browsers.entries)
+              ListTile(
+                leading: const Icon(Icons.public_rounded),
+                title: Text(entry.value),
+                selected: state.sessionBrowser == entry.key,
+                onTap: () => Navigator.of(context).pop(entry.key),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null) return;
+    await state.setSessionBrowser(choice);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final configured = state.sessionConfigured;
+    final browserName = state.sessionBrowser == null
+        ? null
+        : SessionStore.browsers[state.sessionBrowser];
+    return _Section(
+      title: 'Sign-in & cookies',
+      accent: accent,
+      children: [
+        _InfoRow(
+          label: 'Session',
+          value: configured
+              ? (browserName != null
+                  ? 'From $browserName'
+                  : '${state.sessionCookieCount} cookies')
+              : 'Not set',
+        ),
+        const SizedBox(height: 10),
+        Notice(
+          icon: configured ? Icons.lock_rounded : Icons.info_outline_rounded,
+          color: configured ? p.success : p.textMuted,
+          text: configured
+              ? 'Downloads carry this session, so bot-checked, age-restricted, '
+                  'private, and members-only videos work. It is stored encrypted '
+                  'on this device and sent only to the site you download from.'
+              : 'Most videos work without this. Add a session only if a site '
+                  'asks you to sign in or confirm you are not a bot.',
+        ),
+        const SizedBox(height: 12),
+        TurboButton(
+          label: 'Import cookies.txt',
+          icon: Icons.file_upload_outlined,
+          onPressed: () => _import(context),
+        ),
+        const SizedBox(height: 8),
+        TurboButton(
+          label: browserName == null
+              ? 'Use a browser profile'
+              : 'Browser: $browserName',
+          icon: Icons.public_rounded,
+          outline: true,
+          onPressed: () => _chooseBrowser(context),
+        ),
+        if (configured) ...[
+          const SizedBox(height: 8),
+          TurboButton(
+            label: 'Clear session',
+            icon: Icons.lock_open_rounded,
+            outline: true,
+            onPressed: state.clearSession,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Paste-or-drop a cookie jar. Accepts the Netscape `cookies.txt` format that
+/// browser extensions export.
+class _CookieImportDialog extends StatefulWidget {
+  const _CookieImportDialog();
+
+  @override
+  State<_CookieImportDialog> createState() => _CookieImportDialogState();
+}
+
+class _CookieImportDialogState extends State<_CookieImportDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final text = _controller.text;
+    final count = SessionStore.countCookies(text);
+    return AlertDialog(
+      title: const Text('Import cookies'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Export cookies for the site from your browser (a '
+            '"Get cookies.txt" style extension) and paste the contents here.',
+            style: TextStyle(
+              fontFamily: TurboFonts.body,
+              color: p.textSecondary,
+              fontSize: 12,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controller,
+            onChanged: (_) => setState(() {}),
+            minLines: 4,
+            maxLines: 8,
+            style: TextStyle(
+              fontFamily: TurboFonts.mono,
+              fontSize: 11,
+              color: p.textPrimary,
+            ),
+            decoration: const InputDecoration(
+              hintText: '# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t…',
+            ),
+          ),
+          if (count > 0) ...[
+            const SizedBox(height: 8),
+            Text('$count cookies detected',
+                style: TextStyle(
+                  fontFamily: TurboFonts.mono,
+                  color: p.success,
+                  fontSize: 10.5,
+                )),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: count > 0
+              ? () => Navigator.of(context).pop(_controller.text)
+              : null,
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
 
 class _AboutSection extends StatelessWidget {
   final TurboStrings strings;

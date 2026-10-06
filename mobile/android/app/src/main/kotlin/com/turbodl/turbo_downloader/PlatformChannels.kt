@@ -28,6 +28,7 @@ import javax.crypto.spec.GCMParameterSpec
  *  - `turbo_downloader/secure`  — Keystore-backed credential vault
  *  - `turbo_downloader/notify`  — download notifications
  *  - `turbo_downloader/device`  — connectivity and power state
+ *  - `turbo_downloader/install` — hand a downloaded APK to the package installer
  *
  * Each is registered from [MainActivity.configureFlutterEngine]. If a channel
  * is missing the Dart side degrades gracefully (it treats a MissingPlugin as
@@ -110,6 +111,66 @@ internal object PlatformChannels {
                     result.error("DEVICE_FAILED", e.message, null)
                 }
             }
+
+        MethodChannel(messenger, "turbo_downloader/install")
+            .setMethodCallHandler { call, result ->
+                try {
+                    when (call.method) {
+                        "installApk" -> result.success(
+                            ApkInstaller.install(
+                                activity,
+                                call.argument<String>("path"),
+                            ),
+                        )
+                        else -> result.notImplemented()
+                    }
+                } catch (e: Exception) {
+                    result.error("INSTALL_FAILED", e.message, null)
+                }
+            }
+    }
+}
+
+/**
+ * Opens the system package installer for a downloaded APK, so the app can
+ * update itself without a store.
+ *
+ * Android 8+ gates this behind the per-app "install unknown apps" permission.
+ * When it is not yet granted we send the user to the exact settings screen and
+ * report `needsPermission`, so the UI can ask them to try once more rather than
+ * failing silently.
+ */
+private object ApkInstaller {
+    private const val REQUEST_CODE = 7305
+
+    fun install(activity: MainActivity, path: String?): Map<String, Any> {
+        if (path == null) return mapOf("started" to false)
+        val file = java.io.File(path)
+        if (!file.exists()) return mapOf("started" to false)
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+            !activity.packageManager.canRequestPackageInstalls()
+        ) {
+            val settings = android.content.Intent(
+                android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                android.net.Uri.parse("package:${activity.packageName}"),
+            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            activity.startActivity(settings)
+            return mapOf("started" to false, "needsPermission" to true)
+        }
+
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            activity,
+            "${activity.packageName}.fileprovider",
+            file,
+        )
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        activity.startActivityForResult(intent, REQUEST_CODE)
+        return mapOf("started" to true)
     }
 }
 

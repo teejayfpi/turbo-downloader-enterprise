@@ -11,6 +11,7 @@ import 'services/history_store.dart';
 import 'services/notifications.dart';
 import 'services/retry_policy.dart';
 import 'services/secure_store.dart';
+import 'services/session_store.dart';
 import 'services/settings_store.dart';
 import 'services/storage_stats.dart';
 import 'services/update_checker.dart';
@@ -98,6 +99,8 @@ class TurboState extends ChangeNotifier {
     DevicePolicy? device,
     Notifications? notifications,
     SecureStore? secure,
+    SessionStore? session,
+    UpdateInstaller? installer,
   })  : settings = settings ?? SettingsStore(),
         history = history ?? HistoryStore(),
         diagnostics = diagnostics ?? Diagnostics(),
@@ -105,7 +108,9 @@ class TurboState extends ChangeNotifier {
         updater = updater ?? UpdateChecker(),
         device = device ?? DevicePolicy(),
         notifications = notifications ?? const Notifications(),
-        secure = secure ?? SecureStore() {
+        secure = secure ?? SecureStore(),
+        session = session ?? SessionStore(),
+        installer = installer ?? UpdateInstaller() {
     local.addListener(_safeNotify);
     local.history = this.history;
     local.diagnostics = this.diagnostics;
@@ -121,6 +126,8 @@ class TurboState extends ChangeNotifier {
   final DevicePolicy device;
   final Notifications notifications;
   final SecureStore secure;
+  final SessionStore session;
+  final UpdateInstaller installer;
 
   // --------------------------------------------------------------- appearance
 
@@ -223,6 +230,14 @@ class TurboState extends ChangeNotifier {
   /// Last engine detection result, for Settings.
   bool ytdlpAvailable = false;
   bool ytdlpHasFfmpeg = false;
+
+  /// True when a signed-in session (cookie jar or browser profile) is set, and
+  /// how many cookies it holds. Shown in Settings; the values stay in the vault.
+  bool sessionConfigured = false;
+  int sessionCookieCount = 0;
+
+  /// The browser profile yt-dlp should read, when the user chose that route.
+  String? sessionBrowser;
 
   /// True when the bundled FFmpeg can merge separate video and audio tracks,
   /// which is what unlocks HD quality through the built-in extractor.
@@ -342,7 +357,38 @@ class TurboState extends ChangeNotifier {
     ytdlpAvailable = bin != null;
     ytdlpHasFfmpeg = ytdlpAvailable && await local.ytdlp.hasFfmpeg();
     ffmpegAvailable = await local.muxer.isAvailable();
+    await refreshSession();
     _safeNotify();
+  }
+
+  /// Re-reads the signed-in session from the vault and points the engine at it.
+  Future<void> refreshSession() async {
+    final browser = await session.browser();
+    final jar = await session.cookies();
+    sessionBrowser = browser;
+    sessionCookieCount = jar == null ? 0 : SessionStore.countCookies(jar);
+    sessionConfigured = browser != null || sessionCookieCount > 0;
+    await session.applyTo(local.ytdlp);
+    _safeNotify();
+  }
+
+  /// Saves an imported cookie jar and switches the engine to it.
+  Future<void> setSessionCookies(String text) async {
+    await session.setCookies(text);
+    await session.setBrowser(null);
+    await refreshSession();
+  }
+
+  /// Uses a local browser profile instead of an imported file.
+  Future<void> setSessionBrowser(String? name) async {
+    await session.setBrowser(name);
+    await refreshSession();
+  }
+
+  /// Forgets the session entirely.
+  Future<void> clearSession() async {
+    await session.clear();
+    await refreshSession();
   }
 
   Future<void> setYtdlpPath(String? path) async {
@@ -530,6 +576,49 @@ class TurboState extends ChangeNotifier {
   Future<void> checkForUpdates() async {
     updateAvailable = await updater.check();
     _safeNotify();
+  }
+
+  /// Progress of an in-app update download, 0..1. Null when idle or the total
+  /// size is unknown. [updateInstalling] is true while it runs.
+  double? updateProgress;
+  bool updateInstalling = false;
+
+  /// Downloads the available update and hands it to the platform installer.
+  /// Returns a short status for the UI to show.
+  Future<String> installUpdate() async {
+    final update = updateAvailable;
+    final url = update?.downloadUrl;
+    if (update == null || url == null) {
+      return 'This build cannot be installed automatically. Open the release '
+          'page to update.';
+    }
+    updateInstalling = true;
+    updateProgress = null;
+    _safeNotify();
+    try {
+      final file = await installer.download(
+        url,
+        onProgress: (p) {
+          updateProgress = p;
+          _safeNotify();
+        },
+      );
+      final result = await installer.install(file);
+      if (result.needsPermission) {
+        return 'Allow "Install unknown apps" for Turbo, then tap Download & '
+            'install again.';
+      }
+      return result.started
+          ? 'Installer opened. Follow the prompts to finish updating to '
+              'v${update.version}.'
+          : 'Downloaded to ${file.path}. Open it to finish updating.';
+    } catch (error) {
+      return 'Update download failed: $error';
+    } finally {
+      updateInstalling = false;
+      updateProgress = null;
+      _safeNotify();
+    }
   }
 
   // ----------------------------------------------------------------- history

@@ -72,8 +72,32 @@ class YtdlpEngine {
   /// Optional explicit path to the binary, set from Settings.
   String? overridePath;
 
+  /// A Netscape `cookies.txt` the engine should send with every request. Set
+  /// from Settings; the file is written by [SessionStore] from the encrypted
+  /// cookie jar, never kept as the only copy.
+  String? cookiesPath;
+
+  /// Read cookies straight out of a local browser profile instead of a file.
+  /// One of yt-dlp's `--cookies-from-browser` names (chrome, edge, firefox,
+  /// brave, chromium, opera, safari, vivaldi, whale). Null disables it.
+  String? cookiesFromBrowser;
+
   String? _cachedBinary;
   bool _searched = false;
+
+  /// The cookie flags every yt-dlp invocation should carry. A browser profile
+  /// wins over an imported file when both are set, because it stays current.
+  List<String> _cookieArgs() {
+    final browser = cookiesFromBrowser?.trim();
+    if (browser != null && browser.isNotEmpty) {
+      return ['--cookies-from-browser', browser];
+    }
+    final path = cookiesPath?.trim();
+    if (path != null && path.isNotEmpty) {
+      return ['--cookies', path];
+    }
+    return const [];
+  }
 
   /// The binary in use, or null when yt-dlp is not installed.
   String? get binary => _cachedBinary;
@@ -166,6 +190,7 @@ class YtdlpEngine {
         '--no-warnings',
         '--no-playlist',
         '--no-check-certificates',
+        ..._cookieArgs(),
         url,
       ],
       stdoutEncoding: utf8,
@@ -211,6 +236,7 @@ class YtdlpEngine {
       '--no-warnings',
       '--newline',
       '--no-check-certificates',
+      ..._cookieArgs(),
       '-P', dir.path,
       '-o', '$stem.%(ext)s',
       '--progress-template',
@@ -482,7 +508,32 @@ class YtdlpEngine {
       return 'This format needs ffmpeg to merge audio and video, which is not '
           'installed. Pick a combined format or install ffmpeg.';
     }
+    if (looksLikeSignInRequired(text)) {
+      return 'This video needs a signed-in session. Open Settings → Sign-in & '
+          'cookies and add your YouTube cookies, then retry.';
+    }
     return text.length > 240 ? '${text.substring(0, 240)}…' : text;
+  }
+
+  /// True when yt-dlp's message means the site wants an authenticated session
+  /// (bot check, age gate, private/members-only video) rather than a plain
+  /// network or format failure. Used to steer the user to the cookie flow.
+  static bool looksLikeSignInRequired(String message) {
+    final m = message.toLowerCase();
+    return m.contains('sign in to confirm') ||
+        m.contains('confirm you\'re not a bot') ||
+        m.contains('confirm you are not a bot') ||
+        m.contains('not a bot') ||
+        m.contains('login required') ||
+        m.contains('log in to') ||
+        m.contains('sign in to view') ||
+        m.contains('age-restricted') ||
+        m.contains('age restricted') ||
+        m.contains('members-only') ||
+        m.contains('private video') ||
+        m.contains('this video is private') ||
+        m.contains('cookies') ||
+        m.contains('account authentication');
   }
 
   @visibleForTesting
@@ -490,4 +541,8 @@ class YtdlpEngine {
     _cachedBinary = path;
     _searched = true;
   }
+
+  /// Exposes the cookie flags for tests, since [_cookieArgs] is private.
+  @visibleForTesting
+  List<String> get cookieArguments => _cookieArgs();
 }
