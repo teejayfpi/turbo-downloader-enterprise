@@ -24,9 +24,13 @@ updates:
         patterns: ['*']
         update-types: ['minor', 'patch']
     ignore:
-      # flutter_lints 6 needs Dart 3.8; the app targets Dart 3.5. Lift this when
-      # the Flutter SDK baseline moves.
+      # These majors need a newer Dart SDK than the app's 3.5 baseline (and the
+      # pinned Flutter 3.24.5). Lift the ignores when the SDK baseline moves.
       - dependency-name: flutter_lints
+        update-types: ['version-update:semver-major']
+      - dependency-name: app_links
+        update-types: ['version-update:semver-major']
+      - dependency-name: desktop_drop
         update-types: ['version-update:semver-major']
 
   - package-ecosystem: npm
