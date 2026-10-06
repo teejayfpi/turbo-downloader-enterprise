@@ -10,11 +10,13 @@ import '../format.dart';
 import '../l10n/strings.dart';
 import '../services/notifications.dart';
 import '../services/session_store.dart';
+import '../services/subscription.dart';
 import '../services/update_checker.dart';
 import '../state.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../widgets/access_widgets.dart';
+import 'admin_screen.dart';
 import 'credentials_screen.dart';
 import 'diagnostics_screen.dart';
 import 'storage_screen.dart';
@@ -350,6 +352,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         const SizedBox(height: 16),
         _AccessSection(state: state, accent: accent),
+        if (state.adminAvailable) ...[
+          const SizedBox(height: 16),
+          _AdminEntry(state: state, accent: accent),
+        ],
         const SizedBox(height: 16),
         _EngineSection(state: state, accent: accent),
         const SizedBox(height: 16),
@@ -1117,6 +1123,17 @@ class _AccessSection extends StatelessWidget {
                       height: 1.35,
                     ),
                   ),
+                  if (pro && status?.subscriptionId != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      '${_planLabel(status?.plan)} · ${status!.subscriptionId}',
+                      style: TextStyle(
+                        fontFamily: TurboFonts.mono,
+                        color: p.textMuted,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1159,6 +1176,46 @@ class _AccessSection extends StatelessWidget {
             ],
           ),
         if (state.licensingEnabled) const SizedBox(height: 8),
+        if (state.deviceId != null && !pro) ...[
+          Row(
+            children: [
+              Icon(Icons.smartphone_rounded, size: 14, color: p.textMuted),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Device id ${state.deviceId}',
+                  style: TextStyle(
+                    fontFamily: TurboFonts.mono,
+                    color: p.textMuted,
+                    fontSize: 10.5,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () async {
+                  await Clipboard.setData(
+                      ClipboardData(text: state.deviceId!));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Device id copied')),
+                    );
+                  }
+                },
+                child: const Text('Copy'),
+              ),
+            ],
+          ),
+          Text(
+            'Send this id to the owner if you want a key locked to this device.',
+            style: TextStyle(
+              fontFamily: TurboFonts.body,
+              color: p.textMuted,
+              fontSize: 10,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 6),
+        ],
         Text(
           state.licensingEnabled
               ? 'Keys are verified on this device with a signature. Nothing is '
@@ -1180,6 +1237,56 @@ class _AccessSection extends StatelessWidget {
     final local = value.toLocal();
     return '${local.year}-${local.month.toString().padLeft(2, '0')}-'
         '${local.day.toString().padLeft(2, '0')}';
+  }
+
+  String _planLabel(String? plan) =>
+      plan == null ? 'Licence' : BillingPlan.fromName(plan).label;
+}
+
+/// The owner's way into the admin console. Only rendered when the build can
+/// verify keys, so a user-facing release never shows it.
+class _AdminEntry extends StatelessWidget {
+  final TurboState state;
+  final Color accent;
+  const _AdminEntry({required this.state, required this.accent});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return _Section(
+      title: 'Owner console',
+      accent: accent,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.admin_panel_settings_rounded,
+                size: 18, color: p.accent),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Issue and review time-limited access keys. Keep this build '
+                'private; users only need the key you send them.',
+                style: TextStyle(
+                  fontFamily: TurboFonts.body,
+                  color: p.textMuted,
+                  fontSize: 11,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        TurboButton(
+          label: state.adminUnlocked ? 'Open console' : 'Unlock console',
+          icon: Icons.key_rounded,
+          outline: true,
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const AdminScreen()),
+          ),
+        ),
+      ],
+    );
   }
 }
 

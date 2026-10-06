@@ -14,6 +14,7 @@ import 'services/retry_policy.dart';
 import 'services/secure_store.dart';
 import 'services/session_store.dart';
 import 'services/settings_store.dart';
+import 'services/subscription.dart';
 import 'services/storage_stats.dart';
 import 'services/update_checker.dart';
 import 'services/url_validator.dart';
@@ -103,6 +104,8 @@ class TurboState extends ChangeNotifier {
     SessionStore? session,
     UpdateInstaller? installer,
     AccessManager? access,
+    AdminGate? admin,
+    SubscriptionLedger? ledger,
   })  : settings = settings ?? SettingsStore(),
         history = history ?? HistoryStore(),
         diagnostics = diagnostics ?? Diagnostics(),
@@ -113,7 +116,9 @@ class TurboState extends ChangeNotifier {
         secure = secure ?? SecureStore(),
         session = session ?? SessionStore(),
         installer = installer ?? UpdateInstaller(),
-        access = access ?? AccessManager() {
+        access = access ?? AccessManager(),
+        admin = admin ?? AdminGate(),
+        ledger = ledger ?? SubscriptionLedger() {
     local.addListener(_safeNotify);
     local.history = this.history;
     local.diagnostics = this.diagnostics;
@@ -132,6 +137,8 @@ class TurboState extends ChangeNotifier {
   final SessionStore session;
   final UpdateInstaller installer;
   final AccessManager access;
+  final AdminGate admin;
+  final SubscriptionLedger ledger;
 
   // --------------------------------------------------------------- appearance
 
@@ -248,6 +255,101 @@ class TurboState extends ChangeNotifier {
   Future<void> deactivateLicence() async {
     await access.deactivate();
     refreshAccess();
+  }
+
+  // -------------------------------------------------------------------- admin
+
+  /// The owner's ledger of issued subscriptions, newest first.
+  List<Subscription> get subscriptions => ledger.all;
+
+  /// True when this build can verify keys, so the admin panel is meaningful.
+  bool get adminAvailable => access.isLicensingEnabled;
+
+  /// True once the owner has set a passphrase for the admin panel.
+  bool get adminConfigured => admin.hasPassphrase;
+
+  /// True while the admin panel is unlocked for this session.
+  bool get adminUnlocked => admin.isUnlocked;
+
+  /// True when the owner's signing seed is stored, so keys can be minted here.
+  bool get adminHasSeed => admin.hasSeed;
+
+  /// This install's device id, shown in Settings so a user can send it to the
+  /// owner for a device-bound key.
+  String? deviceId;
+
+  /// The admin's subscription counts at the current time.
+  ({int total, int active, int expired, int perpetual}) get subscriptionStats =>
+      ledger.stats(accessNow);
+
+  /// Sets the owner passphrase (first run) and unlocks the panel.
+  Future<void> setAdminPassphrase(String passphrase) async {
+    await admin.setPassphrase(passphrase);
+    _safeNotify();
+  }
+
+  /// Tries to unlock the admin panel with [passphrase].
+  Future<bool> unlockAdmin(String passphrase) async {
+    final ok = await admin.unlock(passphrase);
+    _safeNotify();
+    return ok;
+  }
+
+  void lockAdmin() {
+    admin.lock();
+    _safeNotify();
+  }
+
+  /// Stores the owner's Ed25519 seed so the app can issue keys itself.
+  Future<String?> setAdminSeed(String seed) async {
+    try {
+      await LicenceIssuer.fromSeed(seed);
+    } catch (_) {
+      return 'That seed is not a valid Ed25519 key.';
+    }
+    await admin.setSeed(seed);
+    _safeNotify();
+    return null;
+  }
+
+  /// Issues and records a subscription for [holder] on [plan]. Requires the
+  /// admin panel to be unlocked and a seed to be stored.
+  Future<({Subscription? subscription, String? error})> issueSubscription({
+    required String holder,
+    required BillingPlan plan,
+    DateTime? expiresAt,
+    String? deviceId,
+  }) async {
+    final seed = admin.seed;
+    if (seed == null) return (subscription: null, error: 'Unlock admin first.');
+    final name = holder.trim();
+    if (name.isEmpty) return (subscription: null, error: 'Enter a name.');
+    if (plan == BillingPlan.custom && expiresAt == null) {
+      return (subscription: null, error: 'Pick an end date.');
+    }
+    final issuer = await LicenceIssuer.fromSeed(seed);
+    final result = await issuer.issue(
+      holder: name,
+      plan: plan,
+      expiresAt: expiresAt,
+      deviceId: deviceId,
+    );
+    await ledger.add(result.subscription);
+    _safeNotify();
+    return (subscription: result.subscription, error: null);
+  }
+
+  /// Removes a subscription from the ledger. The key keeps working until it
+  /// expires, because verification is offline; this only forgets it locally.
+  Future<void> revokeSubscription(String id) async {
+    await ledger.remove(id);
+    _safeNotify();
+  }
+
+  /// Clears the admin passphrase and signing seed (forgot-passphrase path).
+  Future<void> resetAdmin() async {
+    await admin.reset();
+    _safeNotify();
   }
 
   /// Named presets shown in Settings, in bytes per second (0 = unlimited).
@@ -367,6 +469,11 @@ class TurboState extends ChangeNotifier {
       await access.ensureStarted().timeout(_startupTimeout);
       accessStatus = access.status();
       local.maxConcurrent = effectiveMaxConcurrent;
+
+      stage = 'licensing admin';
+      await admin.init().timeout(_startupTimeout);
+      await ledger.init().timeout(_startupTimeout);
+      deviceId = await SecureStore.deviceId().timeout(_startupTimeout);
 
       stage = 'history';
       await history.init().timeout(_startupTimeout);

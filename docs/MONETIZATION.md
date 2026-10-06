@@ -19,7 +19,7 @@ Keep free (this is what earns trust and reviews):
 - The built-in engine, at whatever quality it can produce on-device.
 - One download at a time, with a sensible speed cap.
 
-Sell as Pro (one-time unlock):
+Sell as Pro:
 
 - Unlimited simultaneous downloads.
 - Batch and playlist downloads.
@@ -29,10 +29,14 @@ Sell as Pro (one-time unlock):
 - Custom download folders and filename templates.
 - No promotional card on the home screen.
 
-A one-time unlock is a good fit for a utility like this. Subscriptions fit
-poorly because a download manager does not create a recurring cost for you:
-there is no server doing the work. Charging a subscription for on-device work
-tends to produce refunds and bad reviews.
+Pro access can be sold as a **one-time unlock** or as a **time-limited
+subscription** (daily, weekly, monthly, quarterly, or yearly). Both are
+supported by the same signed-key system; the only difference is whether the key
+carries an expiry. A one-time unlock is the safer default for a utility like
+this, because a download manager does not create a recurring cost for you:
+there is no server doing the work. A subscription only makes sense if you keep
+delivering something recurring — new engines, faster releases, priority
+support — and you say so plainly. See section 4 for how to issue each.
 
 ## 2. Revenue streams, best first
 
@@ -78,18 +82,25 @@ server. This is now implemented:
 - **Signed keys.** A Pro key is `base64url(payload).base64url(signature)` where
   the payload is the licence claims and the signature is Ed25519. The app
   bundles only the **public** key, so it can verify but never mint keys.
-- **Time-limited access.** A key may carry an expiry. The app shows a live
-  countdown and locks back to the free tier when it ends.
+- **Plans.** A key is sold on a plan — daily, weekly, monthly, quarterly,
+  yearly, or a custom window — and the plan sets the key's expiry.
+- **Owner console.** Your build keeps the signing seed in the secure store and
+  exposes an **Admin · Access** screen behind a passphrase. From there you issue
+  and review keys without touching the command line. Ship users the build with
+  only the public key; it hides the console.
+- **Ledger.** The console keeps a local record of who holds what, so you can see
+  active and expired subscriptions at a glance and re-copy a key. It is your
+  record, not a server — verification stays offline.
 - **Tamper resistance.** The app remembers the latest wall-clock time it has
   seen, so winding the clock back cannot extend a trial or a licence.
 - **Storage.** The key lives in the existing secure store, not in plain
   preferences.
-- **Binding.** Keys are not bound to a device. For a utility at this price that
-  is an acceptable trade: it keeps honest users honest without hurting them.
-  Device binding is possible later via a locally stored fingerprint.
+- **Binding.** A key can optionally be locked to one device id, which the user
+  reads from Settings and sends you. Leave it off for a key that should work
+  anywhere.
 
 See `docs/LICENSING.md` for the exact commands to generate a keypair, issue a
-key, and ship a build that accepts it.
+key on a plan, and ship a build that accepts it.
 
 What is gated on access (matches the free/Pro split above): simultaneous
 downloads, batch/playlist downloads, and scheduled downloads. Everything else

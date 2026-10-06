@@ -133,6 +133,23 @@ class SecureStore {
     }
   }
 
+  /// A stable, per-install device id, used to bind a licence to one device.
+  ///
+  /// It is a random value generated on first use and kept in
+  /// `SharedPreferences`, not a hardware identifier: it is not personal data and
+  /// does not survive a reinstall or cleared app data. The owner can ask a user
+  /// for this id and issue a key locked to it.
+  static Future<String> deviceId() async {
+    final prefs = await SharedPreferences.getInstance();
+    const key = 'turbo.device.id';
+    var id = prefs.getString(key);
+    if (id == null || id.isEmpty) {
+      id = generate(length: 22, symbols: false);
+      await prefs.setString(key, id);
+    }
+    return id;
+  }
+
   /// A stable, non-reversible fingerprint of a secret, so a UI can show that a
   /// credential exists (and whether it changed) without storing or printing it.
   static String fingerprint(String value) =>

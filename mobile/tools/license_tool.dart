@@ -30,6 +30,8 @@ Future<void> main(List<String> args) async {
   switch (args.first) {
     case 'keygen':
       await _keygen();
+    case 'public':
+      await _public(args.skip(1).toList());
     case 'issue':
       await _issue(args.skip(1).toList());
     case 'inspect':
@@ -53,9 +55,14 @@ Turbo licence tool
       Generate a new Ed25519 keypair. Print the public key (bake it into the
       app) and the private seed (keep it secret, never ship it).
 
-  issue --seed <b64> [--days N | --expires <iso8601>] [--holder <name>]
-      Sign a licence key. Without --days/--expires the licence never expires.
-      --days counts from now.
+  public --seed <b64>
+      Print the public key for a seed, e.g. to rebuild the app for verification.
+
+  issue --seed <b64> --holder <name> [--plan <plan>] [--days N | --expires <iso>]
+        [--device <id>]
+      Sign a licence key. --plan is one of daily, weekly, monthly, quarterly,
+      yearly (default), or custom. A plan sets the length; --days/--expires
+      override it. --device binds the key to one device id.
 
   inspect <key> --public <b64>
       Verify a key and print its claims.
@@ -73,6 +80,17 @@ Future<void> _keygen() async {
   stdout.writeln('  ${_b64(seed)}');
 }
 
+Future<void> _public(List<String> args) async {
+  final opts = _parse(args);
+  final seed = opts['seed'];
+  if (seed == null) {
+    stderr.writeln('Missing --seed.');
+    exit(64);
+  }
+  final issuer = await LicenceIssuer.fromSeed(seed);
+  stdout.writeln(await issuer.publicKeyBase64());
+}
+
 Future<void> _issue(List<String> args) async {
   final opts = _parse(args);
   final seed = opts['seed'];
@@ -80,7 +98,21 @@ Future<void> _issue(List<String> args) async {
     stderr.writeln('Missing --seed.');
     exit(64);
   }
-  final keyPair = await Ed25519().newKeyPairFromSeed(_unb64(seed));
+  final holder = opts['holder'];
+  if (holder == null || holder.trim().isEmpty) {
+    stderr.writeln('Missing --holder.');
+    exit(64);
+  }
+  final plan = opts['plan'] == null
+      ? BillingPlan.monthly
+      : BillingPlan.fromName(opts['plan']);
+  if (opts['plan'] != null &&
+      plan == BillingPlan.custom &&
+      opts['plan'] != 'custom') {
+    stderr.writeln('Unknown --plan. Use daily, weekly, monthly, quarterly, '
+        'yearly, or custom.');
+    exit(64);
+  }
 
   final now = DateTime.now().toUtc();
   DateTime? expires;
@@ -100,19 +132,23 @@ Future<void> _issue(List<String> args) async {
     expires = now.add(Duration(days: days));
   }
 
-  final licence = Licence(
-    tier: AccessTier.pro,
-    issuedAt: now,
+  final issuer = await LicenceIssuer.fromSeed(seed);
+  final result = await issuer.issue(
+    holder: holder,
+    plan: plan,
+    now: now,
     expiresAt: expires,
-    holder: opts['holder'],
+    deviceId: opts['device'],
   );
-  final token = await LicenceCodec.sign(licence, keyPair: keyPair);
-  stdout.writeln(token);
-  if (expires != null) {
-    stderr.writeln('Expires ${expires.toIso8601String()}');
+  final sub = result.subscription;
+  stdout.writeln(sub.key);
+  stderr.writeln('Subscription ${sub.id} · ${plan.label}');
+  if (sub.expiresAt != null) {
+    stderr.writeln('Expires ${sub.expiresAt!.toIso8601String()}');
   } else {
     stderr.writeln('Perpetual licence (no expiry).');
   }
+  if (sub.deviceId != null) stderr.writeln('Bound to device ${sub.deviceId}');
 }
 
 Future<void> _inspect(List<String> args) async {
@@ -138,6 +174,9 @@ Future<void> _inspect(List<String> args) async {
   stdout.writeln('Valid licence');
   stdout.writeln('  tier:    ${licence.tier.label}');
   stdout.writeln('  holder:  ${licence.holder ?? '-'}');
+  stdout.writeln('  plan:    ${licence.plan ?? '-'}');
+  stdout.writeln('  id:      ${licence.id ?? '-'}');
+  stdout.writeln('  device:  ${licence.device ?? 'any'}');
   stdout.writeln('  issued:  ${licence.issuedAt?.toIso8601String() ?? '-'}');
   stdout.writeln(
       '  expires: ${licence.expiresAt?.toIso8601String() ?? 'never'}');
@@ -163,8 +202,3 @@ Map<String, String> _parse(List<String> args) {
 }
 
 String _b64(List<int> bytes) => base64Url.encode(bytes).replaceAll('=', '');
-
-List<int> _unb64(String value) {
-  final pad = (4 - value.length % 4) % 4;
-  return base64Url.decode(value + '=' * pad);
-}

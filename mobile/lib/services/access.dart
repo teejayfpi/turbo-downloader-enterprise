@@ -14,7 +14,11 @@ class AccessStatus {
   final DateTime? issuedAt;
   final String? holder;
 
-  /// True when a signed Pro licence is currently within its window.
+  /// The subscription id and plan, for the Settings summary.
+  final String? subscriptionId;
+  final String? plan;
+
+  /// True when the signed Pro licence is currently within its window.
   final bool licensed;
 
   /// True when the built-in trial is still running.
@@ -27,6 +31,8 @@ class AccessStatus {
     this.expiresAt,
     this.issuedAt,
     this.holder,
+    this.subscriptionId,
+    this.plan,
   });
 
   bool get isPro => licensed;
@@ -67,15 +73,20 @@ class AccessManager {
     SimplePublicKey? publicKey,
     this.trialLength = const Duration(days: 7),
     DateTime Function()? clock,
+    Future<String> Function()? deviceId,
   })  : _store = store ?? SecureStore(),
         _publicKey = publicKey ?? _bundledKey(),
-        _clock = clock ?? _utcNow;
+        _clock = clock ?? _utcNow,
+        _deviceId = deviceId ?? SecureStore.deviceId;
 
   final SecureStore _store;
 
   /// Null when the build was not given a licence public key.
   final SimplePublicKey? _publicKey;
   final DateTime Function() _clock;
+
+  /// Resolves this install's device id, for device-bound licences.
+  final Future<String> Function() _deviceId;
 
   /// How long a fresh install can use the app before it locks.
   final Duration trialLength;
@@ -186,6 +197,13 @@ class AccessManager {
     if (!licence.isActiveAt(now)) {
       return 'That key has expired.';
     }
+    final bound = licence.device;
+    if (bound != null && bound.isNotEmpty) {
+      final here = await _deviceId();
+      if (bound != here) {
+        return 'That key is locked to a different device.';
+      }
+    }
     _licence = licence;
     await _store.write(_kToken, token.trim());
     await markSeen();
@@ -216,6 +234,8 @@ class AccessManager {
         expiresAt: licence.expiresAt,
         issuedAt: licence.issuedAt,
         holder: licence.holder,
+        subscriptionId: licence.id,
+        plan: licence.plan,
       );
     }
 

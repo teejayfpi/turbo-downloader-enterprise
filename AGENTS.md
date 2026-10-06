@@ -50,13 +50,23 @@ real tests in `mobile/test/local_downloader_test.dart`; they bind a loopback
 unknown-length, and resume cases. Run them before touching `local_downloader.dart`.
 
 Access/licence: `mobile/test/access_test.dart` covers the trial clock, signed
-keys, and the tier gates. To exercise the signing tool:
+keys, and the tier gates. `mobile/test/subscription_test.dart` covers billing
+plans, key issuance, the subscription ledger, the admin gate, and device
+binding. To exercise the signing tool:
 
 ```bash
 cd mobile
 dart run tools/license_tool.dart keygen
-dart run tools/license_tool.dart issue --seed <seed> --days 365 --holder "Ada"
+dart run tools/license_tool.dart issue --seed <seed> --plan monthly --holder "Ada"
+dart run tools/license_tool.dart inspect <key> --public <public key>
 ```
+
+Plans are `daily`, `weekly`, `monthly`, `quarterly`, `yearly`, or `custom`
+(with `--days`/`--expires`). `--device <id>` binds a key to one device. The
+owner console (**Settings → Owner console**, gated by a passphrase) does the
+same from inside the app; it only appears when the build carries a public key.
+Keep the pure signing logic in `licence.dart` — it must stay free of Flutter
+imports so `tools/license_tool.dart` runs under plain `dart`.
 
 A release build only accepts keys when compiled with
 `--dart-define=TURBO_LICENCE_PUBLIC_KEY=<public key>`. Without it the app runs on
