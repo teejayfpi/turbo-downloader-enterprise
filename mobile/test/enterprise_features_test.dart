@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:turbo_downloader/credits.dart';
@@ -37,6 +38,9 @@ void main() {
     late List<MethodCall> calls;
 
     setUp(() {
+      // The share sheet is the Android path; pin the platform so the test does
+      // not take the desktop reveal branch when it runs on a Windows/macOS host.
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
       calls = [];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
@@ -49,6 +53,7 @@ void main() {
     });
 
     tearDown(() {
+      debugDefaultTargetPlatformOverride = null;
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
         const MethodChannel('turbo_downloader/files'),
@@ -69,6 +74,11 @@ void main() {
     test('falls back to the file own name when none is given', () async {
       await FileStore.share('/tmp/movie.mkv');
       expect(calls.single.arguments['filename'], 'movie.mkv');
+    });
+
+    test('derives the name from a Windows path too', () async {
+      await FileStore.share(r'C:\Users\me\Downloads\Turbo\Videos\clip.mp4');
+      expect(calls.single.arguments['filename'], 'clip.mp4');
     });
 
     test('reports failure instead of throwing when no handler is installed',

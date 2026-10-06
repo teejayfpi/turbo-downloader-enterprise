@@ -81,7 +81,7 @@ class FileStore {
       if (defaultTargetPlatform == TargetPlatform.android) {
         final ok = await _channel.invokeMethod<bool>('shareFile', {
           'path': path,
-          'filename': filename ?? path.split(Platform.pathSeparator).last,
+          'filename': filename ?? _basename(path),
         });
         return ok ?? false;
       }
@@ -204,6 +204,13 @@ class FileStore {
   static String sanitize(String name) {
     final cleaned = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
     return cleaned.isEmpty ? 'turbo-download' : cleaned;
+  }
+
+  /// The last segment of [path], for either separator, so a Windows path is
+  /// handled correctly even when the process runs on another platform.
+  static String _basename(String path) {
+    final cut = path.lastIndexOf(RegExp(r'[\\/]'));
+    return cut < 0 ? path : path.substring(cut + 1);
   }
 }
 
