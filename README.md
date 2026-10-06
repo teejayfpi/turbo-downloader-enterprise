@@ -5,7 +5,7 @@ computers. It downloads files and media (YouTube and hundreds of other
 platforms) straight to your device with multi-connection, resumable transfers —
 **no server, no account, no API key.**
 
-![Version](https://img.shields.io/badge/version-2.0.0-00d4ff?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-2.3.0-00d4ff?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-MIT-00ff88?style=for-the-badge)
 
 ---
@@ -27,10 +27,19 @@ is stored anywhere but your device.
 - **HD downloads on the device** — the built-in engine downloads YouTube's
   separate video and audio tracks and merges them with bundled FFmpeg, so 720p,
   1080p and higher work with no setup. The optional yt-dlp engine adds
-  non-YouTube platforms and its own merging.
-- **Beautiful branded splash screen** on every platform.
+  non-YouTube platforms and its own merging. If one engine cannot read a page,
+  the task is retried on the other automatically.
+- **Organised Downloads folder** — finished files are filed into
+  `Downloads/Turbo/<kind>` (`Videos`, `Music`, `Documents`, `Pictures`,
+  `Archives`, `Apps`, `Other`) so media and documents never mix.
+- **Share and reveal** — hand a finished file to another app on Android (the
+  system share sheet) or reveal it in the file manager on desktop.
+- **Beautiful branded splash screen** on every platform, crediting the designer,
+  with a tap-to-chat WhatsApp contact link in Settings and on the home screen.
 
-See [`mobile/README.md`](mobile/README.md) for build instructions and details.
+See [`mobile/README.md`](mobile/README.md) for build instructions and details,
+and [`docs/MONETIZATION.md`](docs/MONETIZATION.md) for advice on turning the app
+into income.
 
 ```bash
 cd mobile

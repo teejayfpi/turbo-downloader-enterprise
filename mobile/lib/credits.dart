@@ -17,4 +17,6 @@ class Designer {
       Uri.parse('https://wa.me/$whatsappNumber');
 }
 
-const appVersion = '2.1.0';
+/// The version shown in the splash, Settings, and the update check. Keep in
+/// sync with `version:` in pubspec.yaml — `test/version_test.dart` enforces it.
+const appVersion = '2.3.0';

@@ -1,0 +1,42 @@
+# Automated dependency and action updates.
+#
+# Security fixes are the point: a vulnerable transitive package or a pinned
+# action should be patched by a reviewable pull request, not discovered later.
+# Grouped weekly so the volume stays reviewable.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: pub
+    directory: '/mobile'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      flutter:
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: '/server'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      server:
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: '/client'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      client:
+        patterns: ['*']
