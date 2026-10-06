@@ -795,7 +795,7 @@ class LocalDownloadManager extends ChangeNotifier {
   /// scheduled; a past time or null lets it run as soon as a slot is free.
   void schedule(String id, DateTime? at) {
     final task = _byId[id];
-    if (task == null || task.isCompleted) return;
+    if (task == null || task.isCompleted || task.isRunning) return;
     task.startAt = at;
     if (!task.isPaused && !task.isFailed) {
       task.status = 'queued';
@@ -812,7 +812,7 @@ class LocalDownloadManager extends ChangeNotifier {
   /// Clears a pending start time and starts the task now.
   void startNow(String id) {
     final task = _byId[id];
-    if (task == null) return;
+    if (task == null || task.isRunning || task.isCompleted) return;
     task.startAt = null;
     resume(id);
   }
