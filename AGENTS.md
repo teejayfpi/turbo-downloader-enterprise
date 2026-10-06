@@ -137,6 +137,18 @@ These caused real, user-visible bugs. Do not regress them.
   (`SecureStore`, `Notifications`, `DevicePolicy`, `FileStore`) catches
   `MissingPluginException` and falls back. Do not let a new bridge throw on
   desktop or in tests.
+- **The bandwidth governor is one shared token bucket.** `lib/services/bandwidth.dart`
+  holds a [BandwidthGovernor] that every transfer draws from, so the cap is a
+  device-wide total rather than a per-task one. The built-in HTTP engine calls
+  `consume(n)` before each write and awaits the returned delay; the yt-dlp engine
+  is capped with `--limit-rate` from the same `TurboState.bandwidthLimit`. 0 means
+  unlimited. Keep the governor clock injectable so tests stay deterministic.
+- **Scheduled downloads are queue state, not timers per task.** A `LocalTask`
+  carries an optional `startAt`; `LocalTask.isScheduled` is true while that time
+  is still in the future, and the manager's single `_scheduleTimer` wakes the
+  pump at the soonest start time instead of spinning. `TurboState.addLink`
+  passes `startAt` through, and `schedule`/`startNow` change or clear it. Do not
+  start a task in `_pump` before its `startAt` has passed.
 - **The UI is a "precision instrument console"**: bundled Sora / ChakraPetch /
   JetBrains Mono, corner-tick `TurboPanel` frames, uppercase mono `Kicker`s,
   status-railed task cards. Design primitives live in `lib/theme.dart`, shared

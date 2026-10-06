@@ -26,6 +26,15 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  /// Maps the stored byte-per-second cap back to its preset label so the
+  /// segmented control shows the right selection.
+  static String _bandwidthPresetKey(int limit) {
+    for (final entry in TurboState.bandwidthPresets.entries) {
+      if (entry.value == limit) return entry.key;
+    }
+    return 'Unlimited';
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<TurboState>();
@@ -116,6 +125,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const _Hint('How many downloads run at the same time. Extra jobs wait in '
                 'the queue.'),
+            const SizedBox(height: 16),
+            const Kicker('Bandwidth limit', letterSpacing: 1.6),
+            const SizedBox(height: 8),
+            ModeSegment(
+              value: _bandwidthPresetKey(state.bandwidthLimit),
+              onChanged: (v) => state.setBandwidthLimit(
+                  TurboState.bandwidthPresets[v] ?? 0),
+              options: const [
+                ModeSegmentOption('Unlimited', Icons.all_inclusive_rounded,
+                    'Unlimited'),
+                ModeSegmentOption('5 MB/s', Icons.speed_rounded, '5 MB/s'),
+                ModeSegmentOption('1 MB/s', Icons.speed_rounded, '1 MB/s'),
+                ModeSegmentOption('500 KB/s', Icons.speed_rounded, '500 KB/s'),
+              ],
+            ),
+            const SizedBox(height: 6),
+            _Hint(state.bandwidthLimit == 0
+                ? 'No cap. Downloads use all the bandwidth the host will give.'
+                : 'Caps the total download rate across every transfer, so the '
+                    'rest of the device stays responsive.'),
           ],
         ),
         const SizedBox(height: 16),

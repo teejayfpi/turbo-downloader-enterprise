@@ -192,6 +192,21 @@ class TurboState extends ChangeNotifier {
   /// Watch the clipboard for copied links and offer them in the Add tab.
   bool clipboardMonitor = false;
 
+  /// Aggregate download cap in bytes per second. 0 means unlimited. Applied to
+  /// the built-in engine and yt-dlp through [LocalDownloadManager].
+  int bandwidthLimit = 0;
+
+  /// Named presets shown in Settings, in bytes per second (0 = unlimited).
+  static const bandwidthPresets = <String, int>{
+    'Unlimited': 0,
+    '10 MB/s': 10 * 1024 * 1024,
+    '5 MB/s': 5 * 1024 * 1024,
+    '2 MB/s': 2 * 1024 * 1024,
+    '1 MB/s': 1024 * 1024,
+    '500 KB/s': 512 * 1024,
+    '256 KB/s': 256 * 1024,
+  };
+
   // ------------------------------------------------------------------- status
 
   bool loading = true;
@@ -285,9 +300,11 @@ class TurboState extends ChangeNotifier {
       notifyStyle =
           _notifyStyleFrom(prefs.getString(SettingsStore.kNotifyComplete));
       clipboardMonitor = prefs.getBool(SettingsStore.kClipboardMonitor) ?? false;
+      bandwidthLimit = prefs.getInt(SettingsStore.kBandwidthLimit) ?? 0;
 
       local.maxConnections = speedMode.connections(defaultConnections);
       local.maxConcurrent = maxConcurrent;
+      local.setBandwidthLimit(bandwidthLimit);
       if (!autoRetry) local.retryPolicy = RetryPolicy.none;
 
       stage = 'history';
@@ -532,6 +549,14 @@ class TurboState extends ChangeNotifier {
   Future<void> setClipboardMonitor(bool value) async {
     clipboardMonitor = value;
     await settings.setBool(SettingsStore.kClipboardMonitor, value);
+    _safeNotify();
+  }
+
+  /// Applies a new aggregate bandwidth cap (bytes per second; 0 = unlimited).
+  Future<void> setBandwidthLimit(int bytesPerSecond) async {
+    bandwidthLimit = bytesPerSecond < 0 ? 0 : bytesPerSecond;
+    local.setBandwidthLimit(bandwidthLimit);
+    await settings.setInt(SettingsStore.kBandwidthLimit, bandwidthLimit);
     _safeNotify();
   }
 
@@ -800,6 +825,7 @@ class TurboState extends ChangeNotifier {
     String? formatId,
     String? extensionHint,
     ProbeResult? mediaInfo,
+    DateTime? startAt,
   }) {
     final trimmed = url.trim();
     final known = isMediaUrl(trimmed);
@@ -831,6 +857,7 @@ class TurboState extends ChangeNotifier {
       mediaAuthor: mediaInfo?.author,
       mediaDuration: mediaInfo?.durationSeconds,
       thumbnailUrl: mediaInfo?.thumbnailUrl,
+      startAt: startAt,
     );
   }
 

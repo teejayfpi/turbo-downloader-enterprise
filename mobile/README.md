@@ -84,6 +84,23 @@ Turbo mode (the default) raises the parallel-segment ceiling to 16 for
 range-capable hosts and lets several downloads run at once. The Add screen and
 Settings expose the connection count, and Settings has a Balanced/Turbo switch.
 
+## Bandwidth limit
+
+Settings → Device engine → Bandwidth limit caps the total download rate for the
+whole device, so downloads do not saturate a connection you are still using.
+Choose Unlimited (default), 5 MB/s, 1 MB/s, or 500 KB/s. The cap is enforced by a
+shared token bucket in `lib/services/bandwidth.dart` that every HTTP transfer
+draws from, and passed to yt-dlp as `--limit-rate`, so it applies to both engines
+and to concurrent downloads together.
+
+## Scheduled downloads
+
+Any link can be queued for a later time instead of starting immediately. On the
+Add screen, tap Schedule to pick a preset (in 15 minutes, tonight at 22:00,
+tomorrow at 08:00) or an exact date and time; the task waits in the queue and
+starts on its own, so the app does not need to stay open. A scheduled task is
+labelled in the list and can be started early or rescheduled from its menu.
+
 ## Requirements
 
 - Flutter 3.24.x (Dart 3.5.4)

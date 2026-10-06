@@ -6,12 +6,14 @@ import 'package:provider/provider.dart';
 
 import '../contact.dart';
 import '../credits.dart';
+import '../format.dart';
 import '../media_extractor.dart';
 import '../media_url.dart';
 import '../state.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import '../widgets/media_widgets.dart';
+import '../widgets/schedule_sheet.dart';
 import '../link_inbox.dart' show extractUrl;
 
 /// The only place a download starts. There is no mode switch: every job runs on
@@ -45,6 +47,9 @@ class _AddScreenState extends State<AddScreen> {
 
   /// A link found on the clipboard when the app opened, offered as a shortcut.
   String? _clipboardUrl;
+
+  /// When set, the queued download waits until this time. Null starts it now.
+  DateTime? _startAt;
 
   @override
   void initState() {
@@ -207,19 +212,24 @@ class _AddScreenState extends State<AddScreen> {
       formatSelector: isYtdlpFormat ? format?.id : null,
       formatId: isYtdlpFormat ? null : format?.id,
       extensionHint: format?.extension,
+      startAt: _startAt,
     );
 
     if (!mounted) return;
     final wasPage = _isPage;
+    final wasScheduled = _startAt != null;
+    final scheduledAt = _startAt;
     setState(() => _submitting = false);
     _reset();
     FocusScope.of(context).unfocus();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          wasPage
-              ? 'Resolving and saving to this device\'s Downloads'
-              : 'Saving to this device\'s Downloads',
+          wasScheduled
+              ? 'Scheduled for ${formatStartAt(scheduledAt)}'
+              : wasPage
+                  ? 'Resolving and saving to this device\'s Downloads'
+                  : 'Saving to this device\'s Downloads',
         ),
       ),
     );
@@ -231,6 +241,16 @@ class _AddScreenState extends State<AddScreen> {
     _probe = null;
     _selectedFormat = null;
     _mediaReadyToInspect = false;
+    _startAt = null;
+  }
+
+  /// Opens the schedule sheet and applies the chosen start time.
+  Future<void> _pickSchedule() async {
+    final picked = await showScheduleSheet(context, initial: _startAt);
+    // A null return means the sheet was dismissed; the sheet sends an explicit
+    // epoch value to mean "start now".
+    if (picked == null) return;
+    setState(() => _startAt = picked == startNowSentinel ? null : picked);
   }
 
   @override
@@ -352,6 +372,12 @@ class _AddScreenState extends State<AddScreen> {
               connections: _connections,
               mode: state.speedMode,
               onChanged: (v) => setState(() => _connections = v),
+            ),
+            const SizedBox(height: 14),
+            _ScheduleRow(
+              startAt: _startAt,
+              onTap: _pickSchedule,
+              onClear: () => setState(() => _startAt = null),
             ),
             const SizedBox(height: 22),
             TurboButton(
@@ -607,3 +633,67 @@ class _SpeedRow extends StatelessWidget {
     );
   }
 }
+
+/// A tappable row that shows the pending start time and opens the scheduler.
+class _ScheduleRow extends StatelessWidget {
+  final DateTime? startAt;
+  final VoidCallback onTap;
+  final VoidCallback onClear;
+
+  const _ScheduleRow({
+    required this.startAt,
+    required this.onTap,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final scheduled = startAt != null;
+    return TurboPanel(
+      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+      accentColor: p.accent,
+      child: Row(
+        children: [
+          Icon(
+            scheduled ? Icons.event_available_rounded : Icons.schedule_rounded,
+            color: scheduled ? p.accent : p.textMuted,
+            size: 18,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Kicker('Start time', letterSpacing: 1.6),
+                const SizedBox(height: 2),
+                Text(
+                  scheduled
+                      ? 'Queued — starts ${formatStartAt(startAt)}'
+                      : 'Starts as soon as a slot is free',
+                  style: TextStyle(
+                    fontFamily: TurboFonts.body,
+                    color: scheduled ? p.accent : p.textMuted,
+                    fontSize: 11.5,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (scheduled)
+            IconButton(
+              tooltip: 'Start now',
+              icon: Icon(Icons.close_rounded, color: p.textMuted, size: 18),
+              onPressed: onClear,
+            ),
+          TextButton(
+            onPressed: onTap,
+            child: Text(scheduled ? 'Change' : 'Schedule'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+

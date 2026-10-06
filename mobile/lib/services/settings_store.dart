@@ -28,6 +28,7 @@ class SettingsStore {
   static const kUpdateChannel = 'turbo.updateChannel';
   static const kCheckUpdates = 'turbo.checkUpdates';
   static const kClipboardMonitor = 'turbo.clipboardMonitor';
+  static const kBandwidthLimit = 'turbo.bandwidthLimit';
 
   /// A secret's storage key, namespaced so the secure index stays readable.
   static String secretKey(String name) => 'turbo.secret.$name';

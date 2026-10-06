@@ -69,6 +69,33 @@ void main() {
     });
   });
 
+  group('formatStartAt', () {
+    test('reads as Now for a missing or past time', () {
+      expect(formatStartAt(null), 'Now');
+      expect(
+        formatStartAt(DateTime.now().subtract(const Duration(minutes: 1))),
+        'Now',
+      );
+    });
+
+    test('gives a relative countdown for the next few hours', () {
+      expect(
+        formatStartAt(DateTime.now().add(const Duration(minutes: 30))),
+        matches(RegExp(r'^in (29|30) min$')),
+      );
+      expect(
+        formatStartAt(DateTime.now().add(const Duration(hours: 2))),
+        matches(RegExp(r'^in (1 h 59 min|2 h)$')),
+      );
+    });
+
+    test('gives a weekday and clock time further out', () {
+      final label = formatStartAt(DateTime.now().add(const Duration(days: 3)));
+      expect(label, contains('at'));
+      expect(label, matches(RegExp(r'\d\d:\d\d')));
+    });
+  });
+
   group('FileStore.sanitize', () {
     test('replaces characters illegal on any platform', () {
       expect(FileStore.sanitize('a/b\\c:d*e?f"g<h>i|j'), 'a_b_c_d_e_f_g_h_i_j');

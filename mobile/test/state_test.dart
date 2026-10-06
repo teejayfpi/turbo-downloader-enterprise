@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:turbo_downloader/media_extractor.dart';
 import 'package:turbo_downloader/media_url.dart';
@@ -28,6 +29,8 @@ MediaInfo _info(String title) => MediaInfo(
     );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() => SharedPreferences.setMockInitialValues({}));
   group('TurboState is device-only', () {
     test('starts with no server, token, or account', () {
       final state = TurboState();
@@ -117,6 +120,26 @@ void main() {
 
       expect(calls, 3);
       expect(state.local.tasks.length, 8);
+    });
+  });
+
+  group('bandwidth limit', () {
+    test('defaults to unlimited and applies to both engines', () async {
+      final state = TurboState();
+      addTearDown(state.dispose);
+
+      expect(state.bandwidthLimit, 0);
+      expect(state.local.bandwidth.enabled, isFalse);
+
+      await state.setBandwidthLimit(1024 * 1024);
+      expect(state.bandwidthLimit, 1024 * 1024);
+      expect(state.local.bandwidth.bytesPerSecond, 1024 * 1024);
+      // The yt-dlp engine shares the same cap.
+      expect(state.local.ytdlp.limitRate, 1024 * 1024);
+
+      await state.setBandwidthLimit(0);
+      expect(state.local.bandwidth.enabled, isFalse);
+      expect(state.local.ytdlp.limitRate, 0);
     });
   });
 }

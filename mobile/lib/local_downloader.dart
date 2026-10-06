@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'file_store.dart';
 import 'media_extractor.dart';
+import 'services/bandwidth.dart';
 import 'services/diagnostics.dart';
 import 'services/download_error.dart';
 import 'services/ffmpeg.dart';
@@ -97,6 +98,10 @@ class LocalTask {
   int attempts;
   DateTime? nextRetryAt;
 
+  /// When set in the future, the task waits in the queue until this time and
+  /// shows as scheduled. Null means it runs as soon as a slot is free.
+  DateTime? startAt;
+
   String? filePath;
 
   /// "http" for a direct file link, "media" for a page resolved on-device.
@@ -170,6 +175,7 @@ class LocalTask {
     this.errorDetail,
     this.attempts = 0,
     this.nextRetryAt,
+    this.startAt,
     this.filePath,
     this.kind = 'http',
     this.engine = 'http',
@@ -204,6 +210,16 @@ class LocalTask {
   /// True while the task is waiting for its next automatic retry.
   bool get awaitingRetry => isQueued && nextRetryAt != null;
 
+  /// True when the task is waiting for a user-set start time that has not
+  /// arrived yet.
+  bool get isScheduled {
+    final at = startAt;
+    return at != null && at.isAfter(DateTime.now());
+  }
+
+  /// True when a start time is set, whether or not it has passed.
+  bool get hasSchedule => startAt != null;
+
   /// Wall-clock seconds from start to completion, when both are known.
   int? get durationSeconds {
     final start = startedAt;
@@ -237,6 +253,7 @@ class LocalTask {
         'errorDetail': errorDetail,
         'attempts': attempts,
         'nextRetryAt': nextRetryAt?.toIso8601String(),
+        'startAt': startAt?.toIso8601String(),
         'filePath': filePath,
         'kind': kind,
         'engine': engine,
@@ -277,6 +294,9 @@ class LocalTask {
       nextRetryAt: json['nextRetryAt'] == null
           ? null
           : DateTime.tryParse(json['nextRetryAt'].toString()),
+      startAt: json['startAt'] == null
+          ? null
+          : DateTime.tryParse(json['startAt'].toString()),
       filePath: json['filePath']?.toString(),
       kind: json['kind']?.toString() ?? 'http',
       engine: json['engine']?.toString() ?? 'http',
@@ -317,6 +337,7 @@ class LocalDownloadManager extends ChangeNotifier {
   bool _disposed = false;
   Timer? _ticker;
   Timer? _retryTimer;
+  Timer? _scheduleTimer;
   int _lastActiveForService = 0;
 
   /// How many downloads may run at once. Surplus tasks wait in the queue.
@@ -324,6 +345,18 @@ class LocalDownloadManager extends ChangeNotifier {
 
   /// Automatic retry budget applied to new tasks.
   RetryPolicy retryPolicy = const RetryPolicy();
+
+  /// Caps the aggregate download rate across every transfer. Shared with the
+  /// yt-dlp engine so a single limit covers both engines.
+  final BandwidthGovernor bandwidth = BandwidthGovernor();
+
+  /// Applies a new aggregate limit (bytes per second; 0 = unlimited) and
+  /// forwards it to yt-dlp so its own transfers respect the same cap.
+  void setBandwidthLimit(int bytesPerSecond) {
+    bandwidth.bytesPerSecond = bytesPerSecond < 0 ? 0 : bytesPerSecond;
+    ytdlp.limitRate = bandwidth.bytesPerSecond;
+    _safeNotify();
+  }
 
   /// Set while the network or power state forbids starting new transfers.
   bool _networkBlocked = false;
@@ -410,6 +443,9 @@ class LocalDownloadManager extends ChangeNotifier {
   int get activeCount => _byId.values.where((t) => t.isRunning).length;
   int get queuedCount => _byId.values.where((t) => t.isQueued).length;
 
+  /// Tasks waiting for a user-set start time that has not arrived.
+  int get scheduledCount => _byId.values.where((t) => t.isScheduled).length;
+
   /// True while new transfers are held back by the network or power policy.
   bool get networkBlocked => _networkBlocked;
 
@@ -422,6 +458,9 @@ class LocalDownloadManager extends ChangeNotifier {
       pauseAll();
     } else {
       resumeAll();
+      // resumeAll only pumps when it actually resumes something; a task that is
+      // merely scheduled is still 'queued', so pump explicitly to arm its timer.
+      _pump();
     }
     _safeNotify();
   }
@@ -514,6 +553,7 @@ class LocalDownloadManager extends ChangeNotifier {
     String? mediaAuthor,
     int? mediaDuration,
     String? thumbnailUrl,
+    DateTime? startAt,
   }) {
     final trimmed = url.trim();
     final id = _newId();
@@ -533,6 +573,7 @@ class LocalDownloadManager extends ChangeNotifier {
       mediaAuthor: mediaAuthor,
       mediaDuration: mediaDuration,
       thumbnailUrl: thumbnailUrl,
+      startAt: startAt,
       maxAttempts: retryPolicy.maxAttempts,
       createdAt: DateTime.now(),
     );
@@ -560,6 +601,7 @@ class LocalDownloadManager extends ChangeNotifier {
     String? mediaAuthor,
     int? mediaDuration,
     String? thumbnailUrl,
+    DateTime? startAt,
   }) {
     if (isDuplicate(url)) return null;
     return add(
@@ -575,6 +617,7 @@ class LocalDownloadManager extends ChangeNotifier {
       mediaAuthor: mediaAuthor,
       mediaDuration: mediaDuration,
       thumbnailUrl: thumbnailUrl,
+      startAt: startAt,
     );
   }
 
@@ -712,14 +755,66 @@ class LocalDownloadManager extends ChangeNotifier {
   void _pump() {
     if (_networkBlocked) return;
     final now = DateTime.now();
+    DateTime? soonest;
     for (final id in List.of(_order)) {
       if (_runs.length >= maxConcurrent) break;
       final task = _byId[id];
       if (task == null || !task.isQueued) continue;
       if (task.nextRetryAt != null && task.nextRetryAt!.isAfter(now)) continue;
+      // A user-set start time in the future holds the task in the queue.
+      final at = task.startAt;
+      if (at != null && at.isAfter(now)) {
+        if (soonest == null || at.isBefore(soonest)) soonest = at;
+        continue;
+      }
       _start(task);
     }
+    _armScheduleTimer(soonest);
     if (_runs.isEmpty) _stopTicker();
+  }
+
+  /// Keeps a single timer pointed at the earliest pending start time, so a
+  /// scheduled task wakes the queue without polling. Passing null cancels it.
+  void _armScheduleTimer(DateTime? soonest) {
+    if (soonest == null) {
+      _scheduleTimer?.cancel();
+      _scheduleTimer = null;
+      return;
+    }
+    final wait = soonest.difference(DateTime.now()) + const Duration(seconds: 1);
+    final delay = wait.isNegative ? Duration.zero : wait;
+    _scheduleTimer?.cancel();
+    _scheduleTimer = Timer(delay, () {
+      _scheduleTimer = null;
+      _safeNotify();
+      _pump();
+    });
+  }
+
+  /// Sets (or clears) a task's start time. A future time leaves it queued and
+  /// scheduled; a past time or null lets it run as soon as a slot is free.
+  void schedule(String id, DateTime? at) {
+    final task = _byId[id];
+    if (task == null || task.isCompleted) return;
+    task.startAt = at;
+    if (!task.isPaused && !task.isFailed) {
+      task.status = 'queued';
+      task.error = null;
+      task.errorKind = null;
+      task.errorDetail = null;
+      task.nextRetryAt = null;
+    }
+    _persist();
+    _safeNotify();
+    _pump();
+  }
+
+  /// Clears a pending start time and starts the task now.
+  void startNow(String id) {
+    final task = _byId[id];
+    if (task == null) return;
+    task.startAt = null;
+    resume(id);
   }
 
   void _start(LocalTask task) {
@@ -730,6 +825,8 @@ class LocalDownloadManager extends ChangeNotifier {
     task.errorKind = null;
     task.errorDetail = null;
     task.nextRetryAt = null;
+    // The start time has done its job once the task actually starts.
+    task.startAt = null;
     task.startedAt ??= DateTime.now();
     _syncBackground();
     _safeNotify();
@@ -1039,6 +1136,8 @@ class LocalDownloadManager extends ChangeNotifier {
     try {
       await for (final chunk in res) {
         if (run.cancelled) break;
+        await bandwidth.waitFor(chunk.length);
+        if (run.cancelled) break;
         sink.add(chunk);
         done += chunk.length;
         run.addBytes(chunk.length);
@@ -1221,6 +1320,8 @@ class LocalDownloadManager extends ChangeNotifier {
           mode: restarted || done == 0 ? FileMode.write : FileMode.append);
       try {
         await for (final chunk in res) {
+          if (run.cancelled) break;
+          await bandwidth.waitFor(chunk.length);
           if (run.cancelled) break;
           sink.add(chunk);
           done += chunk.length;
@@ -1415,6 +1516,7 @@ class LocalDownloadManager extends ChangeNotifier {
     _disposed = true;
     _stopTicker();
     _retryTimer?.cancel();
+    _scheduleTimer?.cancel();
     for (final run in _runs.values) {
       run.cancel();
     }

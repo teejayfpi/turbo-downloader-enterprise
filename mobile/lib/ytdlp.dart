@@ -82,6 +82,11 @@ class YtdlpEngine {
   /// brave, chromium, opera, safari, vivaldi, whale). Null disables it.
   String? cookiesFromBrowser;
 
+  /// Aggregate download cap in bytes per second, mirrored from the app's
+  /// [BandwidthGovernor] so yt-dlp transfers respect the same limit. 0 or
+  /// negative means unlimited.
+  int limitRate = 0;
+
   String? _cachedBinary;
   bool _searched = false;
 
@@ -237,6 +242,7 @@ class YtdlpEngine {
       '--newline',
       '--no-check-certificates',
       ..._cookieArgs(),
+      if (limitRate > 0) ...['--limit-rate', '$limitRate'],
       '-P', dir.path,
       '-o', '$stem.%(ext)s',
       '--progress-template',
