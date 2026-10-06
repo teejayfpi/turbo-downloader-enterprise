@@ -22,6 +22,12 @@ updates:
     groups:
       flutter:
         patterns: ['*']
+        update-types: ['minor', 'patch']
+    ignore:
+      # flutter_lints 6 needs Dart 3.8; the app targets Dart 3.5. Lift this when
+      # the Flutter SDK baseline moves.
+      - dependency-name: flutter_lints
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: npm
     directory: '/server'
