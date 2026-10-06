@@ -217,9 +217,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onChanged: (v) => state.setLocale(v == 'system' ? null : v),
               options: [
                 const ModeSegmentOption('system', Icons.translate_rounded, 'Auto'),
-                for (final code in TurboStrings.localeNames.keys)
-                  ModeSegmentOption(code, Icons.language_rounded,
-                      TurboStrings.localeNames[code]!),
+                for (final entry in TurboStrings.localeNames.entries)
+                  ModeSegmentOption(entry.key, Icons.language_rounded,
+                      entry.value),
               ],
             ),
             const SizedBox(height: 14),
