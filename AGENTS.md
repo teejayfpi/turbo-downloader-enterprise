@@ -167,9 +167,29 @@ These caused real, user-visible bugs. Do not regress them.
   track and `lib/services/ffmpeg.dart` remuxes them (`-c copy`, no re-encode)
   with the bundled FFmpeg. Combined, HLS, and audio-only streams are still
   offered directly. There is no server fallback any more.
+- **A failed engine retries on the other one.** `_runTask` catches a
+  `MediaResolveException` from the built-in extractor and re-runs the task
+  through yt-dlp, and catches a `YtdlpException` and re-runs it through the
+  built-in extractor (`task.fellBackToBuiltin` records the switch). YouTube
+  blocks the two engines differently, so this rescues links either engine
+  rejects on its own.
+- **The storage root is not always ready when a task starts.** `_requireTaskDir`
+  throws `DownloadErrors.storageUnavailable` instead of `_taskDir(...)!`, so a
+  task queued before `init()` finishes reports an actionable storage error
+  rather than "The download stopped unexpectedly. / Null check operator used on
+  a null value".
+- **The generic yt-dlp extractor emits `vcodec: null`.** A direct `.mp4`/`.mp3`
+  link has both codecs unknown; `_parseProbe` keeps it as a single combined
+  format instead of dropping the only entry, which otherwise leaves the picker
+  empty and crashes `formats.first`.
 - **Persist the page URL, re-resolve the stream.** Signed stream URLs expire, so
   `LocalTask.url` keeps the page and `fetchUrl` is transient; a resume
   re-resolves rather than reusing a stale URL.
+- **Live tests are opt-in.** `test/live_media_test.dart` and
+  `test/live_manager_test.dart` are skipped unless `TURBO_LIVE=1` is set, so the
+  default suite and CI never depend on YouTube or a yt-dlp install. YouTube
+  also refuses media bytes to datacenter IPs ("Sign in to confirm you're not a
+  bot"), so the live YouTube byte test tolerates that block.
 
 ## Environment
 

@@ -636,13 +636,15 @@ class LocalDownloadManager extends ChangeNotifier {
 
   void pauseAll() {
     for (final id in List.of(_order)) {
-      if (_byId[id]!.isRunning || _byId[id]!.isQueued) pause(id);
+      final task = _byId[id];
+      if (task != null && (task.isRunning || task.isQueued)) pause(id);
     }
   }
 
   void resumeAll() {
     for (final id in List.of(_order)) {
-      if (_byId[id]!.isPaused || _byId[id]!.isFailed) resume(id);
+      final task = _byId[id];
+      if (task != null && (task.isPaused || task.isFailed)) resume(id);
     }
   }
 
@@ -650,8 +652,8 @@ class LocalDownloadManager extends ChangeNotifier {
   /// user can restart one later.
   void cancelAll() {
     for (final id in List.of(_order)) {
-      final task = _byId[id]!;
-      if (task.isCompleted || task.isFailed) continue;
+      final task = _byId[id];
+      if (task == null || task.isCompleted || task.isFailed) continue;
       _runs[id]?.cancel();
       task.status = 'paused';
       task.speed = 0;
@@ -663,7 +665,7 @@ class LocalDownloadManager extends ChangeNotifier {
 
   void clearCompleted() {
     for (final id in List.of(_order)) {
-      if (_byId[id]!.isCompleted) {
+      if (_byId[id]?.isCompleted ?? false) {
         _byId.remove(id);
         _order.remove(id);
       }
@@ -712,8 +714,8 @@ class LocalDownloadManager extends ChangeNotifier {
     final now = DateTime.now();
     for (final id in List.of(_order)) {
       if (_runs.length >= maxConcurrent) break;
-      final task = _byId[id]!;
-      if (!task.isQueued) continue;
+      final task = _byId[id];
+      if (task == null || !task.isQueued) continue;
       if (task.nextRetryAt != null && task.nextRetryAt!.isAfter(now)) continue;
       _start(task);
     }
@@ -754,14 +756,7 @@ class LocalDownloadManager extends ChangeNotifier {
 
   Future<void> _execute(LocalTask task, _Run run) async {
     try {
-      // The external engine is a separate program that manages its own
-      // connections and writes into the task's folder; the built-in engine
-      // (ranges, resume, multi-connection) handles everything else.
-      if (task.usesYtdlp) {
-        await _executeYtdlp(task, run);
-      } else {
-        await _executeBuiltin(task, run);
-      }
+      await _runTask(task, run);
       if (run.cancelled) return;
       task.status = 'completed';
       task.completedAt = DateTime.now();
@@ -775,6 +770,47 @@ class LocalDownloadManager extends ChangeNotifier {
     } finally {
       _persist();
       _safeNotify();
+    }
+  }
+
+  /// Runs the task on its engine, transparently switching to the other one if
+  /// the chosen engine cannot handle the page. yt-dlp and the built-in
+  /// extractor fail on different videos, so a YouTube link that one rejects
+  /// usually still downloads through the other. The switch happens before the
+  /// error reaches [_handleFailure], so the user sees a result, not a failure.
+  Future<void> _runTask(LocalTask task, _Run run) async {
+    // The external engine manages its own connections and writes into the
+    // task's folder; the built-in engine (ranges, resume, multi-connection)
+    // handles everything else.
+    if (task.usesYtdlp) {
+      try {
+        await _executeYtdlp(task, run);
+      } on YtdlpException {
+        if (run.cancelled || task.kind != 'media' || !ytdlp.isAvailable) {
+          rethrow;
+        }
+        // Fall back to the built-in extractor at whatever quality it can
+        // produce (its muxed streams cap at 360p).
+        task.engine = 'http';
+        task.fellBackToBuiltin = true;
+        unawaited(diagnostics?.warn(
+            'engine.fallback', 'yt-dlp failed; using the built-in engine'));
+        await _executeBuiltin(task, run);
+      }
+      return;
+    }
+
+    try {
+      await _executeBuiltin(task, run);
+    } on MediaResolveException {
+      if (run.cancelled || task.kind != 'media' || !ytdlp.isAvailable) rethrow;
+      // The built-in extractor could not read the page; yt-dlp covers more
+      // cases and can also merge HD renditions.
+      task.engine = 'ytdlp';
+      task.formatSelector = null;
+      unawaited(diagnostics?.warn(
+          'engine.fallback', 'built-in extractor failed; using yt-dlp'));
+      await _executeYtdlp(task, run);
     }
   }
 
@@ -913,7 +949,7 @@ class LocalDownloadManager extends ChangeNotifier {
     _Run run,
     ResolvedMedia media,
   ) async {
-    final dir = _taskDir(task.id)!;
+    final dir = _requireTaskDir(task.id);
     if (!await dir.exists()) await dir.create(recursive: true);
 
     final videoPath = '${dir.path}/video';
@@ -1017,7 +1053,7 @@ class LocalDownloadManager extends ChangeNotifier {
   /// Runs the task through yt-dlp, reporting progress into the same fields the
   /// UI already renders.
   Future<void> _executeYtdlp(LocalTask task, _Run run) async {
-    final dir = _taskDir(task.id)!;
+    final dir = _requireTaskDir(task.id);
     if (!await dir.exists()) await dir.create(recursive: true);
     final stem = _safeStem(task.filename);
     final selector = task.formatSelector ?? 'best';
@@ -1142,7 +1178,7 @@ class LocalDownloadManager extends ChangeNotifier {
   }
 
   Future<void> _fetch(HttpClient client, LocalTask task, _Run run) async {
-    final dir = _taskDir(task.id)!;
+    final dir = _requireTaskDir(task.id);
     if (!await dir.exists()) await dir.create(recursive: true);
 
     Future<void> fetchOne(int index) async {
@@ -1210,7 +1246,7 @@ class LocalDownloadManager extends ChangeNotifier {
   }
 
   Future<File> _merge(LocalTask task, _Run run) async {
-    final dir = _taskDir(task.id)!;
+    final dir = _requireTaskDir(task.id);
     final out = File('${dir.path}/.merged');
     if (await out.exists()) await out.delete();
     final sink = out.openWrite();
@@ -1259,6 +1295,17 @@ class LocalDownloadManager extends ChangeNotifier {
   Directory? _taskDir(String id) =>
       _root == null ? null : Directory('${_root!.path}/parts/$id');
 
+  /// The task's scratch folder, or a clear storage error when the root is not
+  /// ready. The worker can run before [init] finishes (a queued task started
+  /// from a restored queue, for instance), so this must never assume the root
+  /// exists — that previously tripped a null-check and reported the opaque
+  /// "The download stopped unexpectedly."
+  Directory _requireTaskDir(String id) {
+    final dir = _taskDir(id);
+    if (dir == null) throw DownloadErrors.storageUnavailable;
+    return dir;
+  }
+
   void _safeNotify() {
     if (!_disposed) notifyListeners();
   }
@@ -1268,8 +1315,12 @@ class LocalDownloadManager extends ChangeNotifier {
     if (root == null) return;
     try {
       final file = File('${root.path}/local_tasks.json');
-      file.writeAsStringSync(
-          jsonEncode(_order.map((id) => _byId[id]!.toJson()).toList()));
+      final encoded = _order
+          .map((id) => _byId[id])
+          .whereType<LocalTask>()
+          .map((t) => t.toJson())
+          .toList();
+      file.writeAsStringSync(jsonEncode(encoded));
     } catch (_) {}
   }
 

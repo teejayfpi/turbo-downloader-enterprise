@@ -462,6 +462,79 @@ void main() {
     expect(task.error, 'Video unavailable');
   });
 
+  test('a yt-dlp failure falls back to the built-in engine for a media page',
+      () async {
+    final data = _blob(300 * 1024);
+    final origin = _Origin(data)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    // Pretend yt-dlp is installed so the fallback is allowed to trigger.
+    manager.ytdlp.setBinaryForTest('/bin/true');
+
+    manager.ytdlpOverride = ({
+      required String url,
+      required String selector,
+      required Directory dir,
+      required String stem,
+      void Function(int, int, int)? onProgress,
+      bool Function()? isCancelled,
+    }) async =>
+        throw const YtdlpException('HTTP Error 403: Forbidden');
+
+    manager.resolveMediaOverride = (page, {String? formatId}) async =>
+        ResolvedMedia(
+          url: origin.url,
+          title: 'Fallback Clip',
+          extension: 'mp4',
+          size: data.length,
+          qualityLabel: '360p',
+          kind: 'video',
+        );
+
+    final task = manager.add('https://youtube.com/watch?v=fb',
+        kind: 'media', engine: 'ytdlp', formatSelector: 'best');
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    expect(task.fellBackToBuiltin, isTrue);
+    expect(task.engine, 'http');
+    expect(await File(task.filePath!).readAsBytes(), equals(data));
+  });
+
+  test('a built-in resolve failure falls back to yt-dlp for a media page',
+      () async {
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    manager.ytdlp.setBinaryForTest('/bin/true');
+
+    manager.resolveMediaOverride = (page, {String? formatId}) async =>
+        throw const MediaResolveException('Video unavailable');
+
+    final bytes = _blob(256 * 1024);
+    manager.ytdlpOverride = ({
+      required String url,
+      required String selector,
+      required Directory dir,
+      required String stem,
+      void Function(int, int, int)? onProgress,
+      bool Function()? isCancelled,
+    }) async {
+      final f = File('${dir.path}/$stem.mp4');
+      await f.writeAsBytes(bytes);
+      return f;
+    };
+
+    final task = manager.add('https://youtube.com/watch?v=fb2',
+        kind: 'media');
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    expect(task.engine, 'ytdlp');
+    expect(await File(task.filePath!).readAsBytes(), equals(bytes));
+  });
+
   test('a direct link is never sent through the extractor', () async {
     final data = _blob(256 * 1024);
     final origin = _Origin(data)..start();

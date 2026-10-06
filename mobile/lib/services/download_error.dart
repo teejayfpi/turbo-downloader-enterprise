@@ -16,6 +16,7 @@ enum DownloadErrorKind {
   engine,
   media,
   mux,
+  storage,
   cancelled,
   unknown,
 }
@@ -125,6 +126,14 @@ class DownloadError implements Exception {
         detail: text,
         retryable: true,
       );
+    }
+
+    // A null-check failure anywhere in the write path means a piece of state
+    // the transfer needed was missing (most often the storage root, if a task
+    // started before the queue finished loading). Surface it as a storage
+    // problem rather than the opaque "stopped unexpectedly".
+    if (lower.contains('null check operator')) {
+      return DownloadErrors.storageUnavailable;
     }
 
     return DownloadError(
@@ -237,6 +246,14 @@ class DownloadErrors {
     DownloadErrorKind.diskFull,
     'The destination disk has insufficient space.',
     advice: 'Free up space, then retry.',
+    retryable: true,
+  );
+
+  static const storageUnavailable = DownloadError(
+    DownloadErrorKind.storage,
+    'Turbo could not reach its storage folder.',
+    advice: 'Restart the app. If it keeps happening, clear the app\'s cache '
+        'or free up disk space.',
     retryable: true,
   );
 

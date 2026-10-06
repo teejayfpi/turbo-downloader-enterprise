@@ -308,6 +308,10 @@ class YtdlpEngine {
         p.endsWith('.ogg');
   }
 
+  @visibleForTesting
+  YtdlpProbe parseProbe(Map<String, dynamic> json, bool ffmpeg) =>
+      _parseProbe(json, ffmpeg);
+
   YtdlpProbe _parseProbe(Map<String, dynamic> json, bool ffmpeg) {
     final raw = (json['formats'] as List?)?.whereType<Map>().toList() ?? [];
     final formats = <YtdlpFormat>[];
@@ -325,7 +329,22 @@ class YtdlpEngine {
           (map['filesize_approx'] as num?)?.toInt() ??
           0;
 
-      if (hasVideo && hasAudio) {
+      if (!hasVideo && !hasAudio) {
+        // The generic extractor leaves the codecs unknown for a plain media
+        // file (a direct .mp4/.mp3 link). Offer it as a single combined
+        // download rather than dropping it — otherwise such a link inspects
+        // to an empty format list.
+        formats.add(YtdlpFormat(
+          formatId: formatId,
+          label: ext,
+          kind: 'video',
+          extension: ext,
+          size: size,
+          height: height,
+          selector: formatId,
+          requiresMux: false,
+        ));
+      } else if (hasVideo && hasAudio) {
         formats.add(YtdlpFormat(
           formatId: formatId,
           label: height > 0 ? '${height}p' : ext,
