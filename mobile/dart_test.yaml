@@ -1,0 +1,9 @@
+# Tags used by the test suite.
+#
+# `live` marks tests that hit the real network (YouTube, yt-dlp, ffmpeg). They
+# are skipped unless TURBO_LIVE=1 is set, so the default run and CI stay
+# offline and deterministic. Declaring the tag here silences the "tag was used
+# but not specified" warning.
+tags:
+  live:
+    skip: false
