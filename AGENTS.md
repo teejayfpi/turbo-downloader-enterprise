@@ -82,6 +82,18 @@ These caused real, user-visible bugs. Do not regress them.
   queue does not burn retries, and surface `DownloadError.advice` (rendered via
   `Notice.subtext` and the details dialog) pointing at the cookie setup. Do not
   report it as a generic "could not read the page".
+- **Cookies alone are not enough for YouTube — the engine must also pass a
+  JavaScript runtime.** yt-dlp solves YouTube's `n`/signature challenge with an
+  external JS runtime, and by default only `deno` is enabled. With valid
+  signed-in cookies but no `--js-runtimes <runtime>`, `web` returns *only*
+  mhtml storyboard images (no media formats at all), which is easy to misread
+  as "no formats" or a storyboard download. `YtdlpEngine` therefore detects a
+  runtime (`deno`/`node`/`bun`/`quickjs`) once and adds `--js-runtimes` to both
+  `probe` and `download`; a storyboard-only probe now throws a message naming
+  the runtime remedy. Verified end-to-end: cookies + `node` + `yt-dlp-ejs`
+  unlock full HD (video-only 1080p) and a merged download with ffmpeg. So a
+  desktop needs yt-dlp **and** `yt-dlp-ejs` **and** deno/node **and** cookies —
+  a signed-in cookie with no runtime still yields storyboards.
 - **`app.set('trust proxy', 1)` is required behind Render's proxy.**
   `express-rate-limit` otherwise aborts every proxied request with
   `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR`, which shows up as intermittent 502s.

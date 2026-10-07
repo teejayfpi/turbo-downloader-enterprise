@@ -137,4 +137,24 @@ void main() {
     expect(probe.formats, hasLength(1));
     expect(probe.formats.single.extension, 'mp4');
   });
+
+  test('a storyboard-only response explains the JavaScript-runtime remedy', () {
+    // Reproduces the signed-in-but-unsolved YouTube case: valid cookies, no JS
+    // runtime, so only mhtml storyboards come back. The user must be told what
+    // is actually missing rather than seeing an empty video list.
+    expect(
+      () => engine.parseProbe({
+        'title': 'Signed in but unsolved',
+        'formats': [
+          {'format_id': 'sb0', 'ext': 'mhtml', 'vcodec': 'none', 'acodec': 'none', 'height': 180},
+          {'format_id': 'sb1', 'ext': 'mhtml', 'vcodec': 'none', 'acodec': 'none', 'height': 45},
+        ],
+      }, true),
+      throwsA(isA<YtdlpException>().having(
+        (e) => e.message,
+        'message',
+        contains('JavaScript runtime'),
+      )),
+    );
+  });
 }

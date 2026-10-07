@@ -85,6 +85,9 @@ class YtdlpEngine {
   String? _cachedBinary;
   bool _searched = false;
 
+  static String? _cachedJsRuntime;
+  static bool _searchedJs = false;
+
   /// The cookie flags every yt-dlp invocation should carry. A browser profile
   /// wins over an imported file when both are set, because it stays current.
   List<String> _cookieArgs() {
@@ -97,6 +100,29 @@ class YtdlpEngine {
       return ['--cookies', path];
     }
     return const [];
+  }
+
+  /// A JavaScript runtime yt-dlp can use to solve YouTube's signature ("n")
+  /// challenge. Without one yt-dlp only sees storyboard images on many videos,
+  /// so a signed-in cookie alone is not enough. Cached after the first probe.
+  static Future<String?> jsRuntime() async {
+    if (_searchedJs) return _cachedJsRuntime;
+    _searchedJs = true;
+    // yt-dlp enables deno by default; any of these can be named explicitly.
+    for (final name in const ['deno', 'node', 'bun', 'qjs', 'quickjs']) {
+      final path = await _which(name);
+      if (path != null && await _isRunnable(path)) {
+        _cachedJsRuntime = name;
+        return name;
+      }
+    }
+    return null;
+  }
+
+  /// The `--js-runtimes` flag, when a runtime is present on this machine.
+  Future<List<String>> _jsArgs() async {
+    final runtime = await jsRuntime();
+    return runtime == null ? const [] : ['--js-runtimes', runtime];
   }
 
   /// The binary in use, or null when yt-dlp is not installed.
@@ -190,6 +216,7 @@ class YtdlpEngine {
         '--no-warnings',
         '--no-playlist',
         '--no-check-certificates',
+        ...await _jsArgs(),
         ..._cookieArgs(),
         url,
       ],
@@ -236,6 +263,7 @@ class YtdlpEngine {
       '--no-warnings',
       '--newline',
       '--no-check-certificates',
+      ...await _jsArgs(),
       ..._cookieArgs(),
       '-P', dir.path,
       '-o', '$stem.%(ext)s',
@@ -421,6 +449,16 @@ class YtdlpEngine {
       return b.size.compareTo(a.size);
     });
     _dedupe(formats);
+
+    if (formats.isEmpty) {
+      // YouTube serves only storyboard images when it cannot solve the
+      // signature challenge, which looks like "no formats" to the user.
+      throw const YtdlpException(
+        'No downloadable video was found. YouTube needs a JavaScript runtime '
+        '(deno or node) to unlock its formats. Install one, or import fresh '
+        'cookies in Settings → Sign-in & cookies, then retry.',
+      );
+    }
 
     return YtdlpProbe(
       title: '${json['title'] ?? 'media'}',
