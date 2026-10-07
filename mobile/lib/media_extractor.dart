@@ -247,8 +247,10 @@ class MediaExtractor {
       );
     } on yt.VideoUnavailableException {
       throw const MediaResolveException(
-        'YouTube would not serve this page. It may be private, '
-        'age-restricted, or blocked in your region.',
+        'YouTube refused to serve this video. It may need a signed-in '
+        'session, or the network you are on is blocked by YouTube. Add your '
+        'YouTube cookies in Settings → Sign-in & cookies and retry; the '
+        'HD/merged engine can then sign in.',
       );
     } on yt.YoutubeExplodeException catch (e) {
       throw MediaResolveException('Could not read this page: ${e.message}');
@@ -311,8 +313,10 @@ class MediaExtractor {
       );
     } on yt.VideoUnavailableException {
       throw const MediaResolveException(
-        'YouTube would not serve this page. It may be private, '
-        'age-restricted, or blocked in your region.',
+        'YouTube refused to serve this video. It may need a signed-in '
+        'session, or the network you are on is blocked by YouTube. Add your '
+        'YouTube cookies in Settings → Sign-in & cookies and retry; the '
+        'HD/merged engine can then sign in.',
       );
     } on yt.YoutubeExplodeException catch (e) {
       throw MediaResolveException('Could not read this page: ${e.message}');

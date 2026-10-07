@@ -71,6 +71,17 @@ These caused real, user-visible bugs. Do not regress them.
   for `yt-dlp-ejs` to solve signature challenges. Extraction is also
   probabilistic — occasional "Failed to extract any player response" is normal
   and a retry usually succeeds.
+- **A bare 403 is the same class of failure as the bot check.** When YouTube
+  will not serve the media, every client (`default`, `android`, `ios`, `tv`,
+  `web`, `web_embedded`, …), both IP families, and both DASH and HLS return
+  `HTTP Error 403: Forbidden` — on a large video *and* on a 114 KB audio-only
+  format, and on unrelated videos. The only on-device remedies are cookies
+  (Settings → Sign-in & cookies) and a different network; a pure-Dart path can
+  never sign in. Classify it with `YtdlpEngine.looksLikeAccessDenied` (403 /
+  forbidden / "unable to download video data" / 429) as **non-retryable** so the
+  queue does not burn retries, and surface `DownloadError.advice` (rendered via
+  `Notice.subtext` and the details dialog) pointing at the cookie setup. Do not
+  report it as a generic "could not read the page".
 - **`app.set('trust proxy', 1)` is required behind Render's proxy.**
   `express-rate-limit` otherwise aborts every proxied request with
   `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR`, which shows up as intermittent 502s.

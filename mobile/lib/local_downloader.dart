@@ -99,6 +99,10 @@ class LocalTask {
   String? errorKind;
   String? errorDetail;
 
+  /// What the user can do about [error], shown alongside it. Null when there
+  /// is no concrete next step.
+  String? errorAdvice;
+
   /// Automatic attempts made so far, and when the next one is due. A task that
   /// exhausts its retries stays failed until the user retries by hand.
   int attempts;
@@ -180,6 +184,7 @@ class LocalTask {
     this.error,
     this.errorKind,
     this.errorDetail,
+    this.errorAdvice,
     this.attempts = 0,
     this.nextRetryAt,
     this.filePath,
@@ -248,6 +253,7 @@ class LocalTask {
         'error': error,
         'errorKind': errorKind,
         'errorDetail': errorDetail,
+        'errorAdvice': errorAdvice,
         'attempts': attempts,
         'nextRetryAt': nextRetryAt?.toIso8601String(),
         'filePath': filePath,
@@ -287,6 +293,7 @@ class LocalTask {
       error: json['error']?.toString(),
       errorKind: json['errorKind']?.toString(),
       errorDetail: json['errorDetail']?.toString(),
+      errorAdvice: json['errorAdvice']?.toString(),
       attempts: (json['attempts'] as num?)?.toInt() ?? 0,
       nextRetryAt: json['nextRetryAt'] == null
           ? null
@@ -613,6 +620,7 @@ class LocalDownloadManager extends ChangeNotifier {
     task.error = null;
     task.errorKind = null;
     task.errorDetail = null;
+    task.errorAdvice = null;
     task.nextRetryAt = null;
     _persist();
     _safeNotify();
@@ -744,6 +752,7 @@ class LocalDownloadManager extends ChangeNotifier {
     task.error = null;
     task.errorKind = null;
     task.errorDetail = null;
+    task.errorAdvice = null;
     task.nextRetryAt = null;
     task.startedAt ??= DateTime.now();
     _syncBackground();
@@ -837,6 +846,7 @@ class LocalDownloadManager extends ChangeNotifier {
     task.error = failure.message;
     task.errorKind = failure.kind.name;
     task.errorDetail = failure.technicalDetails;
+    task.errorAdvice = failure.advice;
     task.attempts += 1;
 
     unawaited(diagnostics?.error('download.failed', failure.kind.name));
@@ -868,10 +878,19 @@ class LocalDownloadManager extends ChangeNotifier {
       );
     }
     if (error is YtdlpException) {
+      // A refused download (403 / bot check / region block) will not succeed on
+      // its own, so it stops after one attempt and points at the cookie setup.
+      // Transient engine failures keep their retries.
+      final refused = YtdlpEngine.looksLikeAccessDenied(error.message) ||
+          YtdlpEngine.looksLikeSignInRequired(error.message);
       return DownloadError(
         DownloadErrorKind.engine,
         error.message,
-        retryable: true,
+        advice: refused
+            ? 'Open Settings → Sign-in & cookies to add your YouTube cookies, '
+                'then retry.'
+            : null,
+        retryable: !refused,
       );
     }
     return DownloadError.from(error);

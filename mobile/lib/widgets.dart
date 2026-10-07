@@ -150,6 +150,7 @@ class Notice extends StatelessWidget {
   final IconData icon;
   final Color color;
   final String text;
+  final String? subtext;
   final Widget? trailing;
 
   const Notice({
@@ -157,6 +158,7 @@ class Notice extends StatelessWidget {
     required this.icon,
     required this.color,
     required this.text,
+    this.subtext,
     this.trailing,
   });
 
@@ -175,14 +177,31 @@ class Notice extends StatelessWidget {
           Icon(icon, color: color, size: 18),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              text,
-              style: TextStyle(
-                fontFamily: TurboFonts.body,
-                color: color,
-                fontSize: 12,
-                height: 1.45,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  text,
+                  style: TextStyle(
+                    fontFamily: TurboFonts.body,
+                    color: color,
+                    fontSize: 12,
+                    height: 1.45,
+                  ),
+                ),
+                if (subtext != null && subtext!.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    subtext!,
+                    style: TextStyle(
+                      fontFamily: TurboFonts.body,
+                      color: color.withOpacity(0.85),
+                      fontSize: 11,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
           if (trailing != null) trailing!,

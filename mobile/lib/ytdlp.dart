@@ -517,7 +517,25 @@ class YtdlpEngine {
       return 'This video needs a signed-in session. Open Settings → Sign-in & '
           'cookies and add your YouTube cookies, then retry.';
     }
+    if (looksLikeAccessDenied(text)) {
+      return 'The site refused to serve this download. Open Settings → '
+          'Sign-in & cookies and add your YouTube cookies, then retry. If it '
+          'still fails, your network or region may be blocked by the site.';
+    }
     return text.length > 240 ? '${text.substring(0, 240)}…' : text;
+  }
+
+  /// True when the site declined to serve the media over the network rather
+  /// than because of a bad link or a missing format: an outright 403, a 429
+  /// rate-limit, or a bare "not a bot" refusal. Treated like a sign-in prompt
+  /// because cookies and a different network are the remedies.
+  static bool looksLikeAccessDenied(String message) {
+    final m = message.toLowerCase();
+    return m.contains('403') ||
+        m.contains('forbidden') ||
+        m.contains('unable to download video data') ||
+        m.contains('http error 429') ||
+        m.contains('too many requests');
   }
 
   /// True when yt-dlp's message means the site wants an authenticated session

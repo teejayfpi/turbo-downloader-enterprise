@@ -158,6 +158,33 @@ void main() {
     });
   });
 
+  group('YtdlpEngine access-denied detection', () {
+    test('recognises a hard 403 and DASH segment refusal', () {
+      expect(
+        YtdlpEngine.looksLikeAccessDenied('HTTP Error 403: Forbidden'),
+        isTrue,
+      );
+      expect(
+        YtdlpEngine.looksLikeAccessDenied(
+            'unable to download video data: HTTP Error 403: Forbidden'),
+        isTrue,
+      );
+    });
+
+    test('recognises rate limiting', () {
+      expect(YtdlpEngine.looksLikeAccessDenied('HTTP Error 429: Too Many Requests'),
+          isTrue);
+    });
+
+    test('leaves a plain format error alone', () {
+      expect(
+        YtdlpEngine.looksLikeAccessDenied(
+            'Requested format is not available. Use --list-formats'),
+        isFalse,
+      );
+    });
+  });
+
   group('UpdateChecker.pickAsset', () {
     const assets = [
       ReleaseAsset('Turbo-linux.tar.gz', 'https://x/linux'),

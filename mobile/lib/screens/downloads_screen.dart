@@ -689,6 +689,7 @@ class _ErrorNotice extends StatelessWidget {
       icon: Icons.error_outline_rounded,
       color: p.error,
       text: task.error!,
+      subtext: task.errorAdvice,
       trailing: task.errorDetail == null
           ? null
           : IconButton(
@@ -721,6 +722,18 @@ class _ErrorDialog extends StatelessWidget {
             Text(task.error ?? 'Unknown error',
                 style: TextStyle(
                     fontFamily: TurboFonts.body, color: p.textPrimary)),
+            if (task.errorAdvice != null &&
+                task.errorAdvice!.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                task.errorAdvice!,
+                style: TextStyle(
+                    fontFamily: TurboFonts.body,
+                    color: p.textSecondary,
+                    fontSize: 12,
+                    height: 1.45),
+              ),
+            ],
             if (task.errorKind != null) ...[
               const SizedBox(height: 12),
               Kicker('Category: ${task.errorKind}'),

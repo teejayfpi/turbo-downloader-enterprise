@@ -522,6 +522,32 @@ void main() {
     expect(task.error, 'Video unavailable');
   });
 
+  test('a hard 403 from yt-dlp is a non-retryable engine error with advice',
+      () async {
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    manager.ytdlpOverride = ({
+      required String url,
+      required String selector,
+      required Directory dir,
+      required String stem,
+      void Function(int, int, int)? onProgress,
+      bool Function()? isCancelled,
+    }) async =>
+        throw const YtdlpException('HTTP Error 403: Forbidden');
+
+    final task = manager.add('https://youtube.com/watch?v=blocked',
+        kind: 'media', engine: 'ytdlp', formatSelector: 'best');
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isFailed, isTrue);
+    expect(task.errorKind, 'engine');
+    // A refused-download error must not burn automatic retries.
+    expect(task.attempts, 1);
+    expect(task.errorAdvice, contains('Sign-in'));
+  });
+
   test('a yt-dlp failure falls back to the built-in engine for a media page',
       () async {
     final data = _blob(300 * 1024);

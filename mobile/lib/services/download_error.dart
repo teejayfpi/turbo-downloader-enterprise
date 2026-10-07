@@ -156,7 +156,8 @@ class DownloadError implements Exception {
         return DownloadError(
           DownloadErrorKind.forbidden,
           'The server refused access to this file.',
-          advice: 'It may need a login or may be region-restricted.',
+          advice: 'It may need a login, cookies, or may be region-restricted. '
+              'For YouTube, add cookies in Settings → Sign-in & cookies.',
           detail: text,
           retryable: false,
         );
