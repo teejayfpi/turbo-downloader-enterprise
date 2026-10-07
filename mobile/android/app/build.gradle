@@ -18,7 +18,8 @@ if (keystorePropertiesFile.exists()) {
 }
 
 def hasReleaseKeystore = keystorePropertiesFile.exists()
-def allowDebugSigning = project.hasProperty("allowDebugSigning")
+def allowDebugSigning = project.hasProperty("allowDebugSigning") ||
+    System.getenv("ALLOW_DEBUG_SIGNING") == "true"
 def buildingRelease = gradle.startParameter.taskNames.any {
     it.toLowerCase().contains("release")
 }

@@ -58,9 +58,10 @@ jobs:
       # Release builds are signed when these repository secrets are set:
       #   ANDROID_KEYSTORE_BASE64  base64 of the .jks file
       #   ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_PASSWORD, ANDROID_KEY_ALIAS
-      # Without them the build still succeeds with the debug key, which is
-      # installable for testing but not accepted by Play.
+      # Without them the build falls back to the debug key, which is installable
+      # for testing but not accepted by Play and never published as a release.
       - name: Configure release signing
+        id: signing
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -69,6 +70,7 @@ jobs:
         run: |
           if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
             echo "No signing secrets set; release build will use the debug key."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/turbo-release.jks
@@ -78,12 +80,19 @@ jobs:
             echo "keyAlias=$ANDROID_KEY_ALIAS"
             echo "storeFile=$PWD/android/app/turbo-release.jks"
           } > android/key.properties
+          echo "signed=true" >> "$GITHUB_OUTPUT"
           echo "Release signing configured."
 
       - name: Build APK
+        env:
+          # Explicit opt-in for the debug-key fallback; the Gradle guard
+          # refuses a release build without a keystore otherwise.
+          ALLOW_DEBUG_SIGNING: ${{ steps.signing.outputs.signed != 'true' }}
         run: flutter build apk --release
 
       - name: Build AAB
+        env:
+          ALLOW_DEBUG_SIGNING: ${{ steps.signing.outputs.signed != 'true' }}
         run: flutter build appbundle --release
 
       - name: Upload APK
@@ -102,9 +111,10 @@ jobs:
 
       # Attach the APK to the GitHub release for this version, so the in-app
       # updater (which reads release assets) can find and install it on Android.
-      # Runs only on a main push; a PR build just produces artifacts.
+      # Runs only on a main push with a real keystore: a debug-signed APK must
+      # never be published, or the updater would push it to every device.
       - name: Attach APK to the release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.signing.outputs.signed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

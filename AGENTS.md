@@ -145,9 +145,11 @@ These caused real, user-visible bugs. Do not regress them.
   would be handed straight to the OS installer. Keep publishing `SHA256SUMS` in
   the release workflow, and if you ever add a signature, verify it here too.
 - **Release builds fail without a signing keystore.** `android/app/build.gradle`
-  throws rather than falling back to the debug key, which is public and would let
-  anyone sign an APK the in-app updater accepts. `-PallowDebugSigning=true`
-  is the explicit, throwaway-only escape hatch.
+  throws rather than silently falling back to the debug key, which is public and
+  would let anyone sign an APK the in-app updater accepts. `-PallowDebugSigning=true`
+  (or `ALLOW_DEBUG_SIGNING=true`) is the explicit escape hatch; CI sets it only
+  when no keystore secret is configured, and the workflow then skips publishing
+  the APK to a release so a debug-signed build never reaches the updater.
 - **A missing platform channel must never break a feature.** Every Dart bridge
   (`SecureStore`, `Notifications`, `DevicePolicy`, `FileStore`) catches
   `MissingPluginException` and falls back. Do not let a new bridge throw on
