@@ -139,11 +139,13 @@ These caused real, user-visible bugs. Do not regress them.
   so it stays testable; keep the installer's failure path non-throwing so a
   failed update never crashes Settings.
 - **An update is verified before it is installed.** When the release publishes a
-  `SHA256SUMS` asset, `UpdateChecker.pickChecksum` forwards it and
-  `UpdateInstaller.download` hashes the bytes as they stream in, discarding the
-  file on a mismatch. Without this, a compromised mirror or a swapped asset
-  would be handed straight to the OS installer. Keep publishing `SHA256SUMS` in
-  the release workflow, and if you ever add a signature, verify it here too.
+  `SHA256SUMS` asset that lists the chosen download, `UpdateChecker.pickChecksums`
+  forwards it and `UpdateInstaller.download` hashes the bytes as they stream in,
+  discarding the file on a mismatch. A manifest that does not list the asset is
+  normal (the release cuts one per platform, e.g. desktop-only on Android) and
+  the download proceeds unverified rather than failing. Keep publishing the
+  manifests in the release workflows; if you ever add a signature, verify it here
+  too.
 - **Release builds fail without a signing keystore.** `android/app/build.gradle`
   throws rather than silently falling back to the debug key, which is public and
   would let anyone sign an APK the in-app updater accepts. `-PallowDebugSigning=true`

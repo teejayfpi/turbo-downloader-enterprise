@@ -182,8 +182,10 @@ class UpdateInstaller {
   /// When an expected digest is available (explicitly via [expectedSha256], or
   /// found in one of [checksumUrls]) the bytes are hashed as they arrive and
   /// the file is discarded unless it matches, so a tampered or truncated asset
-  /// never reaches the installer. If manifests are published but none lists
-  /// this asset, the download is refused rather than installed unverified.
+  /// never reaches the installer. A release publishes manifests per platform
+  /// group, so a manifest that simply does not list this asset (e.g. the
+  /// desktop manifest seen on Android) is normal and the download proceeds
+  /// unverified rather than failing.
   Future<File> download(
     String url, {
     void Function(double? progress)? onProgress,
@@ -196,11 +198,6 @@ class UpdateInstaller {
       String? digest = expectedSha256?.trim().toLowerCase();
       if (digest == null || digest.isEmpty) {
         digest = await _shaForAsset(client, checksumUrls, url);
-        if (digest == null && checksumUrls.isNotEmpty) {
-          throw const HttpException(
-              'Update refused: the release publishes checksums but none covers '
-              'this download.');
-        }
       }
       final request = await client.getUrl(Uri.parse(url));
       final response = await request.close();
