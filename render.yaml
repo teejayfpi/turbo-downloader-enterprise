@@ -22,6 +22,14 @@ services:
         value: /downloads
       - key: CORS_ORIGIN
         value: "*"
+      # The API is public on Render. Require a token (Render generates one on
+      # first blueprint sync; reveal it in the dashboard) and make an
+      # unauthenticated boot fatal. Clients present it as
+      # `Authorization: Bearer <token>`, `X-Api-Token`, or `?token=`.
+      - key: TURBO_API_TOKEN
+        generateValue: true
+      - key: TURBO_REQUIRE_TOKEN
+        value: "true"
     disks:
       - name: turbo-data
         mountPath: /data

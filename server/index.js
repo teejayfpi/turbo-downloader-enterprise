@@ -48,13 +48,23 @@ const API_TOKEN = (process.env.TURBO_API_TOKEN || '').trim();
 
 // A production deployment must be authenticated. The README's Render/Fly/
 // Docker guides produce a public URL, and an open server lets any caller
-// retarget downloads and write files wherever they choose. Refuse to boot
-// rather than expose that.
+// retarget downloads and write files wherever they choose. Default is to warn
+// loudly and keep running, so an existing deploy is never taken down by a code
+// change; set TURBO_REQUIRE_TOKEN=true to make an unauthenticated production
+// boot fatal.
 if (process.env.NODE_ENV === 'production' && !API_TOKEN) {
-  console.error(
-    'Refusing to start: NODE_ENV=production requires TURBO_API_TOKEN to be set.',
+  if (process.env.TURBO_REQUIRE_TOKEN === 'true') {
+    console.error(
+      'Refusing to start: NODE_ENV=production requires TURBO_API_TOKEN to be set.',
+    );
+    process.exit(1);
+  }
+  console.warn(
+    '\n⚠️  SECURITY: running in production with no TURBO_API_TOKEN. Every /api ' +
+      'route is open to anyone who can reach this server.\n' +
+      '   Set TURBO_API_TOKEN and restart; set TURBO_REQUIRE_TOKEN=true to make ' +
+      'this fatal instead of a warning.\n',
   );
-  process.exit(1);
 }
 
 function tokenMatches(candidate) {

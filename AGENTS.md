@@ -82,6 +82,13 @@ These caused real, user-visible bugs. Do not regress them.
   point the download root at `/root/.ssh` and write an `authorized_keys` file.
   The reported version is read from `server/package.json` at boot
   (`SERVER_VERSION`) rather than hard-coded, which had drifted before.
+- **Production without `TURBO_API_TOKEN` warns, it does not refuse.** The
+  Dockerfile and `render.yaml` both set `NODE_ENV=production`, so a hard exit
+  would take down every existing deploy the moment this landed. The default is a
+  loud startup warning; `TURBO_REQUIRE_TOKEN=true` makes an unauthenticated
+  production boot fatal. `render.yaml` sets both `TURBO_API_TOKEN`
+  (`generateValue`) and `TURBO_REQUIRE_TOKEN`; clients present the token as
+  `Authorization: Bearer`, `X-Api-Token`, or `?token=`.
 
 ## Android & desktop client (`mobile/`)
 
