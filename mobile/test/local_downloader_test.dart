@@ -12,6 +12,10 @@ class _Origin {
   final bool supportRange;
   final bool advertiseAcceptRanges;
   final int? throttle;
+
+  /// When true, any request whose User-Agent is missing or contains "dart"
+  /// (the bare dart:io default) is answered 403, the way many CDNs reject it.
+  final bool rejectDartAgent;
   HttpServer? _server;
 
   _Origin(
@@ -19,6 +23,7 @@ class _Origin {
     this.supportRange = true,
     this.advertiseAcceptRanges = true,
     this.throttle,
+    this.rejectDartAgent = false,
   });
 
   String get url =>
@@ -35,6 +40,15 @@ class _Origin {
 
   Future<void> _handle(HttpRequest req) async {
     final total = data.length;
+
+    if (rejectDartAgent) {
+      final agent = req.headers.value(HttpHeaders.userAgentHeader) ?? '';
+      if (agent.isEmpty || agent.toLowerCase().contains('dart')) {
+        req.response.statusCode = HttpStatus.forbidden;
+        await req.response.close();
+        return;
+      }
+    }
 
     if (req.method == 'HEAD') {
       req.response
@@ -165,6 +179,26 @@ void main() {
 
     expect(task.isCompleted, isTrue);
     expect(task.segmentStart.length, 1);
+    expect(await File(task.filePath!).readAsBytes(), equals(data));
+  });
+
+  test('sends a browser User-Agent so a picky host does not 403', () async {
+    // The bare dart:io default agent is rejected by many CDNs. The engine must
+    // present a conventional one on every request (probe, segments and the
+    // muxed track path), or the download fails as "server refused access".
+    final data = _blob(2 * 1024 * 1024);
+    final origin = _Origin(data, rejectDartAgent: true)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    final task = manager.add(origin.url, filename: 'agent.bin', connections: 4);
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isCompleted, isTrue,
+        reason: 'a browser-like agent should be accepted: ${task.error}');
+    expect(task.error, isNull);
     expect(await File(task.filePath!).readAsBytes(), equals(data));
   });
 

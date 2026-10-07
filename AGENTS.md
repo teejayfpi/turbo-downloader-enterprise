@@ -171,6 +171,12 @@ These caused real, user-visible bugs. Do not regress them.
   copy.
 - **`autoUncompress = false` is required.** Content-encoding changes byte offsets
   and corrupts ranged/resumed transfers.
+- **Every engine request sends a browser `User-Agent`.** The bare dart:io default
+  (`Dart/<sdk> (dart:io)`) is answered with a 403 by many CDNs, which surfaces as
+  "The server refused access to this file." Route probe, segment, and muxed-track
+  requests through `_open` so none of them slips through with the default agent.
+  The legacy server engine already did this (`USER_AGENT` in
+  `server/downloadEngine.js`).
 - **Plans must be reused on resume.** Rebuilding segments from zero after a pause
   appends duplicates. `_planSegments` keeps a matching plan and only rebuilds
   when the segment count or total length changed.
