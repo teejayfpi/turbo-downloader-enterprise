@@ -311,6 +311,14 @@ Render service: `srv-davrc8lg1s2s73bjjsb0`. Env vars can be set per key with
 Never commit cookies or tokens. `YT_DLP_COOKIES_DATA` holds a live signed-in
 session and must be rotated after use.
 
+## yt-dlp selector gotcha
+
+`format_id` is a string. An unquoted numeric value in a filter is parsed as a
+number, so `-f 'bv*[format_id=313]+ba'` matches nothing and yt-dlp aborts with
+"Requested format is not available" — even though format 313 exists. Always
+quote the id: `bv*[format_id="313"]`. The plain form (`-f 313`) is fine because
+it is not a filter.
+
 ## Security review notes (mobile)
 
 - yt-dlp runs with TLS verification on. Do not add `--no-check-certificates`:
