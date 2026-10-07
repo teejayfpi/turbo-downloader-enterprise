@@ -15,6 +15,7 @@ import {
   safeFilename,
   validateHttpUrl,
   assertPublicHost,
+  pinnedLookup,
 } from './utils.js';
 
 const HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: 64 });
@@ -374,6 +375,7 @@ export class DownloadEngine {
       progress: Number((task.progress || 0).toFixed(2)),
       status: task.status,
       error: task.error || null,
+      errorCode: task.errorCode || null,
       platform: task.platform,
       kind: task.kind,
       format: task.format,
@@ -489,7 +491,7 @@ export class DownloadEngine {
     this.emit();
 
     const urlObj = validateHttpUrl(task.url);
-    await assertPublicHost(urlObj.hostname);
+    const address = await assertPublicHost(urlObj.hostname);
 
     const dir = this.settings.ensureDownloadDir();
     if (!task.filepath) {
@@ -523,7 +525,7 @@ export class DownloadEngine {
       /* not downloaded yet */
     }
 
-    const probe = await this.probe(urlObj, task);
+    const probe = await this.probe(urlObj, task, address);
     task.resumeSupported = probe.rangeSupported;
     if (probe.total) task.total = probe.total;
 
@@ -531,9 +533,9 @@ export class DownloadEngine {
     const segCount = Math.min(task.connections || connections, 32);
 
     if (probe.rangeSupported && probe.total >= SEGMENT_THRESHOLD && segCount > 1) {
-      await this.downloadSegmented(task, urlObj, finalPath, probe.total, segCount);
+      await this.downloadSegmented(task, urlObj, finalPath, probe.total, segCount, address);
     } else {
-      await this.downloadSingle(task, urlObj, finalPath, partBase);
+      await this.downloadSingle(task, urlObj, finalPath, partBase, address);
     }
 
     if (task._cancel || task._paused) return;
@@ -548,9 +550,9 @@ export class DownloadEngine {
     };
   }
 
-  async probe(urlObj, task) {
+  async probe(urlObj, task, address = null) {
     try {
-      const { res } = await this.request(urlObj, { ...this.baseHeaders(), Range: 'bytes=0-0' });
+      const { res } = await this.request(urlObj, { ...this.baseHeaders(), Range: 'bytes=0-0' }, 0, address);
       const status = res.statusCode;
       const headers = res.headers;
       res.destroy();
@@ -566,7 +568,7 @@ export class DownloadEngine {
     }
   }
 
-  async downloadSingle(task, urlObj, finalPath, partBase) {
+  async downloadSingle(task, urlObj, finalPath, partBase, address = null) {
     let startByte = 0;
     try {
       const stat = await fsp.stat(partBase);
@@ -578,7 +580,7 @@ export class DownloadEngine {
     const headers = { ...this.baseHeaders() };
     if (startByte > 0) headers.Range = `bytes=${startByte}-`;
 
-    const { res } = await this.request(urlObj, headers);
+    const { res } = await this.request(urlObj, headers, 0, address);
     this.trackRequest(task, res);
 
     if (res.statusCode === 416 && startByte > 0) {
@@ -641,7 +643,7 @@ export class DownloadEngine {
     await fsp.rename(partBase, finalPath);
   }
 
-  async downloadSegmented(task, urlObj, finalPath, total, segCount) {
+  async downloadSegmented(task, urlObj, finalPath, total, segCount, address = null) {
     const segments = this.buildSegments(total, segCount);
     task._segments = segments;
 
@@ -664,7 +666,7 @@ export class DownloadEngine {
     task.downloaded = segments.reduce((sum, s) => sum + s.downloaded, 0);
 
     const budget = this.perStreamBudget(segments.length);
-    await Promise.all(segments.map((seg) => this.downloadSegment(task, urlObj, seg, budget)));
+    await Promise.all(segments.map((seg) => this.downloadSegment(task, urlObj, seg, budget, address)));
 
     if (task._cancel || task._paused) return;
 
@@ -684,7 +686,7 @@ export class DownloadEngine {
     }
   }
 
-  async downloadSegment(task, urlObj, seg, budget) {
+  async downloadSegment(task, urlObj, seg, budget, address = null) {
     if (task._cancel || task._paused) return;
     const expected = seg.end - seg.start + 1;
     if (seg.downloaded >= expected) return;
@@ -692,7 +694,7 @@ export class DownloadEngine {
     const start = seg.start + seg.downloaded;
     const headers = { ...this.baseHeaders(), Range: `bytes=${start}-${seg.end}` };
 
-    const { res } = await this.request(urlObj, headers);
+    const { res } = await this.request(urlObj, headers, 0, address);
     this.trackRequest(task, res);
 
     if (res.statusCode === 416 && seg.downloaded > 0) {
@@ -802,16 +804,24 @@ export class DownloadEngine {
     res.on('close', () => clearInterval(timer));
   }
 
-  request(urlObj, headers, redirects = 0) {
+  request(urlObj, headers, redirects = 0, address = null) {
     return new Promise((resolve, reject) => {
       if (redirects > 5) {
         reject(new Error('Too many redirects'));
         return;
       }
       const lib = urlObj.protocol === 'https:' ? https : http;
+      const options = {
+        headers,
+        agent: urlObj.protocol === 'https:' ? HTTPS_AGENT : HTTP_AGENT,
+      };
+      // Pin the connection to the address that passed the SSRF check, so a
+      // second DNS answer (DNS rebinding) cannot redirect the connect to a
+      // private host. Node falls back to normal resolution when unset.
+      if (address) options.lookup = pinnedLookup(address);
       const req = lib.get(
         urlObj,
-        { headers, agent: urlObj.protocol === 'https:' ? HTTPS_AGENT : HTTP_AGENT },
+        options,
         (res) => {
           if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
             res.destroy();
@@ -823,7 +833,7 @@ export class DownloadEngine {
               return;
             }
             assertPublicHost(next.hostname)
-              .then(() => resolve(this.request(next, headers, redirects + 1)))
+              .then((nextAddress) => resolve(this.request(next, headers, redirects + 1, nextAddress)))
               .catch(reject);
             return;
           }
@@ -951,8 +961,12 @@ export class DownloadEngine {
     task.speed = 0;
     const { maxRetries, retryWait } = this.settings.getSettings();
     task.error = error?.message || String(error);
+    // A datacenter IP block is permanent for this host: retrying only spends
+    // bandwidth and worsens the IP's reputation, so fail immediately and let
+    // the client hand the link off to a device on a residential connection.
+    task.errorCode = error?.code || null;
 
-    if (task.retryCount < maxRetries) {
+    if (error?.retryable !== false && task.retryCount < maxRetries) {
       task.retryCount++;
       const backoff = Math.min(Math.max(retryWait, 1) * 2 ** (task.retryCount - 1), 300);
       task.retryAt = Date.now() + backoff * 1000;

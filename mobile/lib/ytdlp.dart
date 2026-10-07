@@ -644,13 +644,28 @@ class YtdlpEngine {
   /// distinct, often-transient failure — the media host can 403 a link even
   /// when the page loaded and the cookies are valid — so it is retried a few
   /// times before the user is told to add cookies or change network.
+  ///
+  /// The status codes are matched with word boundaries: a bare `contains('403')`
+  /// would also fire on a byte count, a video id, or a port in the message, and
+  /// a permanent error would then be retried as a transient one.
   static bool looksLikeAccessDenied(String message) {
     final m = message.toLowerCase();
-    return m.contains('403') ||
+    return _httpStatus(m, 403) ||
+        _httpStatus(m, 429) ||
         m.contains('forbidden') ||
         m.contains('unable to download video data') ||
-        m.contains('http error 429') ||
         m.contains('too many requests');
+  }
+
+  /// True when [status] appears as an HTTP status rather than as part of a
+  /// larger number. Matches `http error 403`, `http error: 403`, `status 403`
+  /// and a bare `403` delimited by non-digits, but not `4031` or `1403`.
+  static bool _httpStatus(String lower, int status) {
+    final s = status.toString();
+    return lower.contains('http error $s') ||
+        lower.contains('http error: $s') ||
+        lower.contains('status $s') ||
+        RegExp('(?<![0-9])$s(?![0-9])').hasMatch(lower);
   }
 
   /// True when yt-dlp's message means the site wants an authenticated session

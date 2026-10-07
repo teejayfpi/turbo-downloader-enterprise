@@ -38,7 +38,7 @@ const _categories = <_Category>[
   _Category('Gaming', Icons.sports_esports_rounded, 'gaming'),
   _Category('News', Icons.newspaper_rounded, 'news'),
   _Category('Sports', Icons.sports_soccer_rounded, 'sports highlights'),
-  _Category('Movies', Icons.movie_rounded, 'full movies'),
+  _Category('Movies', Icons.movie_rounded, 'movie trailers'),
   _Category('Education', Icons.school_rounded, 'educational videos'),
   _Category('Comedy', Icons.theater_comedy_rounded, 'comedy'),
   _Category('Tech', Icons.memory_rounded, 'technology reviews'),

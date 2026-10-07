@@ -179,25 +179,35 @@ class UpdateInstaller {
   /// Fetches [url] into a temp file, reporting 0..1 progress (null when the
   /// total size is unknown), and returns the file.
   ///
-  /// When an expected digest is available (explicitly via [expectedSha256], or
-  /// found in one of [checksumUrls]) the bytes are hashed as they arrive and
-  /// the file is discarded unless it matches, so a tampered or truncated asset
-  /// never reaches the installer. A release publishes manifests per platform
-  /// group, so a manifest that simply does not list this asset (e.g. the
-  /// desktop manifest seen on Android) is normal and the download proceeds
-  /// unverified rather than failing.
+  /// Verification is fail-closed. When a digest is available (explicitly via
+  /// [expectedSha256], or found in one of [checksumUrls]) the bytes are hashed
+  /// as they arrive and the file is discarded unless it matches, so a tampered
+  /// or truncated asset never reaches the installer. When no digest is found
+  /// the download is refused, not waved through: an attacker who can block or
+  /// tamper with the manifest request would otherwise downgrade the check to
+  /// nothing. Pass [allowUnverified] only where the release genuinely publishes
+  /// no manifest.
   Future<File> download(
     String url, {
     void Function(double? progress)? onProgress,
     bool Function()? isCancelled,
     String? expectedSha256,
     List<String> checksumUrls = const [],
+    bool allowUnverified = false,
   }) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
       String? digest = expectedSha256?.trim().toLowerCase();
       if (digest == null || digest.isEmpty) {
         digest = await _shaForAsset(client, checksumUrls, url);
+      }
+      if (digest == null || digest.isEmpty) {
+        if (!allowUnverified) {
+          throw const HttpException(
+              'Update refused: no checksum is published for this download, so '
+              'it cannot be verified. Update from the release page instead.');
+        }
+        digest = null;
       }
       final request = await client.getUrl(Uri.parse(url));
       final response = await request.close();

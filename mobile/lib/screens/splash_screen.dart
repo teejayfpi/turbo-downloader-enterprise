@@ -13,12 +13,15 @@ import 'onboarding_screen.dart';
 ///
 /// A clean, standard splash: the brand mark, the product name, a one-line
 /// descriptor, live initialization state, and the designer credit. It hands off
-/// to onboarding on first run, then to the home shell after the 30-second display.
+/// to onboarding on first run, then to the home shell once the engine is ready.
+/// The branded hold is brief and skippable, so it never delays a user who wants
+/// to start a download.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
-  /// Keeps the branded launch screen visible for the requested 30 seconds.
-  static const minimumDisplay = Duration(seconds: 30);
+  /// The maximum time the branded launch screen is held before handing off.
+  /// Kept short: a long, unskippable splash is pure friction at every launch.
+  static const minimumDisplay = Duration(milliseconds: 1200);
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -66,6 +69,14 @@ class _SplashScreenState extends State<SplashScreen>
             FadeTransition(opacity: animation, child: child),
       ),
     );
+  }
+
+  /// Drops the branded hold immediately. The engine-readiness wait still
+  /// applies, so this only removes the artificial delay, never races startup.
+  void _skip() {
+    if (_navigated || _minElapsed) return;
+    setState(() => _minElapsed = true);
+    _maybeNavigate();
   }
 
   @override
@@ -148,6 +159,16 @@ class _SplashScreenState extends State<SplashScreen>
                       fontSize: 9,
                       letterSpacing: 0.9,
                     ),
+                  ),
+                  const SizedBox(height: 6),
+                  TextButton(
+                    onPressed: _skip,
+                    style: TextButton.styleFrom(
+                      foregroundColor: p.textSecondary,
+                      minimumSize: const Size(88, 32),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                    ),
+                    child: const Text('Skip'),
                   ),
                 ],
               ),

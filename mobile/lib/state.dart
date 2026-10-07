@@ -599,6 +599,11 @@ class TurboState extends ChangeNotifier {
       final file = await installer.download(
         url,
         checksumUrls: update.checksumUrls,
+        // Android verifies the APK by its signing key at install time, and a
+        // release may publish no Android checksum manifest, so the manifest is
+        // a best-effort extra there. Every other platform fails closed when no
+        // checksum covers the asset.
+        allowUnverified: defaultTargetPlatform == TargetPlatform.android,
         onProgress: (p) {
           updateProgress = p;
           _safeNotify();

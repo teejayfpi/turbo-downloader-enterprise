@@ -202,6 +202,32 @@ void main() {
     expect(YtdlpEngine.defaultSelector, contains('[protocol^=https]'));
   });
 
+  test('access-denied matches real 403/429 text but not stray digits', () {
+    // Real refusals are recognised.
+    expect(
+      YtdlpEngine.looksLikeAccessDenied(
+          'ERROR: unable to download video data: HTTP Error 403: Forbidden'),
+      isTrue,
+    );
+    expect(
+      YtdlpEngine.looksLikeAccessDenied('ERROR: HTTP Error 429: Too Many Requests'),
+      isTrue,
+    );
+    // A bare status code delimited from other digits still counts.
+    expect(YtdlpEngine.looksLikeAccessDenied('server said 403'), isTrue);
+    // Numbers that merely contain 403/429 must not be mistaken for a refusal,
+    // or a permanent error would be retried as a transient one.
+    expect(
+      YtdlpEngine.looksLikeAccessDenied('wrote 1403328 bytes to disk'),
+      isFalse,
+    );
+    expect(
+      YtdlpEngine.looksLikeAccessDenied('video 4031 is unavailable in your country'),
+      isFalse,
+    );
+    expect(YtdlpEngine.looksLikeAccessDenied('port 42900 refused'), isFalse);
+  });
+
   test('yt-dlp is never told to skip TLS verification', () async {
     // Assert the real argument vectors directly, on every OS, rather than
     // spawning a fake binary (a `#!/bin/sh` script is not portable to Windows).

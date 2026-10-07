@@ -339,7 +339,7 @@ void main() {
       expect(await file.readAsBytes(), equals(body));
     });
 
-    test('proceeds when a published manifest does not list the asset', () async {
+    test('refuses a download when no manifest lists the asset', () async {
       final overrides = HttpOverrides.current;
       HttpOverrides.global = null;
       addTearDown(() => HttpOverrides.global = overrides);
@@ -349,8 +349,44 @@ void main() {
       PathProviderPlatform.instance = _FakePathProvider(tmp.path);
 
       final body = latin1.encode('the genuine bytes');
-      // A desktop-only manifest is normal on Android; the missing entry must
-      // not block a legitimate update.
+      // A manifest that covers a different asset must not wave this download
+      // through unverified: blocking the manifest would otherwise downgrade the
+      // integrity check to nothing.
+      final manifest = utf8.encode('${'a' * 64}  Turbo-some-other-file.exe\n');
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((req) async {
+        final isManifest = req.uri.path.endsWith('SHA256SUMS');
+        final payload = isManifest ? manifest : body;
+        req.response
+          ..statusCode = HttpStatus.ok
+          ..headers.contentLength = payload.length
+          ..add(payload);
+        await req.response.close();
+      });
+
+      final base = 'http://127.0.0.1:${server.port}';
+      await expectLater(
+        installer.download(
+          '$base/turbo.apk',
+          checksumUrls: ['$base/SHA256SUMS.desktop'],
+        ),
+        throwsA(isA<HttpException>()),
+      );
+      expect(tmp.listSync(), isEmpty);
+    });
+
+    test('allows an unverified download only when explicitly opted in',
+        () async {
+      final overrides = HttpOverrides.current;
+      HttpOverrides.global = null;
+      addTearDown(() => HttpOverrides.global = overrides);
+
+      final tmp = await Directory.systemTemp.createTemp('turbo_upd_optin');
+      addTearDown(() => tmp.delete(recursive: true));
+      PathProviderPlatform.instance = _FakePathProvider(tmp.path);
+
+      final body = latin1.encode('the genuine bytes');
       final manifest = utf8.encode('${'a' * 64}  Turbo-some-other-file.exe\n');
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
@@ -368,6 +404,7 @@ void main() {
       final file = await installer.download(
         '$base/turbo.apk',
         checksumUrls: ['$base/SHA256SUMS.desktop'],
+        allowUnverified: true,
       );
       expect(await file.readAsBytes(), equals(body));
     });

@@ -188,7 +188,7 @@ class MediaService {
       child.on('error', (error) => reject(new Error(`Failed to run yt-dlp: ${error.message}`)));
       child.on('close', (code) => {
         if (code !== 0) {
-          reject(new Error(cleanError(stderr) || `yt-dlp exited with code ${code}`));
+          reject(mediaError(stderr, code));
           return;
         }
         resolve(stdout);
@@ -289,7 +289,7 @@ class MediaService {
         if (settled) return;
         settled = true;
         if (code !== 0) {
-          reject(new Error(cleanError(stderr) || `yt-dlp exited with code ${code}`));
+          reject(mediaError(stderr, code));
           return;
         }
 
@@ -329,6 +329,27 @@ function toBytes(value, unit) {
   return Math.round(n * (multipliers[unit] || 1));
 }
 
+/**
+ * Raised when YouTube refuses a download from this host's IP. Datacenter
+ * addresses are blocked by IP reputation, which no cookie or JS runtime fixes,
+ * so the error carries a distinct [code] the API and client can recognise and
+ * hand the link off to a device on a normal connection.
+ */
+export class YouTubeDatacenterBlockError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'YouTubeDatacenterBlockError';
+    this.code = 'YOUTUBE_DATACENTER_BLOCK';
+    this.retryable = false;
+  }
+}
+
+// The definitive IP-block signature: the CDN refuses the media bytes with a
+// 403. A "Sign in to confirm you're not a bot" challenge is deliberately *not*
+// matched here, because that one is cookie-solvable and must keep routing to
+// the sign-in flow rather than being reported as an unfixable IP block.
+const DATACENTER_BLOCK_RE = /HTTP Error 403|unable to download video data/i;
+
 function cleanError(stderr) {
   const line = stderr
     .split('\n')
@@ -338,20 +359,39 @@ function cleanError(stderr) {
   if (!line) return '';
   const message = line.replace(/^ERROR:\s*/, '');
 
-  // YouTube rejects datacenter IPs with a 403 or a bot check. The raw text is
-  // meaningless to a user, so it is replaced with the one thing that fixes it.
-  if (
-    /HTTP Error 403|unable to download video data|Sign in to confirm|not a bot/i.test(
-      message,
-    )
-  ) {
+  // YouTube rejects datacenter IPs with a 403 or a bot check. Cookies and the
+  // JS runtime fix signature challenges, not IP reputation, so the fix is to
+  // run the download from a device on a residential connection, not to tune
+  // the server. The message says so.
+  if (DATACENTER_BLOCK_RE.test(message)) {
     return (
-      'YouTube refused this download from the server\'s IP address. ' +
-      'Configure YT_DLP_COOKIES_DATA on the server (export cookies from a ' +
-      'signed-in browser) to allow it. Other sites are unaffected.'
+      'YouTube refused this download from the server\'s IP address. YouTube ' +
+      'blocks datacenter and cloud hosts by IP reputation, which cookies and ' +
+      'the JS runtime do not fix. Download this link in the Turbo app on your ' +
+      'own device, or run the server on a home connection. Other sites are ' +
+      'unaffected.'
     );
   }
   return message;
 }
 
+/** True when a raw yt-dlp error is YouTube refusing the host's IP. */
+export function isDatacenterBlock(message) {
+  return DATACENTER_BLOCK_RE.test(String(message || ''));
+}
+
+/**
+ * Builds the error to reject with from a failed yt-dlp run. A datacenter block
+ * becomes a typed [YouTubeDatacenterBlockError] so the route can answer with a
+ * distinct code and the client can offer the app handoff; everything else is a
+ * plain Error carrying the cleaned message.
+ */
+function mediaError(stderr, code) {
+  if (isDatacenterBlock(stderr)) {
+    return new YouTubeDatacenterBlockError(cleanError(stderr));
+  }
+  return new Error(cleanError(stderr) || `yt-dlp exited with code ${code}`);
+}
+
+export { cleanError };
 export default new MediaService();

@@ -4,6 +4,7 @@ import {
   Trash2, Copy, MoreVertical, ChevronDown, ChevronUp, Search,
   FileArchive, FileVideo, FileAudio, FileImage, FileText, FileCode, FileCog,
   File as FileIcon, Upload, DownloadCloud, GripVertical, CalendarClock,
+  ExternalLink,
 } from 'lucide-react';
 import { api } from '../hooks/useApi';
 import { useDownloadStore } from '../stores/downloadStore';
@@ -19,6 +20,13 @@ const KIND_ICONS = {
   app: FileCog,
   file: FileIcon,
 };
+
+// A `turbo://add?url=` deep link. The desktop app registers `turbo://` as its
+// handler, so clicking this opens the app with the link prefilled. Used to
+// hand a YouTube link to a device on a connection YouTube will serve.
+function appHandoffUrl(url) {
+  return `turbo://add?url=${encodeURIComponent(url)}`;
+}
 
 const FILTERS = [
   { key: 'all', label: 'All' },
@@ -468,6 +476,15 @@ function DownloadItem({ download, onDragStart, onDropOn, isDragged, run }) {
               <div className="col-span-2 sm:col-span-4">
                 <p className="kicker mb-1.5">Last error</p>
                 <p className="text-xs text-error break-words">{download.error}</p>
+                {download.errorCode === 'YOUTUBE_DATACENTER_BLOCK' && (
+                  <a
+                    href={appHandoffUrl(download.url)}
+                    className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:underline"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Open in Turbo app
+                  </a>
+                )}
               </div>
             )}
           </div>

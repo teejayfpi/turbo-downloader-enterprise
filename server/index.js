@@ -26,12 +26,20 @@ const SERVER_VERSION = JSON.parse(
 
 const app = express();
 const httpServer = createServer(app);
+const CORS_ORIGIN = (process.env.CORS_ORIGIN || '').trim();
+// A wildcard origin combined with `credentials: true` is both invalid per the
+// CORS spec (browsers reject the response) and a data-exposure risk, since any
+// site could then read authenticated responses. Only reflect credentials when
+// the origin is pinned to an explicit list; otherwise allow anonymous reads.
+const corsOptions = CORS_ORIGIN
+  ? { origin: CORS_ORIGIN.split(',').map((o) => o.trim()), credentials: true }
+  : { origin: '*', credentials: false };
 const io = new Server(httpServer, {
-  cors: { origin: process.env.CORS_ORIGIN || '*', methods: ['GET', 'POST', 'PUT', 'DELETE'] },
+  cors: { origin: corsOptions.origin, methods: ['GET', 'POST', 'PUT', 'DELETE'] },
 });
 
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
-app.use(cors({ origin: process.env.CORS_ORIGIN || '*', credentials: true }));
+app.use(cors(corsOptions));
 // Hosted behind a reverse proxy (Render, Fly, Railway, nginx), the client IP
 // only arrives in X-Forwarded-For. Without trusting the proxy, express-rate-limit
 // rejects every request with ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
@@ -156,6 +164,9 @@ app.get('/api/media/info', async (req, res) => {
     const info = await mediaService.getMediaInfo(url);
     res.json(info);
   } catch (error) {
+    if (error?.code === 'YOUTUBE_DATACENTER_BLOCK') {
+      return res.status(451).json({ error: error.message, code: error.code });
+    }
     res.status(400).json({ error: error.message });
   }
 });

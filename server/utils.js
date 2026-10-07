@@ -60,6 +60,7 @@ export function isPrivateIp(ip) {
     if (a === 169 && b === 254) return true;
     if (a === 172 && b >= 16 && b <= 31) return true;
     if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64.0.0/10
     if (a >= 224) return true;
     return false;
   }
@@ -68,29 +69,70 @@ export function isPrivateIp(ip) {
     if (lower === '::1' || lower === '::') return true;
     if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // unique local
     if (lower.startsWith('fe80')) return true; // link local
-    if (lower.startsWith('::ffff:')) return isPrivateIp(lower.slice(7));
+    // Dotted IPv4-mapped form (`::ffff:127.0.0.1`). The dotted tail is a single
+    // split element that stands for two 16-bit groups, so it is handled here
+    // rather than through the generic expansion below.
+    const dotted = lower.startsWith('::ffff:') ? lower.slice(7) : '';
+    if (dotted && net.isIPv4(dotted)) return isPrivateIp(dotted);
+    // Hex IPv4-mapped form (`::ffff:7f00:1`) in any spelling: expand to groups
+    // and test the first 80 bits for zero and the next 16 for `ffff`.
+    const groups = expandIpv6(lower);
+    if (groups && groups.slice(0, 5).every((g) => g === '0000') && groups[5] === 'ffff') {
+      const hi = parseInt(groups[6], 16);
+      const lo = parseInt(groups[7], 16);
+      return isPrivateIp(`${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`);
+    }
     return false;
   }
   return false;
 }
 
+/** Expands an IPv6 address to eight zero-padded groups; null when malformed. */
+function expandIpv6(ip) {
+  const hasElision = ip.includes('::');
+  const parts = ip.split('::');
+  if (parts.length > 2) return null;
+  const head = parts[0] ? parts[0].split(':') : [];
+  const tail = parts[1] ? parts[1].split(':') : [];
+  if (!hasElision && head.length !== 8) return null;
+  const missing = 8 - head.length - tail.length;
+  if (missing < 0) return null;
+  const groups = [...head, ...Array(missing).fill('0'), ...tail];
+  if (groups.length !== 8) return null;
+  return groups.map((g) => g.padStart(4, '0'));
+}
+
 /**
  * Basic SSRF protection: the target host must resolve to a public IP address.
- * This blocks loopback, link-local, and RFC1918 ranges by default.
+ * This blocks loopback, link-local, CGNAT, and RFC1918 ranges by default.
+ *
+ * Returns the address the caller should connect to, or null when the check is
+ * disabled or [hostname] is already a literal IP. Passing the result back into
+ * the request pins the connection to the address that was checked, so a second
+ * DNS answer (DNS rebinding) cannot swap in a private address between the check
+ * and the connect.
  */
 export async function assertPublicHost(hostname) {
-  if (process.env.TURBO_ALLOW_PRIVATE_HOSTS === '1') return;
+  if (process.env.TURBO_ALLOW_PRIVATE_HOSTS === '1') return null;
 
-  if (net.isIP(hostname)) {
-    if (isPrivateIp(hostname)) {
+  // `new URL('http://[::1]/').hostname` keeps the IPv6 brackets, which makes
+  // `net.isIP` return 0 and would send the literal to DNS. Strip them so
+  // literal addresses are classified directly instead of being rejected as
+  // unresolvable.
+  const host = hostname.startsWith('[') && hostname.endsWith(']')
+    ? hostname.slice(1, -1)
+    : hostname;
+
+  if (net.isIP(host)) {
+    if (isPrivateIp(host)) {
       throw new Error('Downloads from private or local network addresses are not allowed');
     }
-    return;
+    return null;
   }
 
   let records;
   try {
-    records = await dns.lookup(hostname, { all: true });
+    records = await dns.lookup(host, { all: true, verbatim: true });
   } catch {
     throw new Error(`Could not resolve host: ${hostname}`);
   }
@@ -98,6 +140,13 @@ export async function assertPublicHost(hostname) {
   if (!records.length || records.some((r) => isPrivateIp(r.address))) {
     throw new Error('Downloads from private or local network addresses are not allowed');
   }
+  return records[0].address;
+}
+
+/** A `lookup` implementation that always answers with [address]. */
+export function pinnedLookup(address) {
+  const family = net.isIPv6(address) ? 6 : 4;
+  return (_hostname, _options, callback) => callback(null, address, family);
 }
 
 export function validateHttpUrl(rawUrl) {

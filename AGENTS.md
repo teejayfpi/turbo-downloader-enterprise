@@ -330,3 +330,24 @@ it is not a filter.
   accepted, not as safe.
 - yt-dlp's error text is surfaced to the user via `DownloadError.detail`, so
   do not add flags that echo secrets into stderr.
+
+## Security review notes (server)
+
+- CORS is fail-safe: `CORS_ORIGIN` unset means anonymous reads only
+  (`credentials: false`). Pinning an origin list is what enables credentials.
+  Never pair `origin: '*'` with `credentials: true` — browsers reject it, and if
+  they did not, any site could read authenticated responses.
+- `assertPublicHost` returns the resolved address so the caller can pin the
+  connection to it (`pinnedLookup`). Keep threading that address through
+  `request`/`probe`/`downloadSingle`/`downloadSegment`, and re-check every
+  redirect hop: resolving again at connect time would reopen DNS rebinding.
+- A datacenter IP block is reported as a typed
+  `YouTubeDatacenterBlockError` (`code: YOUTUBE_DATACENTER_BLOCK`, HTTP 451).
+  It is `retryable = false` on purpose: retrying an IP block wastes bandwidth
+  and worsens the IP's reputation. The client offers a `turbo://add?url=`
+  handoff instead. Only the definitive `HTTP Error 403` / "unable to download
+  video data" text maps here — a "Sign in to confirm you're not a bot"
+  challenge is cookie-solvable and must keep routing to the sign-in flow.
+- The release workflow hashes with no `|| true`: an unverifiable asset fails
+  the release. Platforms that did not build are skipped so one broken platform
+  cannot block the others.

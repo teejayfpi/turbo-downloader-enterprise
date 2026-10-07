@@ -161,17 +161,26 @@ jobs:
           path: artifacts
 
       # The in-app updater verifies the asset it downloads against a published
-      # manifest and refuses to install when none covers it, so every release
-      # must carry one.
+      # manifest and refuses to install when none covers it, so the manifest
+      # must cover every artifact we publish. Hashing is deliberately not
+      # best-effort (`|| true` used to hide a failure and ship an unverifiable
+      # asset): a failed hash fails the release. A platform that did not build
+      # is skipped, so one broken platform cannot block the others.
       - name: Write checksums
         shell: bash
         run: |
           cd artifacts
-          sha256sum \
-            turbo-windows-installer/TurboSetup-windows.exe \
-            turbo-release-macos/Turbo-macos.zip \
-            turbo-release-linux/Turbo-linux.tar.gz 2>/dev/null \
-            | sed 's# .*/# #' > SHA256SUMS.desktop || true
+          files=()
+          for f in turbo-windows-installer/TurboSetup-windows.exe \
+                   turbo-release-macos/Turbo-macos.zip \
+                   turbo-release-linux/Turbo-linux.tar.gz; do
+            [ -f "$f" ] && files+=("$f")
+          done
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::no release artifacts were produced"
+            exit 1
+          fi
+          sha256sum "${files[@]}" | sed 's# .*/# #' > SHA256SUMS.desktop
           cat SHA256SUMS.desktop
 
       - name: Publish release

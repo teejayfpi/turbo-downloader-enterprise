@@ -20,8 +20,12 @@ services:
         value: /data
       - key: DOWNLOAD_DIR
         value: /downloads
-      - key: CORS_ORIGIN
-        value: "*"
+      # CORS_ORIGIN must be your real client origin (comma-separated for
+      # several). Leaving it unset allows anonymous cross-origin reads only;
+      # setting it to "*" alongside credentials would let any site read
+      # authenticated responses, so it is deliberately not defaulted to "*".
+      # - key: CORS_ORIGIN
+      #   value: https://your-app.example.com
       # The API is public on Render. Require a token (Render generates one on
       # first blueprint sync; reveal it in the dashboard) and make an
       # unauthenticated boot fatal. Clients present it as
