@@ -13,13 +13,12 @@ import 'onboarding_screen.dart';
 ///
 /// A clean, standard splash: the brand mark, the product name, a one-line
 /// descriptor, live initialization state, and the designer credit. It hands off
-/// to onboarding on first run, then to the home shell.
+/// to onboarding on first run, then to the home shell after the 30-second display.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
-  /// Prevents a one-frame flash on fast devices while avoiding an artificial
-  /// loading delay once the local engine is ready.
-  static const minimumDisplay = Duration(milliseconds: 900);
+  /// Keeps the branded launch screen visible for the requested 30 seconds.
+  static const minimumDisplay = Duration(seconds: 30);
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();

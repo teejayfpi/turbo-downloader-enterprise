@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Turbo Downloader maskable icon">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Turbo maskable icon">
   <defs>
     <linearGradient id="mbg" x1="0.05" y1="0" x2="0.95" y2="1">
       <stop offset="0" stop-color="#161d31"/>
@@ -14,17 +14,8 @@
       <stop offset="0.42" stop-color="#00d4ff"/>
       <stop offset="1" stop-color="#00ffc2"/>
     </linearGradient>
-    <linearGradient id="marc" x1="0.1" y1="0" x2="0.9" y2="1">
-      <stop offset="0" stop-color="#5ef2ff" stop-opacity="0.55"/>
-      <stop offset="1" stop-color="#00ffc2" stop-opacity="0"/>
-    </linearGradient>
   </defs>
   <rect width="1024" height="1024" fill="url(#mbg)"/>
   <rect width="1024" height="1024" fill="url(#mglow)"/>
-  <g transform="translate(512 512) scale(0.66) translate(-512 -512)">
-    <circle cx="512" cy="512" r="340" fill="none" stroke="url(#marc)" stroke-width="30"
-            stroke-linecap="round" pathLength="100" stroke-dasharray="64 36"
-            transform="rotate(-140 512 512)"/>
-    <path d="M462 258H562V534H688L512 736L336 534H462Z" fill="url(#mmark)"/>
-  </g>
+  <path d="M566 176 L334 548 H484 L430 848 L690 466 H536 Z" fill="url(#mmark)"/>
 </svg>

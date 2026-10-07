@@ -26,7 +26,7 @@ export default function SplashScreen({ ready, onMounted }) {
   useEffect(() => {
     if (!visible) return undefined;
     if (forced === 'hold') return undefined; // preview / screenshot mode
-    const MIN_MS = 1500;
+    const MIN_MS = 30000;
     const start = performance.now();
     let leaveTimer;
     let removeTimer;
@@ -71,33 +71,8 @@ export default function SplashScreen({ ready, onMounted }) {
                 <stop offset="0.42" stopColor="#22e0ff" />
                 <stop offset="1" stopColor="#2fffc8" />
               </linearGradient>
-              <linearGradient id="sarc" x1="0.1" y1="0" x2="0.9" y2="1">
-                <stop offset="0" stopColor="#5ef2ff" stopOpacity="0.6" />
-                <stop offset="1" stopColor="#2fffc8" stopOpacity="0" />
-              </linearGradient>
             </defs>
-            <circle
-              className="splash-arc"
-              cx="512"
-              cy="512"
-              r="340"
-              fill="none"
-              stroke="url(#sarc)"
-              strokeWidth="26"
-              strokeLinecap="round"
-              pathLength="100"
-              strokeDasharray="64 36"
-              transform="rotate(-140 512 512)"
-            />
-            <g className="splash-arrow">
-              <path
-                d="M462 258H562V534H688L512 736L336 534H462Z"
-                fill="#22e0ff"
-                opacity="0.35"
-                className="splash-halo"
-              />
-              <path d="M462 258H562V534H688L512 736L336 534H462Z" fill="url(#smark)" />
-            </g>
+            <path d="M566 176 L334 548 H484 L430 848 L690 466 H536 Z" fill="url(#smark)" />
           </svg>
         </div>
 
