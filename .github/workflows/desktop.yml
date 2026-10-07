@@ -45,7 +45,7 @@ jobs:
       run:
         working-directory: mobile
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install Linux desktop dependencies
         if: matrix.target == 'linux'
@@ -73,7 +73,7 @@ jobs:
         run: flutter build ${{ matrix.target }} --release
 
       - name: Upload bundle
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.bundle }}
@@ -105,7 +105,7 @@ jobs:
 
       - name: Upload Windows installer
         if: matrix.target == 'windows'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: turbo-windows-installer
           path: mobile/windows/installer/dist/TurboSetup-windows.exe
@@ -125,7 +125,7 @@ jobs:
 
       - name: Upload release archive
         if: matrix.target != 'windows'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: turbo-release-${{ matrix.target }}
           path: |
@@ -146,7 +146,7 @@ jobs:
       needs.build.result != 'cancelled'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Read app version
         id: version
@@ -156,7 +156,7 @@ jobs:
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
       - name: Download artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v7
         with:
           path: artifacts
 
@@ -175,7 +175,7 @@ jobs:
           cat SHA256SUMS.desktop
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.value }}
           name: Turbo Downloader v${{ steps.version.outputs.value }}
