@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:turbo_downloader/local_downloader.dart';
+import 'package:turbo_downloader/services/retry_policy.dart';
 
 /// Serves a byte blob over real HTTP, with configurable range support, so the
 /// engine is exercised end to end rather than against a mock.
@@ -522,11 +523,18 @@ void main() {
     expect(task.error, 'Video unavailable');
   });
 
-  test('a hard 403 from yt-dlp is a non-retryable engine error with advice',
+  test('a transient yt-dlp 403 is retried, then gives actionable advice',
       () async {
     final manager = await _manager(root);
     addTearDown(manager.dispose);
+    // Keep the backoff tiny so the test does not wait on real seconds.
+    manager.retryPolicy = const RetryPolicy(
+      maxAttempts: 2,
+      baseDelay: Duration(milliseconds: 10),
+      maxDelay: Duration(milliseconds: 20),
+    );
 
+    var calls = 0;
     manager.ytdlpOverride = ({
       required String url,
       required String selector,
@@ -534,8 +542,14 @@ void main() {
       required String stem,
       void Function(int, int, int)? onProgress,
       bool Function()? isCancelled,
-    }) async =>
-        throw const YtdlpException('HTTP Error 403: Forbidden');
+    }) async {
+      calls += 1;
+      throw const YtdlpException(
+        'The site refused to serve this download (HTTP 403).',
+        detail: 'ERROR: unable to download video data: HTTP Error 403: '
+            'Forbidden',
+      );
+    };
 
     final task = manager.add('https://youtube.com/watch?v=blocked',
         kind: 'media', engine: 'ytdlp', formatSelector: 'best');
@@ -543,9 +557,12 @@ void main() {
 
     expect(task.isFailed, isTrue);
     expect(task.errorKind, 'engine');
-    // A refused-download error must not burn automatic retries.
-    expect(task.attempts, 1);
-    expect(task.errorAdvice, contains('Sign-in'));
+    // A 403 from the media host is often temporary, so it is retried up to the
+    // policy limit before giving up — not stopped after a single attempt.
+    expect(calls, 2);
+    expect(task.attempts, 2);
+    expect(task.errorAdvice, contains('Retry'));
+    expect(task.errorDetail, contains('HTTP Error 403'));
   });
 
   test('a yt-dlp failure falls back to the built-in engine for a media page',
@@ -587,6 +604,43 @@ void main() {
     expect(task.fellBackToBuiltin, isTrue);
     expect(task.engine, 'http');
     expect(await File(task.filePath!).readAsBytes(), equals(data));
+  });
+
+  test('a missing-format failure does not silently fall back to 360p',
+      () async {
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    manager.ytdlp.setBinaryForTest('/bin/true');
+
+    manager.ytdlpOverride = ({
+      required String url,
+      required String selector,
+      required Directory dir,
+      required String stem,
+      void Function(int, int, int)? onProgress,
+      bool Function()? isCancelled,
+    }) async =>
+        throw const YtdlpException(
+          'Requested format is not available. Use --list-formats for a list '
+          'of available formats',
+        );
+
+    var resolved = false;
+    manager.resolveMediaOverride = (page, {String? formatId}) async {
+      resolved = true;
+      throw const MediaResolveException('should not run');
+    };
+
+    final task = manager.add('https://youtube.com/watch?v=fmt',
+        kind: 'media', engine: 'ytdlp', formatSelector: 'bestvideo+bestaudio');
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isFailed, isTrue);
+    // The user asked for a specific rendition; a format that does not exist
+    // must surface, not be swapped for a different one behind their back.
+    expect(resolved, isFalse);
+    expect(task.fellBackToBuiltin, isFalse);
+    expect(task.engine, 'ytdlp');
   });
 
   test('a built-in resolve failure falls back to yt-dlp for a media page',

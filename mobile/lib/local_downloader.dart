@@ -809,10 +809,19 @@ class LocalDownloadManager extends ChangeNotifier {
     if (task.usesYtdlp) {
       try {
         await _executeYtdlp(task, run);
-      } on YtdlpException {
+      } on YtdlpException catch (e) {
         if (run.cancelled || task.kind != 'media' || !ytdlp.isAvailable) {
           rethrow;
         }
+        // The built-in extractor only produces its own (muxed) streams, so it
+        // cannot honour the format the user picked. Only use it as a safety net
+        // when the yt-dlp failure was on the network (a 403 or a drop) rather
+        // than a format that simply does not exist — otherwise a bad selector
+        // would silently download a different, lower-quality file.
+        final network =
+            YtdlpEngine.looksLikeAccessDenied(e.detail ?? e.message) ||
+                YtdlpEngine.looksLikeTransientNetwork(e.detail ?? e.message);
+        if (!network) rethrow;
         // Fall back to the built-in extractor at whatever quality it can
         // produce (its muxed streams cap at 360p).
         task.engine = 'http';
@@ -878,19 +887,29 @@ class LocalDownloadManager extends ChangeNotifier {
       );
     }
     if (error is YtdlpException) {
-      // A refused download (403 / bot check / region block) will not succeed on
-      // its own, so it stops after one attempt and points at the cookie setup.
-      // Transient engine failures keep their retries.
-      final refused = YtdlpEngine.looksLikeAccessDenied(error.message) ||
-          YtdlpEngine.looksLikeSignInRequired(error.message);
+      // Classify on the raw yt-dlp text, not the friendly sentence: the
+      // friendly 403 message mentions cookies as a remedy, which would
+      // otherwise look like a sign-in wall.
+      final raw = error.detail ?? error.message;
+      final signIn = YtdlpEngine.looksLikeSignInRequired(raw);
+      final transient = YtdlpEngine.looksLikeTransientNetwork(raw);
+      final refused = YtdlpEngine.looksLikeAccessDenied(raw);
+      final String? advice;
+      if (signIn) {
+        advice = 'Open Settings → Sign-in & cookies to add your YouTube '
+            'cookies, then retry.';
+      } else if (refused) {
+        advice = 'Retry in a moment; if it keeps failing, add cookies in '
+            'Settings → Sign-in & cookies or try a different network.';
+      } else {
+        advice = null;
+      }
       return DownloadError(
         DownloadErrorKind.engine,
         error.message,
-        advice: refused
-            ? 'Open Settings → Sign-in & cookies to add your YouTube cookies, '
-                'then retry.'
-            : null,
-        retryable: !refused,
+        advice: advice,
+        detail: error.detail,
+        retryable: transient || refused,
       );
     }
     return DownloadError.from(error);
@@ -1104,7 +1123,7 @@ class LocalDownloadManager extends ChangeNotifier {
     final dir = _requireTaskDir(task.id);
     if (!await dir.exists()) await dir.create(recursive: true);
     final stem = _safeStem(task.filename);
-    final selector = task.formatSelector ?? 'best';
+    final selector = task.formatSelector ?? YtdlpEngine.defaultSelector;
     final run_ = ytdlpOverride ?? _runYtdlp;
     task.status = 'active';
 

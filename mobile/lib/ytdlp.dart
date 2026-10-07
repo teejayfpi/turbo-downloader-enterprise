@@ -55,9 +55,14 @@ class YtdlpFormat {
 }
 
 /// Raised for a yt-dlp failure with a message that is safe to show the user.
+///
+/// [detail] carries the raw yt-dlp stderr when it is available, so a support
+/// ticket can show what actually went wrong (an HTTP status, a format that did
+/// not exist) instead of only the friendly sentence.
 class YtdlpException implements Exception {
   final String message;
-  const YtdlpException(this.message);
+  final String? detail;
+  const YtdlpException(this.message, {this.detail});
   @override
   String toString() => message;
 }
@@ -224,7 +229,11 @@ class YtdlpEngine {
       stderrEncoding: utf8,
     );
     if (result.exitCode != 0) {
-      throw YtdlpException(_friendly(result.stderr?.toString() ?? ''));
+      final raw = result.stderr?.toString() ?? '';
+      throw YtdlpException(
+        _friendly(raw),
+        detail: raw.trim().isEmpty ? null : raw.trim(),
+      );
     }
     try {
       final json = jsonDecode(result.stdout.toString()) as Map<String, dynamic>;
@@ -325,7 +334,11 @@ class YtdlpEngine {
 
     if (cancelled) return null;
     if (code != 0) {
-      throw YtdlpException(_friendly(stderrBuf.toString()));
+      final raw = stderrBuf.toString();
+      throw YtdlpException(
+        _friendly(raw),
+        detail: raw.trim().isEmpty ? null : raw.trim(),
+      );
     }
     return findResult(dir, stem);
   }
@@ -422,9 +435,11 @@ class YtdlpEngine {
           extension: ext,
           size: size,
           height: height,
-          // Merge in the best audio; falls back to the video-only stream if
-          // there is no separate audio.
-          selector: '$formatId+bestaudio/$formatId',
+          // Merge in the best audio. YouTube offers both a progressive
+          // (https) and an HLS (m3u8) rendition of most formats; the HLS one
+          // frequently stalls or 403s behind a CDN, so prefer the direct
+          // stream and fall back to whatever exists.
+          selector: _mergeSelector(formatId),
           requiresMux: true,
         ));
       } else if (hasAudio) {
@@ -492,6 +507,23 @@ class YtdlpEngine {
     });
   }
 
+  /// The `-f` selector for a specific video-only rendition, preferring the
+  /// direct (https) stream over YouTube's HLS (m3u8) variant, which stalls or
+  /// 403s behind a CDN even when the progressive stream works. Falls back to
+  /// the plain format id when no matching stream exists (e.g. non-YouTube).
+  static String _mergeSelector(String formatId) {
+    final v = 'bv*[format_id=$formatId][protocol^=https]';
+    const a = 'ba[protocol^=https]';
+    final vAny = 'bv*[format_id=$formatId]';
+    return '$v+$a/$vAny+ba/$vAny';
+  }
+
+  /// The engine-wide default when a task carries no explicit selector. Mirrors
+  /// [_mergeSelector] at "best" granularity: a direct-stream video plus audio,
+  /// then the same ignoring protocol, then the plain best.
+  static const String defaultSelector =
+      'bv*[protocol^=https]+ba[protocol^=https]/bv*+ba/b';
+
   static int _num(String s) {
     if (s == 'NA' || s == 'None' || s.isEmpty) return 0;
     return int.tryParse(s) ?? double.tryParse(s)?.round() ?? 0;
@@ -555,18 +587,43 @@ class YtdlpEngine {
       return 'This video needs a signed-in session. Open Settings → Sign-in & '
           'cookies and add your YouTube cookies, then retry.';
     }
+    if (looksLikeTransientNetwork(text)) {
+      return 'The connection to the media server failed partway through. This '
+          'is usually temporary — retry in a moment.';
+    }
     if (looksLikeAccessDenied(text)) {
-      return 'The site refused to serve this download. Open Settings → '
-          'Sign-in & cookies and add your YouTube cookies, then retry. If it '
-          'still fails, your network or region may be blocked by the site.';
+      return 'The site refused to serve this download (HTTP 403). The media '
+          'server can reject a link even when the page loaded, and the block is '
+          'often temporary. Retry in a moment; if it keeps failing, add cookies '
+          'in Settings → Sign-in & cookies or try a different network.';
     }
     return text.length > 240 ? '${text.substring(0, 240)}…' : text;
   }
 
-  /// True when the site declined to serve the media over the network rather
-  /// than because of a bad link or a missing format: an outright 403, a 429
-  /// rate-limit, or a bare "not a bot" refusal. Treated like a sign-in prompt
-  /// because cookies and a different network are the remedies.
+  /// True when yt-dlp failed on the network rather than because of the link or
+  /// a missing format: a timeout, a reset, a dropped connection. These are
+  /// transient and worth an automatic retry, so they must not be mistaken for a
+  /// refusal that points at cookies.
+  static bool looksLikeTransientNetwork(String message) {
+    final m = message.toLowerCase();
+    return m.contains('timed out') ||
+        m.contains('timeout') ||
+        m.contains('connection reset') ||
+        m.contains('connection aborted') ||
+        m.contains('connection refused') ||
+        m.contains('remote end closed') ||
+        m.contains('incomplete read') ||
+        m.contains('temporary failure') ||
+        m.contains('name or service not known') ||
+        m.contains('unable to connect') ||
+        m.contains('network is unreachable');
+  }
+
+  /// True when the site declined to serve the media over the network: an
+  /// outright 403, or an HLS/segment fetch that the CDN refused. This is a
+  /// distinct, often-transient failure — the media host can 403 a link even
+  /// when the page loaded and the cookies are valid — so it is retried a few
+  /// times before the user is told to add cookies or change network.
   static bool looksLikeAccessDenied(String message) {
     final m = message.toLowerCase();
     return m.contains('403') ||
@@ -593,7 +650,6 @@ class YtdlpEngine {
         m.contains('members-only') ||
         m.contains('private video') ||
         m.contains('this video is private') ||
-        m.contains('cookies') ||
         m.contains('account authentication');
   }
 

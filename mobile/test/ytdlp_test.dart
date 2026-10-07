@@ -72,7 +72,13 @@ void main() {
     final f = probe.formats.single;
     expect(f.kind, 'video-only');
     expect(f.requiresMux, isTrue);
-    expect(f.selector, '137+bestaudio/137');
+    // Prefer the direct (https) stream over YouTube's HLS variant, then fall
+    // back to the plain format id so non-YouTube sources still resolve.
+    expect(
+      f.selector,
+      'bv*[format_id=137][protocol^=https]+ba[protocol^=https]/'
+      'bv*[format_id=137]+ba/bv*[format_id=137]',
+    );
   });
 
   test('formats are ordered best-first by resolution', () {
@@ -156,5 +162,41 @@ void main() {
         contains('JavaScript runtime'),
       )),
     );
+  });
+
+  test('transient network text is recognised separately from a sign-in wall',
+      () {
+    // A dropped connection must not be reported as "add your cookies".
+    expect(
+      YtdlpEngine.looksLikeTransientNetwork(
+          'ERROR: unable to download video data: <urlopen error timed out>'),
+      isTrue,
+    );
+    expect(
+      YtdlpEngine.looksLikeTransientNetwork('ERROR: Connection reset by peer'),
+      isTrue,
+    );
+    expect(
+      YtdlpEngine.looksLikeTransientNetwork('ERROR: HTTP Error 403: Forbidden'),
+      isFalse,
+    );
+    // The friendly 403 sentence mentions cookies as a remedy; it must not be
+    // mistaken for a genuine sign-in wall.
+    expect(
+      YtdlpEngine.looksLikeSignInRequired(
+          'The site refused to serve this download (HTTP 403). Retry in a '
+          'moment; if it keeps failing, add cookies in Settings.'),
+      isFalse,
+    );
+    expect(
+      YtdlpEngine.looksLikeSignInRequired(
+          'Sign in to confirm you are not a bot'),
+      isTrue,
+    );
+  });
+
+  test('the engine default selector avoids HLS in favour of direct streams',
+      () {
+    expect(YtdlpEngine.defaultSelector, contains('[protocol^=https]'));
   });
 }
