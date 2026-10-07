@@ -78,8 +78,8 @@ void main() {
     // back to the plain format id so non-YouTube sources still resolve.
     expect(
       f.selector,
-      'bv*[format_id=137][protocol^=https]+ba[protocol^=https]/'
-      'bv*[format_id=137]+ba/bv*[format_id=137]',
+      'bv*[format_id="137"][protocol^=https]+ba[protocol^=https]/'
+      'bv*[format_id="137"]+ba',
     );
   });
 

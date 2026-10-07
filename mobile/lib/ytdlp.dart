@@ -528,13 +528,14 @@ class YtdlpEngine {
 
   /// The `-f` selector for a specific video-only rendition, preferring the
   /// direct (https) stream over YouTube's HLS (m3u8) variant, which stalls or
-  /// 403s behind a CDN even when the progressive stream works. Falls back to
-  /// the plain format id when no matching stream exists (e.g. non-YouTube).
+  /// 403s behind a CDN even when the progressive stream works.
+  ///
+  /// The id must be quoted: yt-dlp reads an unquoted numeric value as a number,
+  /// and `format_id` is a string, so `[format_id=313]` matches nothing and the
+  /// whole selector fails with "Requested format is not available".
   static String _mergeSelector(String formatId) {
-    final v = 'bv*[format_id=$formatId][protocol^=https]';
-    const a = 'ba[protocol^=https]';
-    final vAny = 'bv*[format_id=$formatId]';
-    return '$v+$a/$vAny+ba/$vAny';
+    final v = 'bv*[format_id="$formatId"]';
+    return '$v[protocol^=https]+ba[protocol^=https]/$v+ba';
   }
 
   /// The engine-wide default when a task carries no explicit selector. Mirrors
