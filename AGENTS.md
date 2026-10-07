@@ -310,3 +310,15 @@ Render service: `srv-davrc8lg1s2s73bjjsb0`. Env vars can be set per key with
 
 Never commit cookies or tokens. `YT_DLP_COOKIES_DATA` holds a live signed-in
 session and must be rotated after use.
+
+## Security review notes (mobile)
+
+- yt-dlp runs with TLS verification on. Do not add `--no-check-certificates`:
+  it lets a network attacker swap the media bytes or read the cookie jar in
+  transit, and none of the download hosts require it.
+- The cookie jar is written to `~/.turbo/secure.json` with `0600` on desktop
+  and the Android Keystore on Android. Desktop has no OS keychain: a local
+  user with read access to the file can recover cookies. Treat that as
+  accepted, not as safe.
+- yt-dlp's error text is surfaced to the user via `DownloadError.detail`, so
+  do not add flags that echo secrets into stderr.
