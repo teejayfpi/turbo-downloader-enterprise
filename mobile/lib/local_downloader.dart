@@ -63,6 +63,13 @@ typedef MediaMuxFn = Future<void> Function({
   required String container,
 });
 
+/// Sent with every engine request. Hosts commonly answer the bare dart:io
+/// default (`Dart/<sdk> (dart:io)`) with a 403, so present a conventional
+/// browser agent the way the legacy server engine does.
+const _userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+    'AppleWebKit/537.36 (KHTML, like Gecko) '
+    'Chrome/124.0.0.0 Safari/537.36';
+
 Future<void> _deviceBackground(int active) async {
   try {
     await const MethodChannel('turbo_downloader/files')
@@ -1027,7 +1034,7 @@ class LocalDownloadManager extends ChangeNotifier {
     required void Function(int bytes) onBytes,
   }) async {
     final file = File(path);
-    final req = await client.getUrl(Uri.parse(url));
+    final req = await _open(client, Uri.parse(url));
     final res = await req.close();
     if (res.statusCode != HttpStatus.ok &&
         res.statusCode != HttpStatus.partialContent) {
@@ -1085,12 +1092,29 @@ class LocalDownloadManager extends ChangeNotifier {
     await _cleanupParts(task);
   }
 
+  /// Opens a request with the shared browser-like headers. Every engine
+  /// request (probe, segment, muxed track) goes through here so a host that
+  /// rejects the default dart:io agent does not 403 one path but not another.
+  Future<HttpClientRequest> _open(HttpClient client, Uri uri) async {
+    final req = await client.getUrl(uri);
+    req.headers.set(HttpHeaders.userAgentHeader, _userAgent);
+    req.headers.set(HttpHeaders.acceptHeader, '*/*');
+    // `autoUncompress` is off, so ask for an identity body explicitly: a
+    // transparently gzipped reply would shift byte offsets and break ranged
+    // and resumed downloads.
+    req.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
+    return req;
+  }
+
   Future<_Probe> _probe(HttpClient client, String url) async {
     final uri = Uri.parse(url);
 
     // HEAD is free and tells us length, range support, and often the filename.
     try {
       final head = await client.headUrl(uri);
+      head.headers.set(HttpHeaders.userAgentHeader, _userAgent);
+      head.headers.set(HttpHeaders.acceptHeader, '*/*');
+      head.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
       final res = await head.close();
       final name =
           _nameFromDisposition(res.headers.value('content-disposition'));
@@ -1109,7 +1133,7 @@ class LocalDownloadManager extends ChangeNotifier {
       // Some servers reject HEAD; fall through to a ranged GET.
     }
 
-    final req = await client.getUrl(uri);
+    final req = await _open(client, uri);
     req.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
     final res = await req.close();
     final status = res.statusCode;
@@ -1187,7 +1211,7 @@ class LocalDownloadManager extends ChangeNotifier {
       final end = task.segmentEnd[index];
       var done = index < task.segmentDone.length ? task.segmentDone[index] : 0;
 
-      final req = await client.getUrl(Uri.parse(task.fetchUrl));
+      final req = await _open(client, Uri.parse(task.fetchUrl));
       // Ask only for the bytes still missing. `end < 0` means the length is
       // unknown, so an open-ended range from the resume point is used.
       if (done > 0 || end >= 0) {
