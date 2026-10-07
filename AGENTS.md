@@ -107,6 +107,17 @@ These caused real, user-visible bugs. Do not regress them.
   below** the Android path first calls `ensureStorage`, which requests legacy
   `WRITE_EXTERNAL_STORAGE` at runtime; if the user declines, the file stays
   app-private instead of being lost. Android 10+ needs no permission.
+- **Publishing must never throw.** `getApplicationDocumentsDirectory()` raises
+  when no XDG `DOCUMENTS` user dir is configured, which is the norm on servers
+  and minimal Linux desktops; `_downloadsDir()` and the last-resort
+  `_appPrivate()` both degrade (HOME-based `Downloads`, then app support) rather
+  than let a fully-downloaded file fail at the publish step. A test machine with
+  no `~/Documents` will otherwise surface every completed download as an error.
+- **A retry must not re-request an already-complete segment.** After a failure
+  that happens *after* the bytes are on disk (e.g. publish), `segmentDone` for a
+  finished segment equals its length; `_fetch`'s `fetchOne` returns early there
+  instead of sending `bytes=<end+1>-<end>`, which a server answers with a full
+  `200` that is then misread as the remote file changing.
 - **Everything is filed under `Downloads/Turbo/<kind>`.** `FileStore.subfolderFor`
   maps a filename to a subfolder (`Videos`, `Music`, `Pictures`, `Archives`,
   `Documents`, `Apps`, `Other`) so media and documents are easy to tell apart.
