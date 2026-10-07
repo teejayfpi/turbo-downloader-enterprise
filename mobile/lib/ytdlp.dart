@@ -130,6 +130,42 @@ class YtdlpEngine {
     return runtime == null ? const [] : ['--js-runtimes', runtime];
   }
 
+  /// The full argument vector for a `-J` probe. Built here (not inline) so the
+  /// command line is unit-testable without spawning a process, on every OS.
+  ///
+  /// TLS verification is left on deliberately: `--no-check-certificates` would
+  /// let a network attacker swap the media or read the cookie jar in transit.
+  Future<List<String>> probeArgs(String url) async => [
+        '-J',
+        '--no-warnings',
+        '--no-playlist',
+        ...await _jsArgs(),
+        ..._cookieArgs(),
+        url,
+      ];
+
+  /// The full argument vector for a download. See [probeArgs] for the TLS note.
+  Future<List<String>> downloadArgs({
+    required String url,
+    required String selector,
+    required Directory dir,
+    required String stem,
+  }) async =>
+      [
+        url,
+        '-f', selector,
+        '--no-playlist',
+        '--no-warnings',
+        '--newline',
+        ...await _jsArgs(),
+        ..._cookieArgs(),
+        '-P', dir.path,
+        '-o', '$stem.%(ext)s',
+        '--progress-template',
+        'download:PROG %(progress.downloaded_bytes)s %(progress.total_bytes)s '
+            '%(progress.total_bytes_estimate)s %(progress.speed)s',
+      ];
+
   /// The binary in use, or null when yt-dlp is not installed.
   String? get binary => _cachedBinary;
 
@@ -216,14 +252,7 @@ class YtdlpEngine {
     }
     final result = await Process.run(
       bin,
-      [
-        '-J',
-        '--no-warnings',
-        '--no-playlist',
-        ...await _jsArgs(),
-        ..._cookieArgs(),
-        url,
-      ],
+      await probeArgs(url),
       stdoutEncoding: utf8,
       stderrEncoding: utf8,
     );
@@ -264,20 +293,12 @@ class YtdlpEngine {
     }
     if (!await dir.exists()) await dir.create(recursive: true);
 
-    final args = <String>[
-      url,
-      '-f', selector,
-      '--no-playlist',
-      '--no-warnings',
-      '--newline',
-      ...await _jsArgs(),
-      ..._cookieArgs(),
-      '-P', dir.path,
-      '-o', '$stem.%(ext)s',
-      '--progress-template',
-      'download:PROG %(progress.downloaded_bytes)s %(progress.total_bytes)s '
-          '%(progress.total_bytes_estimate)s %(progress.speed)s',
-    ];
+    final args = await downloadArgs(
+      url: url,
+      selector: selector,
+      dir: dir,
+      stem: stem,
+    );
 
     final process = await Process.start(bin, args);
 

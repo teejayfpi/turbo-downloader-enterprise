@@ -203,25 +203,23 @@ void main() {
   });
 
   test('yt-dlp is never told to skip TLS verification', () async {
-    // A captured-args fake stands in for the binary so the real command line
-    // is asserted without running yt-dlp.
+    // Assert the real argument vectors directly, on every OS, rather than
+    // spawning a fake binary (a `#!/bin/sh` script is not portable to Windows).
     final dir = Directory.systemTemp.createTempSync('ytdlp-args');
-    final log = File('${dir.path}/argv.log');
-    final fake = File('${dir.path}/yt-dlp')
-      ..writeAsStringSync('#!/bin/sh\n'
-          'printf "%s\\n" "\$@" > "${log.path}"\n'
-          "echo '{\"title\":\"x\",\"formats\":[{\"format_id\":\"22\","
-          "\"ext\":\"mp4\",\"vcodec\":\"avc1\",\"acodec\":\"mp4a\","
-          "\"height\":720}]}'\n");
-    await Process.run('chmod', ['+x', fake.path]);
+    final engine = YtdlpEngine();
 
-    final captured = YtdlpEngine();
-    captured.setBinaryForTest(fake.path);
-    await captured.probe('https://example.com/watch');
-
-    final args = log.readAsLinesSync();
-    expect(args, isNot(contains('--no-check-certificates')));
-    expect(args, contains('--no-warnings'));
-    expect(args, contains('--no-playlist'));
+    for (final args in [
+      await engine.probeArgs('https://example.com/watch'),
+      await engine.downloadArgs(
+        url: 'https://example.com/watch',
+        selector: 'best',
+        dir: dir,
+        stem: 'clip',
+      ),
+    ]) {
+      expect(args, isNot(contains('--no-check-certificates')));
+      expect(args, contains('--no-warnings'));
+      expect(args, contains('--no-playlist'));
+    }
   });
 }
