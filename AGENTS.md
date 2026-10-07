@@ -187,6 +187,21 @@ These caused real, user-visible bugs. Do not regress them.
   track and `lib/services/ffmpeg.dart` remuxes them (`-c copy`, no re-encode)
   with the bundled FFmpeg. Combined, HLS, and audio-only streams are still
   offered directly. There is no server fallback any more.
+- **yt-dlp publishes storyboards as formats; never offer them.** Each is a
+  thumbnail sprite sheet: no codecs (`vcodec`/`acodec` null) and an `mhtml`
+  container. `YtdlpEngine._parseProbe` must skip that container, otherwise a
+  video with no combined stream (every rendition video-only) lets a storyboard
+  sort to the top and become the default pick — the app downloads a `.mhtml`
+  image sheet instead of the video. A codec-less `mp4`/`m4a` (the generic
+  extractor's direct media link) must still be offered, so filter on the
+  container, not on missing codecs.
+- **Bundled FFmpeg needs an `$ORIGIN` RPATH on Linux.** FFmpegKit calls a bare
+  `dlopen("libffmpegkit.so")`, and glibc resolves a dlopen'd library's own
+  dependencies from the *caller's* RUNPATH — the executable's RUNPATH is not
+  consulted. Without `$ORIGIN` on the plugin and every `libav*`/`libsw*` in the
+  bundle, the plugin logs "libffmpegkit.so could not be loaded" and HD merging
+  is dead at runtime. `linux/CMakeLists.txt` sets this after install with
+  `patchelf` (present in a normal desktop dev env and in `desktop.yml`).
 - **A failed engine retries on the other one.** `_runTask` catches a
   `MediaResolveException` from the built-in extractor and re-runs the task
   through yt-dlp, and catches a `YtdlpException` and re-runs it through the

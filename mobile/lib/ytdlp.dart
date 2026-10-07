@@ -356,6 +356,11 @@ class YtdlpEngine {
           0;
 
       if (!hasVideo && !hasAudio) {
+        // yt-dlp also lists storyboards (thumbnail sprite sheets) as formats
+        // with no codecs and an `mhtml` container. They are images, not media,
+        // so never offer them: on a video with no combined stream they would
+        // otherwise sort to the top and become the default pick.
+        if (ext == 'mhtml') continue;
         // The generic extractor leaves the codecs unknown for a plain media
         // file (a direct .mp4/.mp3 link). Offer it as a single combined
         // download rather than dropping it — otherwise such a link inspects

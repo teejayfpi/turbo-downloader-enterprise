@@ -105,4 +105,36 @@ void main() {
 
     expect(probe.formats.map((f) => f.height).toList(), [1080, 720, 240]);
   });
+
+  test('storyboards are never offered as download formats', () {
+    // yt-dlp lists thumbnail sprite sheets as formats with no codecs and an
+    // `mhtml` container. On a video with no combined stream they would sort to
+    // the top and become the default pick — downloading a storyboard image
+    // instead of the video.
+    final probe = engine.parseProbe({
+      'title': 'No combined stream',
+      'formats': [
+        {'format_id': 'sb0', 'ext': 'mhtml', 'vcodec': 'none', 'acodec': 'none', 'height': 90},
+        {'format_id': 'sb1', 'ext': 'mhtml', 'vcodec': null, 'acodec': null, 'height': 45},
+        {'format_id': '137', 'ext': 'mp4', 'vcodec': 'avc1', 'acodec': 'none', 'height': 1080},
+        {'format_id': '140', 'ext': 'm4a', 'vcodec': 'none', 'acodec': 'mp4a', 'height': 0},
+      ],
+    }, true);
+
+    expect(probe.formats.any((f) => f.extension == 'mhtml'), isFalse);
+    expect(probe.formats.first.kind, 'video-only');
+    expect(probe.formats.first.height, 1080);
+  });
+
+  test('a direct media link is still offered despite mhtml filtering', () {
+    // The mhtml skip must not swallow a genuine codec-less media file.
+    final probe = engine.parseProbe({
+      'title': 'sample-5s',
+      'formats': [
+        {'format_id': 'mp4', 'ext': 'mp4', 'vcodec': null, 'acodec': null, 'height': null},
+      ],
+    }, false);
+    expect(probe.formats, hasLength(1));
+    expect(probe.formats.single.extension, 'mp4');
+  });
 }

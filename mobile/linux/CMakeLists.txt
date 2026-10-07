@@ -143,3 +143,35 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
+
+# --- Bundled FFmpeg library load path ---------------------------------------
+# FFmpegKit hands its native layer a bare `dlopen("libffmpegkit.so")`, and
+# glibc resolves a library's own dependencies (libavdevice, libavcodec, ...)
+# from the *caller's* RUNPATH — the executable's RUNPATH is not consulted for
+# a dlopen'd object. The plugin and every FFmpeg library therefore need an
+# explicit `$ORIGIN` RPATH so they find one another beside themselves in the
+# bundle. Without it the plugin logs "libffmpegkit.so could not be loaded" and
+# HD downloads cannot merge their video and audio tracks at runtime.
+#
+# patchelf (not CMake) does the edit: CMake's file(RPATH_*) editor is not
+# available on the versions Flutter supports. It runs after install so every
+# library is already in place. Missing patchelf only disables HD merging on
+# that machine, so it stays a warning rather than a hard build failure.
+install(CODE [[
+  find_program(PATCHELF_EXECUTABLE patchelf)
+  if(NOT PATCHELF_EXECUTABLE)
+    message(WARNING
+      "patchelf not found: bundled FFmpeg libraries keep their default RPATH, "
+      "so HD merging will not load at runtime. Install patchelf (apt install "
+      "patchelf) and rebuild, or run the bundle with LD_LIBRARY_PATH=lib.")
+    return()
+  endif()
+  file(GLOB _ffmpeg_libs
+    "${CMAKE_INSTALL_PREFIX}/lib/libffmpegkit.so*"
+    "${CMAKE_INSTALL_PREFIX}/lib/libav*.so*"
+    "${CMAKE_INSTALL_PREFIX}/lib/libsw*.so*"
+    "${CMAKE_INSTALL_PREFIX}/lib/libffmpeg_kit_flutter_new_min_plugin.so")
+  foreach(_lib ${_ffmpeg_libs})
+    execute_process(COMMAND "${PATCHELF_EXECUTABLE}" --set-rpath "$ORIGIN" "${_lib}")
+  endforeach()
+]])
