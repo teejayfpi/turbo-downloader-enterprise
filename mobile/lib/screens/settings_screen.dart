@@ -10,10 +10,13 @@ import '../format.dart';
 import '../l10n/strings.dart';
 import '../services/notifications.dart';
 import '../services/session_store.dart';
+import '../services/subscription.dart';
 import '../services/update_checker.dart';
 import '../state.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import '../widgets/access_widgets.dart';
+import 'admin_screen.dart';
 import 'credentials_screen.dart';
 import 'diagnostics_screen.dart';
 import 'storage_screen.dart';
@@ -26,6 +29,15 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  /// Maps the stored byte-per-second cap back to its preset label so the
+  /// segmented control shows the right selection.
+  static String _bandwidthPresetKey(int limit) {
+    for (final entry in TurboState.bandwidthPresets.entries) {
+      if (entry.value == limit) return entry.key;
+    }
+    return 'Unlimited';
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<TurboState>();
@@ -116,6 +128,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const _Hint('How many downloads run at the same time. Extra jobs wait in '
                 'the queue.'),
+            const SizedBox(height: 16),
+            const Kicker('Bandwidth limit', letterSpacing: 1.6),
+            const SizedBox(height: 8),
+            ModeSegment(
+              value: _bandwidthPresetKey(state.bandwidthLimit),
+              onChanged: (v) => state.setBandwidthLimit(
+                  TurboState.bandwidthPresets[v] ?? 0),
+              options: const [
+                ModeSegmentOption('Unlimited', Icons.all_inclusive_rounded,
+                    'Unlimited'),
+                ModeSegmentOption('5 MB/s', Icons.speed_rounded, '5 MB/s'),
+                ModeSegmentOption('1 MB/s', Icons.speed_rounded, '1 MB/s'),
+                ModeSegmentOption('500 KB/s', Icons.speed_rounded, '500 KB/s'),
+              ],
+            ),
+            const SizedBox(height: 6),
+            _Hint(state.bandwidthLimit == 0
+                ? 'No cap. Downloads use all the bandwidth the host will give.'
+                : 'Caps the total download rate across every transfer, so the '
+                    'rest of the device stays responsive.'),
           ],
         ),
         const SizedBox(height: 16),
@@ -318,6 +350,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ],
         ),
+        const SizedBox(height: 16),
+        _AccessSection(state: state, accent: accent),
+        if (state.adminAvailable) ...[
+          const SizedBox(height: 16),
+          _AdminEntry(state: state, accent: accent),
+        ],
         const SizedBox(height: 16),
         _EngineSection(state: state, accent: accent),
         const SizedBox(height: 16),
@@ -1005,6 +1043,248 @@ class _AboutSection extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         const WhatsAppTile(),
+      ],
+    );
+  }
+}
+
+/// Shows the current access tier, the countdown until it ends, and the key
+/// entry / removal controls.
+class _AccessSection extends StatelessWidget {
+  final TurboState state;
+  final Color accent;
+  const _AccessSection({required this.state, required this.accent});
+
+  Future<void> _activate(BuildContext context) async {
+    final ok = await showLicenceDialog(context);
+    if (ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pro activated')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final status = state.accessStatus;
+    final pro = status?.isPro ?? false;
+    final trial = status?.isTrial ?? false;
+    final remaining = state.timeRemaining();
+    final tone = pro ? p.success : (trial ? p.accent : p.error);
+
+    return _Section(
+      title: 'Access',
+      accent: accent,
+      children: [
+        Row(
+          children: [
+            Icon(
+              pro
+                  ? Icons.verified_rounded
+                  : trial
+                      ? Icons.timer_outlined
+                      : Icons.lock_outline_rounded,
+              color: tone,
+              size: 18,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    pro
+                        ? 'Pro licence'
+                        : trial
+                            ? 'Free trial'
+                            : 'Trial ended',
+                    style: TextStyle(
+                      fontFamily: TurboFonts.body,
+                      color: p.textPrimary,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    pro
+                        ? (status?.expiresAt == null
+                            ? 'Never expires'
+                            : '${formatRemaining(remaining)} · until '
+                                '${_date(status!.expiresAt!)}')
+                        : trial
+                            ? 'Full features for ${formatRemaining(remaining)}'
+                            : 'Downloads run one at a time until you activate.',
+                    style: TextStyle(
+                      fontFamily: TurboFonts.body,
+                      color: p.textMuted,
+                      fontSize: 11,
+                      height: 1.35,
+                    ),
+                  ),
+                  if (pro && status?.subscriptionId != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      '${_planLabel(status?.plan)} · ${status!.subscriptionId}',
+                      style: TextStyle(
+                        fontFamily: TurboFonts.mono,
+                        color: p.textMuted,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (status?.holder != null)
+              TurboChip(label: status!.holder!, tone: tone),
+          ],
+        ),
+        if (trial && status != null) ...[
+          const SizedBox(height: 10),
+          TurboProgressBar(
+            value: state.accessUsedFraction(),
+            color: tone,
+            height: 5,
+          ),
+        ],
+        const SizedBox(height: 14),
+        if (state.licensingEnabled)
+          Row(
+            children: [
+              Expanded(
+                child: TurboButton(
+                  label: pro ? 'Change key' : 'Enter licence key',
+                  icon: Icons.key_rounded,
+                  outline: pro,
+                  onPressed: () => _activate(context),
+                ),
+              ),
+              if (pro) ...[
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TurboButton(
+                    label: 'Remove',
+                    icon: Icons.logout_rounded,
+                    outline: true,
+                    tone: p.error,
+                    onPressed: () => state.deactivateLicence(),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        if (state.licensingEnabled) const SizedBox(height: 8),
+        if (state.deviceId != null && !pro) ...[
+          Row(
+            children: [
+              Icon(Icons.smartphone_rounded, size: 14, color: p.textMuted),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Device id ${state.deviceId}',
+                  style: TextStyle(
+                    fontFamily: TurboFonts.mono,
+                    color: p.textMuted,
+                    fontSize: 10.5,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () async {
+                  await Clipboard.setData(
+                      ClipboardData(text: state.deviceId!));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Device id copied')),
+                    );
+                  }
+                },
+                child: const Text('Copy'),
+              ),
+            ],
+          ),
+          Text(
+            'Send this id to the owner if you want a key locked to this device.',
+            style: TextStyle(
+              fontFamily: TurboFonts.body,
+              color: p.textMuted,
+              fontSize: 10,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 6),
+        ],
+        Text(
+          state.licensingEnabled
+              ? 'Keys are verified on this device with a signature. Nothing is '
+                  'sent to a server, and no account is required.'
+              : 'This build runs on the free trial only. Use the build that was '
+                  'compiled with a licence key to activate Pro.',
+          style: TextStyle(
+            fontFamily: TurboFonts.body,
+            color: p.textMuted,
+            fontSize: 10.5,
+            height: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _date(DateTime value) {
+    final local = value.toLocal();
+    return '${local.year}-${local.month.toString().padLeft(2, '0')}-'
+        '${local.day.toString().padLeft(2, '0')}';
+  }
+
+  String _planLabel(String? plan) =>
+      plan == null ? 'Licence' : BillingPlan.fromName(plan).label;
+}
+
+/// The owner's way into the admin console. Only rendered when the build can
+/// verify keys, so a user-facing release never shows it.
+class _AdminEntry extends StatelessWidget {
+  final TurboState state;
+  final Color accent;
+  const _AdminEntry({required this.state, required this.accent});
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return _Section(
+      title: 'Owner console',
+      accent: accent,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.admin_panel_settings_rounded,
+                size: 18, color: p.accent),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Issue and review time-limited access keys. Keep this build '
+                'private; users only need the key you send them.',
+                style: TextStyle(
+                  fontFamily: TurboFonts.body,
+                  color: p.textMuted,
+                  fontSize: 11,
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        TurboButton(
+          label: state.adminUnlocked ? 'Open console' : 'Unlock console',
+          icon: Icons.key_rounded,
+          outline: true,
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const AdminScreen()),
+          ),
+        ),
       ],
     );
   }

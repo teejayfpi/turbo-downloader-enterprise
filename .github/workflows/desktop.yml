@@ -70,7 +70,7 @@ jobs:
         run: flutter test
 
       - name: Build ${{ matrix.target }}
-        run: flutter build ${{ matrix.target }} --release
+        run: flutter build ${{ matrix.target }} --release --dart-define=TURBO_LICENCE_PUBLIC_KEY=${{ secrets.TURBO_LICENCE_PUBLIC_KEY }}
 
       - name: Upload bundle
         uses: actions/upload-artifact@v5

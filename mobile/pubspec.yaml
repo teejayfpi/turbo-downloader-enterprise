@@ -1,7 +1,7 @@
 name: turbo_downloader
 description: "Turbo — offline-first download manager for Android and desktop."
 publish_to: 'none'
-version: 2.4.0+9
+version: 2.7.0+12
 
 environment:
   sdk: ^3.5.4
@@ -28,6 +28,10 @@ dependencies:
   url_launcher: ^6.3.0
   # SHA-256 fingerprints for credentials, checksums, and release verification.
   crypto: ^3.0.3
+  # Ed25519 signatures verify offline licence keys (time-limited access). The
+  # private key never ships; only the public key is bundled, so a licence can be
+  # checked on-device with no server in the loop.
+  cryptography: ^2.7.0
   # Bundled FFmpeg, used to merge the separate video and audio tracks that
   # YouTube serves above 360p. The `min` build keeps H.264/AAC and the MP4
   # muxer without the encoders we never use, so the APK stays small.

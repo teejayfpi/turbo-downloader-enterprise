@@ -84,6 +84,50 @@ Turbo mode (the default) raises the parallel-segment ceiling to 16 for
 range-capable hosts and lets several downloads run at once. The Add screen and
 Settings expose the connection count, and Settings has a Balanced/Turbo switch.
 
+## Bandwidth limit
+
+Settings → Device engine → Bandwidth limit caps the total download rate for the
+whole device, so downloads do not saturate a connection you are still using.
+Choose Unlimited (default), 5 MB/s, 1 MB/s, or 500 KB/s. The cap is enforced by a
+shared token bucket in `lib/services/bandwidth.dart` that every HTTP transfer
+draws from, and passed to yt-dlp as `--limit-rate`, so it applies to both engines
+and to concurrent downloads together.
+
+## Scheduled downloads
+
+Any link can be queued for a later time instead of starting immediately. On the
+Add screen, tap Schedule to pick a preset (in 15 minutes, tonight at 22:00,
+tomorrow at 08:00) or an exact date and time; the task waits in the queue and
+starts on its own, so the app does not need to stay open. A scheduled task is
+labelled in the list and can be started early or rescheduled from its menu.
+
+## Trial and Pro access
+
+Every install starts a 7-day trial with a live countdown shown in the app bar
+and in Settings → Access. When the trial ends the app keeps working at the free
+tier (one download at a time, no batch or scheduling); a signed Pro key lifts
+those limits for as long as the key allows.
+
+There is no server, account, or API key. A key is verified on-device with an
+Ed25519 public key baked into the build. The app only ever holds the public
+half, so it can check a key but never mint one. The countdown also remembers the
+latest time it has seen, so winding the system clock back does not extend access.
+
+The operator commands to generate a keypair, issue keys, and ship a build that
+accepts them are in [`../docs/LICENSING.md`](../docs/LICENSING.md). In short:
+
+```bash
+cd mobile
+dart run tools/license_tool.dart keygen          # create a keypair
+dart run tools/license_tool.dart issue --seed <seed> --days 365 --holder "Ada"
+flutter build apk --release \
+  --dart-define=TURBO_LICENCE_PUBLIC_KEY=<public key>
+```
+
+In CI, set the `TURBO_LICENCE_PUBLIC_KEY` repository secret; the Android and
+desktop workflows pass it through. Without it the app runs on the trial alone
+and hides the key-entry controls.
+
 ## Requirements
 
 - Flutter 3.24.x (Dart 3.5.4)
@@ -153,6 +197,10 @@ ChakraPetch for the display face, JetBrains Mono for numbers and identifiers).
 | `lib/credits.dart` | Designer attribution, WhatsApp link + app version |
 | `lib/contact.dart` | WhatsApp contact tile (opens a chat via `url_launcher`) |
 | `lib/state.dart` | `ChangeNotifier` holding settings, engines, and the device queue |
+| `lib/services/access.dart` | Trial clock, licence activation, and the time-limited access status |
+| `lib/services/licence.dart` | Ed25519 licence format: sign and verify |
+| `lib/widgets/access_widgets.dart` | Countdown banner, app-bar chip, and licence-key dialog |
+| `tools/license_tool.dart` | Operator CLI: `keygen`, `issue`, `inspect` |
 | `lib/media_url.dart` | Detects media pages vs files and classifies file kinds |
 | `lib/local_downloader.dart` | On-device engine: ranged/segmented fetch, resume, persistence, yt-dlp routing |
 | `lib/media_extractor.dart` | Resolves a YouTube page to a direct stream on-device |

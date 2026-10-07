@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'local_downloader.dart';
 import 'media_url.dart';
+import 'services/access.dart';
 import 'services/device_policy.dart';
 import 'services/diagnostics.dart';
 import 'services/history_store.dart';
@@ -13,6 +14,7 @@ import 'services/retry_policy.dart';
 import 'services/secure_store.dart';
 import 'services/session_store.dart';
 import 'services/settings_store.dart';
+import 'services/subscription.dart';
 import 'services/storage_stats.dart';
 import 'services/update_checker.dart';
 import 'services/url_validator.dart';
@@ -101,6 +103,9 @@ class TurboState extends ChangeNotifier {
     SecureStore? secure,
     SessionStore? session,
     UpdateInstaller? installer,
+    AccessManager? access,
+    AdminGate? admin,
+    SubscriptionLedger? ledger,
   })  : settings = settings ?? SettingsStore(),
         history = history ?? HistoryStore(),
         diagnostics = diagnostics ?? Diagnostics(),
@@ -110,7 +115,10 @@ class TurboState extends ChangeNotifier {
         notifications = notifications ?? const Notifications(),
         secure = secure ?? SecureStore(),
         session = session ?? SessionStore(),
-        installer = installer ?? UpdateInstaller() {
+        installer = installer ?? UpdateInstaller(),
+        access = access ?? AccessManager(),
+        admin = admin ?? AdminGate(),
+        ledger = ledger ?? SubscriptionLedger() {
     local.addListener(_safeNotify);
     local.history = this.history;
     local.diagnostics = this.diagnostics;
@@ -128,6 +136,9 @@ class TurboState extends ChangeNotifier {
   final SecureStore secure;
   final SessionStore session;
   final UpdateInstaller installer;
+  final AccessManager access;
+  final AdminGate admin;
+  final SubscriptionLedger ledger;
 
   // --------------------------------------------------------------- appearance
 
@@ -192,6 +203,166 @@ class TurboState extends ChangeNotifier {
   /// Watch the clipboard for copied links and offer them in the Add tab.
   bool clipboardMonitor = false;
 
+  /// Aggregate download cap in bytes per second. 0 means unlimited. Applied to
+  /// the built-in engine and yt-dlp through [LocalDownloadManager].
+  int bandwidthLimit = 0;
+
+  // ------------------------------------------------------------------- access
+
+  /// The latest access snapshot. Null until [init] has read the licence.
+  AccessStatus? accessStatus;
+
+  /// True when the app is licensed or still inside its trial.
+  bool get hasAccess => accessStatus?.hasAccess ?? true;
+
+  /// True when the stored licence is a Pro key that has not expired.
+  bool get isPro => accessStatus?.isPro ?? false;
+
+  /// True when this build was compiled with a licence public key, so it can
+  /// accept signed keys. False means the app runs on the trial alone.
+  bool get licensingEnabled => access.isLicensingEnabled;
+
+  /// The app's effective clock: never earlier than the last time it was seen.
+  DateTime get accessNow => access.effectiveNow();
+
+  /// Time left before access ends, or null when it never does.
+  Duration? timeRemaining() => accessStatus?.remainingAt(accessNow);
+
+  /// 0..1 of the access window already used, for a progress bar.
+  double accessUsedFraction() => accessStatus?.usedFractionAt(accessNow) ?? 0;
+
+  /// The concurrency the user may actually run, capped for unlicensed installs.
+  int get effectiveMaxConcurrent => hasAccess ? maxConcurrent : 1;
+
+  /// Whether queuing a download for later is allowed.
+  bool get canSchedule => hasAccess;
+
+  /// Re-reads the access snapshot and re-applies any tier limits.
+  void refreshAccess() {
+    accessStatus = access.status();
+    local.maxConcurrent = effectiveMaxConcurrent;
+    _safeNotify();
+  }
+
+  /// Verifies and stores a licence key. Returns null on success, or a reason.
+  Future<String?> activateLicence(String token) async {
+    final error = await access.activate(token);
+    if (error == null) refreshAccess();
+    return error;
+  }
+
+  /// Removes the stored licence, returning to trial or free access.
+  Future<void> deactivateLicence() async {
+    await access.deactivate();
+    refreshAccess();
+  }
+
+  // -------------------------------------------------------------------- admin
+
+  /// The owner's ledger of issued subscriptions, newest first.
+  List<Subscription> get subscriptions => ledger.all;
+
+  /// True when this build can verify keys, so the admin panel is meaningful.
+  bool get adminAvailable => access.isLicensingEnabled;
+
+  /// True once the owner has set a passphrase for the admin panel.
+  bool get adminConfigured => admin.hasPassphrase;
+
+  /// True while the admin panel is unlocked for this session.
+  bool get adminUnlocked => admin.isUnlocked;
+
+  /// True when the owner's signing seed is stored, so keys can be minted here.
+  bool get adminHasSeed => admin.hasSeed;
+
+  /// This install's device id, shown in Settings so a user can send it to the
+  /// owner for a device-bound key.
+  String? deviceId;
+
+  /// The admin's subscription counts at the current time.
+  ({int total, int active, int expired, int perpetual}) get subscriptionStats =>
+      ledger.stats(accessNow);
+
+  /// Sets the owner passphrase (first run) and unlocks the panel.
+  Future<void> setAdminPassphrase(String passphrase) async {
+    await admin.setPassphrase(passphrase);
+    _safeNotify();
+  }
+
+  /// Tries to unlock the admin panel with [passphrase].
+  Future<bool> unlockAdmin(String passphrase) async {
+    final ok = await admin.unlock(passphrase);
+    _safeNotify();
+    return ok;
+  }
+
+  void lockAdmin() {
+    admin.lock();
+    _safeNotify();
+  }
+
+  /// Stores the owner's Ed25519 seed so the app can issue keys itself.
+  Future<String?> setAdminSeed(String seed) async {
+    try {
+      await LicenceIssuer.fromSeed(seed);
+    } catch (_) {
+      return 'That seed is not a valid Ed25519 key.';
+    }
+    await admin.setSeed(seed);
+    _safeNotify();
+    return null;
+  }
+
+  /// Issues and records a subscription for [holder] on [plan]. Requires the
+  /// admin panel to be unlocked and a seed to be stored.
+  Future<({Subscription? subscription, String? error})> issueSubscription({
+    required String holder,
+    required BillingPlan plan,
+    DateTime? expiresAt,
+    String? deviceId,
+  }) async {
+    final seed = admin.seed;
+    if (seed == null) return (subscription: null, error: 'Unlock admin first.');
+    final name = holder.trim();
+    if (name.isEmpty) return (subscription: null, error: 'Enter a name.');
+    if (plan == BillingPlan.custom && expiresAt == null) {
+      return (subscription: null, error: 'Pick an end date.');
+    }
+    final issuer = await LicenceIssuer.fromSeed(seed);
+    final result = await issuer.issue(
+      holder: name,
+      plan: plan,
+      expiresAt: expiresAt,
+      deviceId: deviceId,
+    );
+    await ledger.add(result.subscription);
+    _safeNotify();
+    return (subscription: result.subscription, error: null);
+  }
+
+  /// Removes a subscription from the ledger. The key keeps working until it
+  /// expires, because verification is offline; this only forgets it locally.
+  Future<void> revokeSubscription(String id) async {
+    await ledger.remove(id);
+    _safeNotify();
+  }
+
+  /// Clears the admin passphrase and signing seed (forgot-passphrase path).
+  Future<void> resetAdmin() async {
+    await admin.reset();
+    _safeNotify();
+  }
+
+  /// Named presets shown in Settings, in bytes per second (0 = unlimited).
+  static const bandwidthPresets = <String, int>{
+    'Unlimited': 0,
+    '10 MB/s': 10 * 1024 * 1024,
+    '5 MB/s': 5 * 1024 * 1024,
+    '2 MB/s': 2 * 1024 * 1024,
+    '1 MB/s': 1024 * 1024,
+    '500 KB/s': 512 * 1024,
+    '256 KB/s': 256 * 1024,
+  };
+
   // ------------------------------------------------------------------- status
 
   bool loading = true;
@@ -248,6 +419,7 @@ class TurboState extends ChangeNotifier {
   bool _disposed = false;
   Timer? _deviceTimer;
   Timer? _progressTimer;
+  Timer? _accessTimer;
 
   static const _startupTimeout = Duration(seconds: 12);
 
@@ -285,10 +457,23 @@ class TurboState extends ChangeNotifier {
       notifyStyle =
           _notifyStyleFrom(prefs.getString(SettingsStore.kNotifyComplete));
       clipboardMonitor = prefs.getBool(SettingsStore.kClipboardMonitor) ?? false;
+      bandwidthLimit = prefs.getInt(SettingsStore.kBandwidthLimit) ?? 0;
 
       local.maxConnections = speedMode.connections(defaultConnections);
       local.maxConcurrent = maxConcurrent;
+      local.setBandwidthLimit(bandwidthLimit);
       if (!autoRetry) local.retryPolicy = RetryPolicy.none;
+
+      stage = 'access';
+      await access.init().timeout(_startupTimeout);
+      await access.ensureStarted().timeout(_startupTimeout);
+      accessStatus = access.status();
+      local.maxConcurrent = effectiveMaxConcurrent;
+
+      stage = 'licensing admin';
+      await admin.init().timeout(_startupTimeout);
+      await ledger.init().timeout(_startupTimeout);
+      deviceId = await SecureStore.deviceId().timeout(_startupTimeout);
 
       stage = 'history';
       await history.init().timeout(_startupTimeout);
@@ -307,6 +492,9 @@ class TurboState extends ChangeNotifier {
       });
       _progressTimer ??= Timer.periodic(const Duration(seconds: 3), (_) {
         _pushProgressNotification();
+      });
+      _accessTimer ??= Timer.periodic(const Duration(seconds: 30), (_) {
+        _refreshAccess();
       });
       if (checkUpdates) unawaited(checkForUpdates());
     } catch (error) {
@@ -478,7 +666,7 @@ class TurboState extends ChangeNotifier {
 
   Future<void> setMaxConcurrent(int value) async {
     maxConcurrent = value.clamp(1, 6);
-    local.maxConcurrent = maxConcurrent;
+    local.maxConcurrent = effectiveMaxConcurrent;
     await settings.setInt(SettingsStore.kMaxConcurrent, maxConcurrent);
     local.resumeAll();
     _safeNotify();
@@ -535,6 +723,14 @@ class TurboState extends ChangeNotifier {
     _safeNotify();
   }
 
+  /// Applies a new aggregate bandwidth cap (bytes per second; 0 = unlimited).
+  Future<void> setBandwidthLimit(int bytesPerSecond) async {
+    bandwidthLimit = bytesPerSecond < 0 ? 0 : bytesPerSecond;
+    local.setBandwidthLimit(bandwidthLimit);
+    await settings.setInt(SettingsStore.kBandwidthLimit, bandwidthLimit);
+    _safeNotify();
+  }
+
   Future<void> completeOnboarding() async {
     onboardingDone = true;
     await settings.setBool(SettingsStore.kOnboardingDone, true);
@@ -552,6 +748,16 @@ class TurboState extends ChangeNotifier {
       batteryAware: batteryAware,
     );
     local.setNetworkBlocked(blocked);
+    _safeNotify();
+  }
+
+  /// Advances the access high-water mark and re-reads the countdown. Runs on a
+  /// timer so a licence that expires mid-session locks without a restart.
+  Future<void> _refreshAccess() async {
+    if (_disposed) return;
+    await access.markSeen();
+    accessStatus = access.status();
+    local.maxConcurrent = effectiveMaxConcurrent;
     _safeNotify();
   }
 
@@ -800,6 +1006,7 @@ class TurboState extends ChangeNotifier {
     String? formatId,
     String? extensionHint,
     ProbeResult? mediaInfo,
+    DateTime? startAt,
   }) {
     final trimmed = url.trim();
     final known = isMediaUrl(trimmed);
@@ -818,6 +1025,8 @@ class TurboState extends ChangeNotifier {
     }
 
     final conns = speedMode.connections(connections ?? defaultConnections);
+    // Scheduling is part of the paid tier; an unlicensed install downloads now.
+    final scheduleAt = canSchedule ? startAt : null;
     return local.addIfNew(
       trimmed,
       filename: filename ?? mediaInfo?.title,
@@ -831,6 +1040,7 @@ class TurboState extends ChangeNotifier {
       mediaAuthor: mediaInfo?.author,
       mediaDuration: mediaInfo?.durationSeconds,
       thumbnailUrl: mediaInfo?.thumbnailUrl,
+      startAt: scheduleAt,
     );
   }
 
@@ -846,12 +1056,17 @@ class TurboState extends ChangeNotifier {
     List<BrowseVideo> videos, {
     int probeLimit = 5,
   }) async {
+    // Batch downloads are part of the paid tier. Without access, queue only the
+    // first video so the core downloader still works.
+    final requested = videos.length;
+    final allowed = hasAccess ? videos : videos.take(1).toList();
+
     var queued = 0;
     var duplicates = 0;
     var failed = 0;
 
-    for (var i = 0; i < videos.length; i++) {
-      final video = videos[i];
+    for (var i = 0; i < allowed.length; i++) {
+      final video = allowed[i];
       ProbeResult? probe;
       MediaFormat? format;
       if (i < probeLimit) {
@@ -886,7 +1101,7 @@ class TurboState extends ChangeNotifier {
       queued: queued,
       duplicates: duplicates,
       failed: failed,
-      total: videos.length,
+      total: requested,
     );
   }
 
@@ -936,6 +1151,7 @@ class TurboState extends ChangeNotifier {
     _disposed = true;
     _deviceTimer?.cancel();
     _progressTimer?.cancel();
+    _accessTimer?.cancel();
     unawaited(notifications.setProgress(active: 0, percent: 0));
     local.removeListener(_safeNotify);
     local.dispose();

@@ -664,4 +664,132 @@ void main() {
     expect(task.error, 'Could not merge the tracks.');
     expect(task.errorKind, 'mux');
   });
+
+  group('scheduling', () {
+    test('a future start time holds the task until startNow', () async {
+      final data = _blob(512 * 1024);
+      final origin = _Origin(data)..start();
+      addTearDown(origin.stop);
+
+      final manager = await _manager(root);
+      addTearDown(manager.dispose);
+
+      final task = manager.add(
+        origin.url,
+        filename: 'later.bin',
+        startAt: DateTime.now().add(const Duration(hours: 1)),
+      );
+
+      expect(task.isQueued, isTrue);
+      expect(task.isScheduled, isTrue);
+      expect(task.isRunning, isFalse);
+      expect(manager.scheduledCount, 1);
+
+      // Nothing should start while the start time is in the future.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(task.isRunning, isFalse);
+      expect(task.isQueued, isTrue);
+
+      // Start now clears the schedule and lets it run.
+      manager.startNow(task.id);
+      final done = await _waitFor(() => task.isCompleted || task.isFailed);
+      expect(done, isTrue, reason: 'task did not settle: ${task.status}');
+      expect(task.isCompleted, isTrue);
+      expect(task.startAt, isNull);
+      expect(await File(task.filePath!).readAsBytes(), equals(data));
+    });
+
+    test('a past start time does not delay the transfer', () async {
+      final data = _blob(256 * 1024);
+      final origin = _Origin(data)..start();
+      addTearDown(origin.stop);
+
+      final manager = await _manager(root);
+      addTearDown(manager.dispose);
+
+      final task = manager.add(
+        origin.url,
+        filename: 'now.bin',
+        startAt: DateTime.now().subtract(const Duration(minutes: 5)),
+      );
+
+      final done = await _waitFor(() => task.isCompleted || task.isFailed);
+      expect(done, isTrue, reason: 'task did not settle: ${task.status}');
+      expect(task.isCompleted, isTrue);
+    });
+
+    test('schedule() can postpone a queued task and later release it', () async {
+      final data = _blob(256 * 1024);
+      final origin = _Origin(data)..start();
+      addTearDown(origin.stop);
+
+      final manager = await _manager(root);
+      addTearDown(manager.dispose);
+
+      // Queue while another task occupies the single worker slot so this one
+      // stays queued long enough to reschedule.
+      manager.maxConcurrent = 1;
+      final blocker = manager.add(
+        origin.url,
+        filename: 'blocker.bin',
+        connections: 1,
+      );
+      final task = manager.add(origin.url, filename: 'waiting.bin');
+
+      expect(task.isQueued, isTrue);
+      manager.schedule(task.id, DateTime.now().add(const Duration(hours: 2)));
+      expect(task.isScheduled, isTrue);
+      expect(manager.scheduledCount, 1);
+
+      // Releasing the schedule clears the flag and it becomes runnable.
+      manager.schedule(task.id, null);
+      expect(task.isScheduled, isFalse);
+      expect(manager.scheduledCount, 0);
+
+      await _waitFor(() => blocker.isCompleted || blocker.isFailed);
+      final done = await _waitFor(() => task.isCompleted || task.isFailed);
+      expect(done, isTrue, reason: 'task did not settle: ${task.status}');
+      expect(task.isCompleted, isTrue);
+    });
+
+    test('startAt survives a queue round-trip', () {
+      final when = DateTime.now().add(const Duration(days: 30));
+      final task = LocalTask(
+        id: 'x',
+        url: 'https://example.com/a.bin',
+        filename: 'a.bin',
+        connections: 4,
+        startAt: when,
+        createdAt: DateTime(2026, 4, 30),
+      );
+      final restored = LocalTask.fromJson(task.toJson());
+      expect(restored.startAt, when);
+      expect(restored.isScheduled, isTrue);
+    });
+  });
+
+  group('bandwidth limit', () {
+    test('throttles a real transfer to roughly the configured rate', () async {
+      // 512 KiB file with a 256 KiB/s cap: the first 256 KiB comes out of the
+      // initial bucket, so the remaining half takes about one second.
+      final data = _blob(512 * 1024);
+      final origin = _Origin(data)..start();
+      addTearDown(origin.stop);
+
+      final manager = await _manager(root);
+      addTearDown(manager.dispose);
+      manager.setBandwidthLimit(256 * 1024);
+
+      final started = DateTime.now();
+      final task = manager.add(origin.url, filename: 'capped.bin');
+      final done = await _waitFor(() => task.isCompleted || task.isFailed);
+      final elapsed = DateTime.now().difference(started);
+
+      expect(done, isTrue, reason: 'task did not settle: ${task.status}');
+      expect(task.isCompleted, isTrue);
+      expect(await File(task.filePath!).readAsBytes(), equals(data));
+      expect(elapsed, greaterThan(const Duration(milliseconds: 700)),
+          reason: 'the cap should have spread the transfer over time');
+    });
+  });
 }

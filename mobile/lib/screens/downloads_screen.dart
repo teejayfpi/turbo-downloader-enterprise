@@ -9,6 +9,7 @@ import '../media_url.dart';
 import '../state.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import '../widgets/schedule_sheet.dart';
 
 class DownloadsScreen extends StatefulWidget {
   const DownloadsScreen({super.key});
@@ -482,7 +483,7 @@ class _DownloadCard extends StatelessWidget {
                   runSpacing: 4,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    StatusPill(status: task.status),
+                    StatusPill(status: task.isScheduled ? 'scheduled' : task.status),
                     Kicker('${task.connections} conn',
                         size: 9, letterSpacing: 1.0),
                     if (task.kind == 'media')
@@ -555,6 +556,14 @@ class _DownloadCard extends StatelessWidget {
               ],
             ),
           ],
+          if (task.isScheduled) ...[
+            const SizedBox(height: 10),
+            Notice(
+              icon: Icons.schedule_rounded,
+              color: p.speedUltra,
+              text: 'Scheduled to start ${formatStartAt(task.startAt)}.',
+            ),
+          ],
           if (task.awaitingRetry) ...[
             const SizedBox(height: 10),
             Notice(
@@ -587,6 +596,7 @@ class _DownloadCard extends StatelessWidget {
     if (task.isCompleted) return (Icons.check_circle_rounded, p.success);
     if (task.isPaused) return (Icons.pause_circle_rounded, p.warning);
     if (task.isRunning) return (Icons.downloading_rounded, p.accent);
+    if (task.isScheduled) return (Icons.event_available_rounded, p.speedUltra);
     if (task.awaitingRetry) return (Icons.restart_alt_rounded, p.warning);
     return (Icons.schedule_rounded, p.textSecondary);
   }
@@ -609,6 +619,16 @@ class _DownloadCard extends StatelessWidget {
     }
   }
 
+  /// Opens the scheduler for this task and applies the result.
+  Future<void> _schedule(BuildContext context, TurboState state) async {
+    final picked = await showScheduleSheet(context, initial: task.startAt);
+    if (picked == null) return;
+    state.local.schedule(
+      task.id,
+      picked == startNowSentinel ? null : picked,
+    );
+  }
+
   Widget _actions(BuildContext context) {
     final p = context.palette;
     final state = context.read<TurboState>();
@@ -622,6 +642,12 @@ class _DownloadCard extends StatelessWidget {
             break;
           case 'resume':
             state.local.resume(task.id);
+            break;
+          case 'startNow':
+            state.local.startNow(task.id);
+            break;
+          case 'schedule':
+            _schedule(context, state);
             break;
           case 'retry':
             state.local.retry(task.id);
@@ -644,6 +670,11 @@ class _DownloadCard extends StatelessWidget {
         }
       },
       itemBuilder: (context) => [
+        if (task.isScheduled)
+          _menuItem(context, 'startNow', Icons.play_arrow_rounded, 'Start now'),
+        if (task.isQueued || task.isPaused)
+          _menuItem(context, 'schedule', Icons.schedule_rounded,
+              task.isScheduled ? 'Change start time' : 'Schedule…'),
         if (task.isRunning || task.isQueued)
           _menuItem(context, 'pause', Icons.pause_rounded, 'Pause'),
         if (task.isPaused)

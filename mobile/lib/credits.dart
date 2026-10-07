@@ -19,4 +19,4 @@ class Designer {
 
 /// The version shown in the splash, Settings, and the update check. Keep in
 /// sync with `version:` in pubspec.yaml — `test/version_test.dart` enforces it.
-const appVersion = '2.4.0';
+const appVersion = '2.7.0';

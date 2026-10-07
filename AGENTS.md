@@ -49,6 +49,30 @@ real tests in `mobile/test/local_downloader_test.dart`; they bind a loopback
 `HttpServer` and check exact bytes for segmented, non-range, lying-server,
 unknown-length, and resume cases. Run them before touching `local_downloader.dart`.
 
+Access/licence: `mobile/test/access_test.dart` covers the trial clock, signed
+keys, and the tier gates. `mobile/test/subscription_test.dart` covers billing
+plans, key issuance, the subscription ledger, the admin gate, and device
+binding. To exercise the signing tool:
+
+```bash
+cd mobile
+dart run tools/license_tool.dart keygen
+dart run tools/license_tool.dart issue --seed <seed> --plan monthly --holder "Ada"
+dart run tools/license_tool.dart inspect <key> --public <public key>
+```
+
+Plans are `daily`, `weekly`, `monthly`, `quarterly`, `yearly`, or `custom`
+(with `--days`/`--expires`). `--device <id>` binds a key to one device. The
+owner console (**Settings → Owner console**, gated by a passphrase) does the
+same from inside the app; it only appears when the build carries a public key.
+Keep the pure signing logic in `licence.dart` — it must stay free of Flutter
+imports so `tools/license_tool.dart` runs under plain `dart`.
+
+A release build only accepts keys when compiled with
+`--dart-define=TURBO_LICENCE_PUBLIC_KEY=<public key>`. Without it the app runs on
+the trial alone and hides the key-entry controls; `flutter build bundle` is
+enough to confirm the whole app compiles when a platform toolchain is missing.
+
 `npm run build` builds the client. After pushing to `main`, confirm the Render
 deploy reaches `live` and re-check `GET /health`.
 
@@ -137,6 +161,18 @@ These caused real, user-visible bugs. Do not regress them.
   (`SecureStore`, `Notifications`, `DevicePolicy`, `FileStore`) catches
   `MissingPluginException` and falls back. Do not let a new bridge throw on
   desktop or in tests.
+- **The bandwidth governor is one shared token bucket.** `lib/services/bandwidth.dart`
+  holds a [BandwidthGovernor] that every transfer draws from, so the cap is a
+  device-wide total rather than a per-task one. The built-in HTTP engine calls
+  `consume(n)` before each write and awaits the returned delay; the yt-dlp engine
+  is capped with `--limit-rate` from the same `TurboState.bandwidthLimit`. 0 means
+  unlimited. Keep the governor clock injectable so tests stay deterministic.
+- **Scheduled downloads are queue state, not timers per task.** A `LocalTask`
+  carries an optional `startAt`; `LocalTask.isScheduled` is true while that time
+  is still in the future, and the manager's single `_scheduleTimer` wakes the
+  pump at the soonest start time instead of spinning. `TurboState.addLink`
+  passes `startAt` through, and `schedule`/`startNow` change or clear it. Do not
+  start a task in `_pump` before its `startAt` has passed.
 - **The UI is a "precision instrument console"**: bundled Sora / ChakraPetch /
   JetBrains Mono, corner-tick `TurboPanel` frames, uppercase mono `Kicker`s,
   status-railed task cards. Design primitives live in `lib/theme.dart`, shared
@@ -222,3 +258,8 @@ Render service: `srv-davrc8lg1s2s73bjjsb0`. Env vars can be set per key with
 
 Never commit cookies or tokens. `YT_DLP_COOKIES_DATA` holds a live signed-in
 session and must be rotated after use.
+
+The workspace `GITHUB_TOKEN` may belong to a different account than the repo
+owner and can be **read-only** on the upstream repository. If `git push` returns
+403 and the token cannot fork, the commit is still valid — report the branch and
+SHA to the user instead of retrying, and do not rewrite history to work around it.

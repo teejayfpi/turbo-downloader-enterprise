@@ -80,11 +80,15 @@ jobs:
           } > android/key.properties
           echo "Release signing configured."
 
+      # The licence public key lets a release build accept signed Pro keys.
+      # Set the TURBO_LICENCE_PUBLIC_KEY repository secret to the public half of
+      # the keypair from `dart run tools/license_tool.dart keygen`. Leave it
+      # unset and the app simply runs on the trial.
       - name: Build APK
-        run: flutter build apk --release
+        run: flutter build apk --release --dart-define=TURBO_LICENCE_PUBLIC_KEY=${{ secrets.TURBO_LICENCE_PUBLIC_KEY }}
 
       - name: Build AAB
-        run: flutter build appbundle --release
+        run: flutter build appbundle --release --dart-define=TURBO_LICENCE_PUBLIC_KEY=${{ secrets.TURBO_LICENCE_PUBLIC_KEY }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v5

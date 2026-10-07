@@ -274,13 +274,17 @@ class _Segment extends StatelessWidget {
           children: [
             Icon(option.icon, size: 16, color: selected ? accent : p.textMuted),
             const SizedBox(width: 8),
-            Text(
-              option.label,
-              style: TextStyle(
-                fontFamily: TurboFonts.body,
-                color: selected ? p.textPrimary : p.textMuted,
-                fontSize: 13,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            Flexible(
+              child: Text(
+                option.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontFamily: TurboFonts.body,
+                  color: selected ? p.textPrimary : p.textMuted,
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
               ),
             ),
           ],

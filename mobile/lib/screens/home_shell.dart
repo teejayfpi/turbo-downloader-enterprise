@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../link_inbox.dart';
 import '../state.dart';
 import '../theme.dart';
+import '../widgets/access_widgets.dart';
 import 'browse_screen.dart';
 import 'downloads_screen.dart';
 import 'add_screen.dart';
@@ -98,6 +99,10 @@ class _HomeShellState extends State<HomeShell> {
           ],
         ),
         actions: [
+          const Padding(
+            padding: EdgeInsets.only(right: 10),
+            child: AccessChip(),
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 14),
             child: _StatusChip(
@@ -107,14 +112,21 @@ class _HomeShellState extends State<HomeShell> {
           ),
         ],
       ),
-      body: IndexedStack(
-        index: _index,
-        children: const [
-          DownloadsScreen(),
-          BrowseScreen(),
-          AddScreen(),
-          HistoryScreen(),
-          SettingsScreen(),
+      body: Column(
+        children: [
+          const AccessBanner(),
+          Expanded(
+            child: IndexedStack(
+              index: _index,
+              children: const [
+                DownloadsScreen(),
+                BrowseScreen(),
+                AddScreen(),
+                HistoryScreen(),
+                SettingsScreen(),
+              ],
+            ),
+          ),
         ],
       ),
       bottomNavigationBar: Container(
