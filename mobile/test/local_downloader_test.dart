@@ -8,7 +8,7 @@ import 'package:turbo_downloader/local_downloader.dart';
 /// Serves a byte blob over real HTTP, with configurable range support, so the
 /// engine is exercised end to end rather than against a mock.
 class _Origin {
-  final List<int> data;
+  List<int> data;
   final bool supportRange;
   final bool advertiseAcceptRanges;
   final int? throttle;
@@ -16,6 +16,13 @@ class _Origin {
   /// When true, any request whose User-Agent is missing or contains "dart"
   /// (the bare dart:io default) is answered 403, the way many CDNs reject it.
   final bool rejectDartAgent;
+
+  /// Resource validator advertised as `ETag`. Mutable so a test can simulate
+  /// the remote file changing between attempts.
+  String? etag;
+
+  /// The last `If-Range` header the server saw, for assertions.
+  String? lastIfRange;
   HttpServer? _server;
 
   _Origin(
@@ -24,7 +31,14 @@ class _Origin {
     this.advertiseAcceptRanges = true,
     this.throttle,
     this.rejectDartAgent = false,
+    this.etag,
   });
+
+  /// Replaces the served bytes and their validator, as a redeployed file would.
+  void mutate(List<int> newData, {String? newEtag}) {
+    data = newData;
+    etag = newEtag;
+  }
 
   String get url =>
       'http://127.0.0.1:${_server!.port}/payload.bin';
@@ -38,8 +52,14 @@ class _Origin {
     await _server?.close(force: true);
   }
 
+  void _setValidator(HttpHeaders headers) {
+    if (etag != null) headers.set('etag', etag!);
+  }
+
   Future<void> _handle(HttpRequest req) async {
     final total = data.length;
+    final ifRange = req.headers.value(HttpHeaders.ifRangeHeader);
+    if (ifRange != null) lastIfRange = ifRange;
 
     if (rejectDartAgent) {
       final agent = req.headers.value(HttpHeaders.userAgentHeader) ?? '';
@@ -54,6 +74,7 @@ class _Origin {
       req.response
         ..statusCode = HttpStatus.ok
         ..headers.contentLength = total;
+      _setValidator(req.response.headers);
       if (advertiseAcceptRanges && supportRange) {
         req.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
       }
@@ -62,7 +83,10 @@ class _Origin {
     }
 
     final range = req.headers.value(HttpHeaders.rangeHeader);
-    if (range != null && supportRange) {
+    // A ranged request carrying a stale `If-Range` must be answered with the
+    // full body (200), exactly as a real origin does.
+    final staleIfRange = ifRange != null && ifRange != etag;
+    if (range != null && supportRange && !staleIfRange) {
       final match =
           RegExp(r'bytes=(\d+)-(\d*)').firstMatch(range);
       if (match != null) {
@@ -75,8 +99,9 @@ class _Origin {
           ..statusCode = HttpStatus.partialContent
           ..headers.set(
               HttpHeaders.contentRangeHeader, 'bytes $start-$end/$total')
-          ..headers.contentLength = slice.length
-          ..add(slice);
+          ..headers.contentLength = slice.length;
+        _setValidator(req.response.headers);
+        req.response.add(slice);
         await req.response.close();
         return;
       }
@@ -85,6 +110,7 @@ class _Origin {
     req.response
       ..statusCode = HttpStatus.ok
       ..headers.contentLength = total;
+    _setValidator(req.response.headers);
     if (throttle != null) {
       const chunk = 16 * 1024;
       for (var i = 0; i < data.length; i += chunk) {
@@ -697,5 +723,56 @@ void main() {
     expect(task.isFailed, isTrue);
     expect(task.error, 'Could not merge the tracks.');
     expect(task.errorKind, 'mux');
+  });
+
+  test('sends If-Range with the stored validator when resuming', () async {
+    final data = _blob(600 * 1024);
+    final origin = _Origin(data, throttle: 20, etag: '"v1"')..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    final task = manager.add(origin.url, filename: 'cond.bin', connections: 1);
+    await _waitFor(() => task.downloaded > 0);
+    manager.pause(task.id);
+    await _waitFor(() => !task.isActive);
+    expect(task.etag, '"v1"');
+
+    manager.resume(task.id);
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    expect(origin.lastIfRange, '"v1"',
+        reason: 'a resumed transfer must pin the range to the validator');
+    expect(await File(task.filePath!).readAsBytes(), equals(data));
+  });
+
+  test('restarts cleanly when the remote file changed between attempts',
+      () async {
+    final first = _blob(400 * 1024);
+    final origin = _Origin(first, throttle: 20, etag: '"v1"')..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    final task = manager.add(origin.url, filename: 'swap.bin', connections: 1);
+    await _waitFor(() => task.downloaded > 0);
+    manager.pause(task.id);
+    await _waitFor(() => !task.isActive);
+    expect(task.segmentDone.any((d) => d > 0), isTrue);
+
+    // The origin redeploys a different file under the same URL.
+    final second = _blob(512 * 1024);
+    origin.mutate(second, newEtag: '"v2"');
+
+    manager.resume(task.id);
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    // The stale bytes must have been discarded: the saved file is wholly the
+    // new version, not a splice of the two.
+    expect(await File(task.filePath!).readAsBytes(), equals(second));
   });
 }

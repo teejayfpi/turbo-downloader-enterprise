@@ -598,6 +598,7 @@ class TurboState extends ChangeNotifier {
     try {
       final file = await installer.download(
         url,
+        checksumUrls: update.checksumUrls,
         onProgress: (p) {
           updateProgress = p;
           _safeNotify();

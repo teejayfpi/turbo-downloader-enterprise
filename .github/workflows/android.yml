@@ -111,10 +111,13 @@ jobs:
           version=$(awk -F'[+ ]' '/^version:/{print $2}' pubspec.yaml)
           tag="v$version"
           cp build/app/outputs/flutter-apk/app-release.apk Turbo-android.apk
+          # The in-app updater verifies the APK against a published manifest and
+          # refuses to install when none covers it, so ship one with the APK.
+          sha256sum Turbo-android.apk > SHA256SUMS.android
           # The release may not exist yet if this job raced the desktop release
           # job; create it if needed, then upload (replacing any stale APK).
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
             || gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
                  --title "Turbo Downloader $tag" --generate-notes
-          gh release upload "$tag" Turbo-android.apk \
+          gh release upload "$tag" Turbo-android.apk SHA256SUMS.android \
             --repo "$GITHUB_REPOSITORY" --clobber

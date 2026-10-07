@@ -1,6 +1,6 @@
 {
   "name": "turbo-downloader-server",
-  "version": "1.0.0",
+  "version": "2.4.0",
   "type": "module",
   "description": "Turbo Downloader - Enterprise Grade Download Manager",
   "main": "index.js",

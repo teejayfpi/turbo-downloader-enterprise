@@ -77,6 +77,11 @@ These caused real, user-visible bugs. Do not regress them.
 - **A download's stored `filepath` is untrusted.** It is confined to the
   configured download directory before any read (`resolveStoredFile`), because a
   naive `startsWith` also matches sibling dirs like `<root>-evil/`.
+- **`defaultDir` is environment-only.** `PUT /api/settings` rejects it (403)
+  unless it equals `DOWNLOAD_DIR`; otherwise an unauthenticated caller could
+  point the download root at `/root/.ssh` and write an `authorized_keys` file.
+  The reported version is read from `server/package.json` at boot
+  (`SERVER_VERSION`) rather than hard-coded, which had drifted before.
 
 ## Android & desktop client (`mobile/`)
 
@@ -133,6 +138,16 @@ These caused real, user-visible bugs. Do not regress them.
   (`TurboState.installUpdate`). Keep `pickAsset` pure and platform-parameterised
   so it stays testable; keep the installer's failure path non-throwing so a
   failed update never crashes Settings.
+- **An update is verified before it is installed.** When the release publishes a
+  `SHA256SUMS` asset, `UpdateChecker.pickChecksum` forwards it and
+  `UpdateInstaller.download` hashes the bytes as they stream in, discarding the
+  file on a mismatch. Without this, a compromised mirror or a swapped asset
+  would be handed straight to the OS installer. Keep publishing `SHA256SUMS` in
+  the release workflow, and if you ever add a signature, verify it here too.
+- **Release builds fail without a signing keystore.** `android/app/build.gradle`
+  throws rather than falling back to the debug key, which is public and would let
+  anyone sign an APK the in-app updater accepts. `-PallowDebugSigning=true`
+  is the explicit, throwaway-only escape hatch.
 - **A missing platform channel must never break a feature.** Every Dart bridge
   (`SecureStore`, `Notifications`, `DevicePolicy`, `FileStore`) catches
   `MissingPluginException` and falls back. Do not let a new bridge throw on
@@ -180,6 +195,13 @@ These caused real, user-visible bugs. Do not regress them.
 - **Plans must be reused on resume.** Rebuilding segments from zero after a pause
   appends duplicates. `_planSegments` keeps a matching plan and only rebuilds
   when the segment count or total length changed.
+- **Resume is bound to a validator.** A part file on disk only matches the
+  remote resource if nothing re-uploaded it since. `_probe` records a strong
+  `ETag` (falling back to `Last-Modified`; a weak `W/"…"` is not a valid
+  `If-Range` value) on `LocalTask.etag`, a resumed request sends it as
+  `If-Range`, and crossing sessions a changed validator resets the progress
+  instead of stitching two versions together. Do not drop the `If-Range` header
+  or the change check; either alone corrupts resumed files whose origin changed.
 - **Media is resolved on the device.** `lib/media_extractor.dart` uses
   `youtube_explode_dart` to turn a page URL into a direct stream, and the
   on-device engine downloads it. YouTube serves resolutions above 360p as

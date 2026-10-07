@@ -153,6 +153,11 @@ class LocalTask {
   /// an interrupted transfer must restart from the beginning.
   bool rangeSupported = true;
 
+  /// Resource validator captured when the transfer first started (`ETag` or
+  /// `Last-Modified`). Replayed as `If-Range` so a resumed transfer restarts
+  /// when the remote file changed instead of stitching two versions together.
+  String? etag;
+
   /// Per-download retry budget, overridable from Settings.
   int maxAttempts;
 
@@ -189,6 +194,7 @@ class LocalTask {
     this.thumbnailUrl,
     this.maxAttempts = 3,
     this.rangeSupported = true,
+    this.etag,
     List<int>? segmentStart,
     List<int>? segmentEnd,
     List<int>? segmentDone,
@@ -256,6 +262,7 @@ class LocalTask {
         'thumbnailUrl': thumbnailUrl,
         'fellBackToBuiltin': fellBackToBuiltin,
         'rangeSupported': rangeSupported,
+        'etag': etag,
         'maxAttempts': maxAttempts,
         'segmentStart': segmentStart,
         'segmentEnd': segmentEnd,
@@ -295,6 +302,7 @@ class LocalTask {
       mediaDuration: (json['mediaDuration'] as num?)?.toInt(),
       thumbnailUrl: json['thumbnailUrl']?.toString(),
       rangeSupported: json['rangeSupported'] as bool? ?? true,
+      etag: json['etag']?.toString(),
       maxAttempts: (json['maxAttempts'] as num?)?.toInt() ?? 3,
       segmentStart: ints(json['segmentStart']),
       segmentEnd: ints(json['segmentEnd']),
@@ -927,6 +935,20 @@ class LocalDownloadManager extends ChangeNotifier {
 
       final probe = await _probe(client, task.fetchUrl);
       task.rangeSupported = probe.range;
+      // Drop bytes from a previous run when the remote resource changed. The
+      // `If-Range` header only protects mid-transfer resumes; across sessions
+      // the part files on disk may belong to an older version of the file, so
+      // compare validators and start over instead of stitching two files.
+      final previous = task.etag;
+      final changed =
+          previous != null && probe.etag != null && previous != probe.etag;
+      if (changed && task.segmentDone.any((d) => d > 0)) {
+        task.segmentStart = [];
+        task.segmentEnd = [];
+        task.segmentDone = [];
+        task.downloaded = 0;
+      }
+      task.etag = probe.etag;
       task.filename = _chooseName(task.filename, probe.filename);
       if (probe.total > 0) task.total = probe.total;
 
@@ -1127,7 +1149,12 @@ class LocalDownloadManager extends ChangeNotifier {
       final known = len >= 0;
       await res.drain<void>();
       if (res.statusCode == HttpStatus.ok && (known || range)) {
-        return _Probe(total: known ? len : 0, range: range, filename: name);
+        return _Probe(
+          total: known ? len : 0,
+          range: range,
+          filename: name,
+          etag: _validatorFrom(res.headers),
+        );
       }
     } catch (_) {
       // Some servers reject HEAD; fall through to a ranged GET.
@@ -1142,14 +1169,21 @@ class LocalDownloadManager extends ChangeNotifier {
     if (status == HttpStatus.partialContent) {
       final total = _totalFromContentRange(
           res.headers.value(HttpHeaders.contentRangeHeader));
+      final etag = _validatorFrom(res.headers);
       await res.drain<void>();
-      return _Probe(total: total, range: true, filename: name);
+      return _Probe(total: total, range: true, filename: name, etag: etag);
     }
 
     if (status == HttpStatus.ok) {
       final len = res.contentLength;
+      final etag = _validatorFrom(res.headers);
       await res.drain<void>();
-      return _Probe(total: len >= 0 ? len : 0, range: false, filename: name);
+      return _Probe(
+        total: len >= 0 ? len : 0,
+        range: false,
+        filename: name,
+        etag: etag,
+      );
     }
 
     await res.drain<void>();
@@ -1218,12 +1252,27 @@ class LocalDownloadManager extends ChangeNotifier {
         final to = end >= 0 ? '$end' : '';
         req.headers.set(HttpHeaders.rangeHeader, 'bytes=${start + done}-$to');
       }
+      // Resuming mid-file: bind the range to the validator seen at probe time.
+      // If the file changed, the server ignores the range and replies 200,
+      // which the `restarted` branch below turns into a clean restart.
+      final etag = task.etag;
+      if (done > 0 && etag != null) {
+        req.headers.set(HttpHeaders.ifRangeHeader, etag);
+      }
       final res = await req.close();
 
       // A server can ignore our Range and reply 200 with the whole body. That
       // is only usable from offset zero, so restart the part rather than
       // appending a full copy onto bytes we already have.
       final restarted = res.statusCode == HttpStatus.ok && done > 0;
+      if (restarted && etag != null) {
+        // We sent `If-Range` and still got the full body, so the resource
+        // changed underneath this transfer. Restarting one segment would
+        // splice two versions together, so fail and let the next attempt
+        // detect the new validator and reset cleanly from zero.
+        await res.drain<void>();
+        throw DownloadErrors.fileChanged;
+      }
       if (res.statusCode == HttpStatus.ok &&
           end >= 0 &&
           res.contentLength == end + 1 &&
@@ -1452,7 +1501,25 @@ class _Probe {
   final int total;
   final bool range;
   final String? filename;
-  const _Probe({required this.total, required this.range, this.filename});
+
+  /// Validator for [total]: the strong `ETag` if the server sent one, else
+  /// `Last-Modified`. Sent back as `If-Range` on a resumed request so the
+  /// server refuses the range (416) instead of splicing a changed file.
+  final String? etag;
+  const _Probe({
+    required this.total,
+    required this.range,
+    this.filename,
+    this.etag,
+  });
+}
+
+/// Picks a resource validator for `If-Range`. A weak `ETag` (`W/"…"`) is not a
+/// valid `If-Range` value, so fall back to `Last-Modified` in that case.
+String? _validatorFrom(HttpHeaders headers) {
+  final etag = headers.value('etag');
+  if (etag != null && !etag.trimLeft().startsWith('W/')) return etag.trim();
+  return headers.value(HttpHeaders.lastModifiedHeader)?.trim();
 }
 
 /// Cancellation flag plus a rolling speed window for one active download.

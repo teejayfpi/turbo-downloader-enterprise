@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -21,6 +22,12 @@ class UpdateInfo {
   final String version;
   final String notesUrl;
   final String? downloadUrl;
+
+  /// URLs of the `SHA256SUMS`-style manifests for this release, when published.
+  /// The installer verifies the download against one of them before handing
+  /// anything to the OS, so a compromised mirror or tampered asset is refused.
+  /// A release may split manifests per platform, so try them all.
+  final List<String> checksumUrls;
   final DateTime? publishedAt;
 
   const UpdateInfo({
@@ -28,6 +35,7 @@ class UpdateInfo {
     required this.version,
     required this.notesUrl,
     this.downloadUrl,
+    this.checksumUrls = const [],
     this.publishedAt,
   });
 }
@@ -79,6 +87,7 @@ class UpdateChecker {
         notesUrl: json['html_url']?.toString() ??
             'https://github.com/$repo/releases',
         downloadUrl: pickAsset(assets),
+        checksumUrls: pickChecksums(assets),
         publishedAt: DateTime.tryParse(json['published_at']?.toString() ?? ''),
       );
     } catch (_) {
@@ -109,6 +118,20 @@ class UpdateChecker {
       }
     }
     return null;
+  }
+
+  /// Every `SHA256SUMS` manifest attached to a release. Pure, testable.
+  static List<String> pickChecksums(List<ReleaseAsset> assets) {
+    final urls = <String>[];
+    for (final asset in assets) {
+      final name = asset.name.toLowerCase();
+      if (name == 'sha256sums' ||
+          name == 'sha256sums.txt' ||
+          name.startsWith('sha256sums.')) {
+        if (asset.url.isNotEmpty) urls.add(asset.url);
+      }
+    }
+    return urls;
   }
 
   /// True when [candidate] is a higher semantic version than [current].
@@ -155,13 +178,30 @@ class UpdateInstaller {
 
   /// Fetches [url] into a temp file, reporting 0..1 progress (null when the
   /// total size is unknown), and returns the file.
+  ///
+  /// When an expected digest is available (explicitly via [expectedSha256], or
+  /// found in one of [checksumUrls]) the bytes are hashed as they arrive and
+  /// the file is discarded unless it matches, so a tampered or truncated asset
+  /// never reaches the installer. If manifests are published but none lists
+  /// this asset, the download is refused rather than installed unverified.
   Future<File> download(
     String url, {
     void Function(double? progress)? onProgress,
     bool Function()? isCancelled,
+    String? expectedSha256,
+    List<String> checksumUrls = const [],
   }) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
     try {
+      String? digest = expectedSha256?.trim().toLowerCase();
+      if (digest == null || digest.isEmpty) {
+        digest = await _shaForAsset(client, checksumUrls, url);
+        if (digest == null && checksumUrls.isNotEmpty) {
+          throw const HttpException(
+              'Update refused: the release publishes checksums but none covers '
+              'this download.');
+        }
+      }
       final request = await client.getUrl(Uri.parse(url));
       final response = await request.close();
       if (response.statusCode != HttpStatus.ok) {
@@ -173,6 +213,8 @@ class UpdateInstaller {
       final name = segments.isNotEmpty ? segments.last : 'turbo-update.bin';
       final file = File('${dir.path}/$name');
       final sink = file.openWrite();
+      final hasher = digest == null ? null : _DigestSink();
+      final digestSink = hasher == null ? null : sha256.startChunkedConversion(hasher);
       var received = 0;
       await for (final chunk in response) {
         if (isCancelled?.call() ?? false) {
@@ -183,13 +225,60 @@ class UpdateInstaller {
           throw const HttpException('Update download cancelled');
         }
         sink.add(chunk);
+        digestSink?.add(chunk);
         received += chunk.length;
         onProgress?.call(total > 0 ? received / total : null);
       }
       await sink.close();
+      digestSink?.close();
+      if (digest != null && digest.isNotEmpty) {
+        final actual = hasher!.digest.toString().toLowerCase();
+        if (actual != digest) {
+          try {
+            await file.delete();
+          } catch (_) {}
+          throw const HttpException(
+              'Update failed verification: the downloaded file does not match '
+              'the published checksum.');
+        }
+      }
       return file;
     } finally {
       client.close(force: true);
+    }
+  }
+
+  /// Reads each manifest in [checksumUrls] and returns the digest recorded for
+  /// the asset at [assetUrl], or null when no manifest lists it.
+  Future<String?> _shaForAsset(
+      HttpClient client, List<String> checksumUrls, String assetUrl) async {
+    for (final url in checksumUrls) {
+      final digest = await _shaFromManifest(client, url, assetUrl);
+      if (digest != null) return digest;
+    }
+    return null;
+  }
+
+  Future<String?> _shaFromManifest(
+      HttpClient client, String checksumUrl, String assetUrl) async {
+    try {
+      final request = await client.getUrl(Uri.parse(checksumUrl));
+      final response = await request.close();
+      if (response.statusCode != HttpStatus.ok) {
+        await response.drain<void>();
+        return null;
+      }
+      final text = await response.transform(utf8.decoder).join();
+      final wanted = Uri.parse(assetUrl).pathSegments.last;
+      for (final line in const LineSplitter().convert(text)) {
+        final match = RegExp(r'^([0-9a-fA-F]{64})\s+[* ]?(.+)$').firstMatch(line.trim());
+        if (match == null) continue;
+        final listed = match.group(2)!.trim().split('/').last;
+        if (listed == wanted) return match.group(1)!.toLowerCase();
+      }
+      return null;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -268,4 +357,15 @@ enum UpdateChannel {
         UpdateChannel.beta => 'Beta',
         UpdateChannel.nightly => 'Nightly',
       };
+}
+
+/// Collects the single [Digest] emitted by a chunked `sha256` conversion.
+class _DigestSink implements Sink<Digest> {
+  Digest? digest;
+
+  @override
+  void add(Digest data) => digest = data;
+
+  @override
+  void close() {}
 }

@@ -40,6 +40,8 @@ dev_dependencies:
   flutter_launcher_icons: ^0.13.1
   # Used by media_extractor_test.dart to build canned stream metadata.
   http_parser: ^4.0.0
+  # Lets session_test.dart point path_provider at a temp directory.
+  path_provider_platform_interface: ^2.1.0
 
 flutter:
   uses-material-design: true

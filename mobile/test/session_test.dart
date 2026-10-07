@@ -1,8 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:turbo_downloader/services/session_store.dart';
 import 'package:turbo_downloader/services/secure_store.dart';
@@ -247,5 +250,114 @@ void main() {
       expect(result.started, isFalse);
       expect(result.needsPermission, isFalse);
     });
+
+    test('rejects a download whose checksum does not match', () async {
+      // flutter_test's binding installs a mock HttpClient that rejects all
+      // real requests; these tests exercise an actual loopback server.
+      final overrides = HttpOverrides.current;
+      HttpOverrides.global = null;
+      addTearDown(() => HttpOverrides.global = overrides);
+
+      final tmp = await Directory.systemTemp.createTemp('turbo_upd_test');
+      addTearDown(() => tmp.delete(recursive: true));
+      PathProviderPlatform.instance = _FakePathProvider(tmp.path);
+
+      final body = latin1.encode('not the real bytes');
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((req) async {
+        req.response
+          ..statusCode = HttpStatus.ok
+          ..headers.contentLength = body.length
+          ..add(body);
+        await req.response.close();
+      });
+
+      await expectLater(
+        installer.download(
+          'http://127.0.0.1:${server.port}/turbo.apk',
+          expectedSha256: '0' * 64,
+        ),
+        throwsA(isA<HttpException>()),
+      );
+      // Nothing must be left behind for the installer to pick up.
+      expect(tmp.listSync(), isEmpty);
+    });
+
+    test('accepts a download whose checksum matches', () async {
+      final overrides = HttpOverrides.current;
+      HttpOverrides.global = null;
+      addTearDown(() => HttpOverrides.global = overrides);
+
+      final tmp = await Directory.systemTemp.createTemp('turbo_upd_ok');
+      addTearDown(() => tmp.delete(recursive: true));
+      PathProviderPlatform.instance = _FakePathProvider(tmp.path);
+
+      final body = latin1.encode('the genuine bytes');
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((req) async {
+        req.response
+          ..statusCode = HttpStatus.ok
+          ..headers.contentLength = body.length
+          ..add(body);
+        await req.response.close();
+      });
+
+      final digest = sha256.convert(body).toString();
+      final file = await installer.download(
+        'http://127.0.0.1:${server.port}/turbo.apk',
+        expectedSha256: digest,
+      );
+      expect(await file.readAsBytes(), equals(body));
+    });
+
+    test('refuses the download when no published manifest lists the asset',
+        () async {
+      final overrides = HttpOverrides.current;
+      HttpOverrides.global = null;
+      addTearDown(() => HttpOverrides.global = overrides);
+
+      final tmp = await Directory.systemTemp.createTemp('turbo_upd_manifest');
+      addTearDown(() => tmp.delete(recursive: true));
+      PathProviderPlatform.instance = _FakePathProvider(tmp.path);
+
+      final body = latin1.encode('the genuine bytes');
+      final manifest = utf8.encode(
+          '${'a' * 64}  Turbo-some-other-file.exe\n');
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((req) async {
+        final isManifest = req.uri.path.endsWith('SHA256SUMS');
+        final payload = isManifest ? manifest : body;
+        req.response
+          ..statusCode = HttpStatus.ok
+          ..headers.contentLength = payload.length
+          ..add(payload);
+        await req.response.close();
+      });
+
+      final base = 'http://127.0.0.1:${server.port}';
+      await expectLater(
+        installer.download(
+          '$base/turbo.apk',
+          checksumUrls: ['$base/SHA256SUMS'],
+        ),
+        throwsA(isA<HttpException>()),
+      );
+      expect(tmp.listSync(), isEmpty);
+    });
   });
+}
+
+/// Minimal path_provider stand-in that returns a fixed temporary directory.
+class _FakePathProvider extends PathProviderPlatform {
+  _FakePathProvider(this.dir);
+  final String dir;
+
+  @override
+  Future<String?> getTemporaryPath() async => dir;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => dir;
 }

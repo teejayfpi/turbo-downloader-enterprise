@@ -5,7 +5,7 @@ computers. It downloads files and media (YouTube and hundreds of other
 platforms) straight to your device with multi-connection, resumable transfers —
 **no server, no account, no API key.**
 
-![Version](https://img.shields.io/badge/version-2.3.0-00d4ff?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-2.4.0-00d4ff?style=for-the-badge)
 ![License](https://img.shields.io/badge/license-MIT-00ff88?style=for-the-badge)
 
 ---

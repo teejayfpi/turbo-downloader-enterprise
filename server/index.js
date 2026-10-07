@@ -7,7 +7,7 @@ import { timingSafeEqual } from 'crypto';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
 import fs from 'fs';
 
 import { engine, settingsManager, attachSocket } from './context.js';
@@ -17,6 +17,12 @@ import { validateHttpUrl, assertPublicHost } from './utils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Single source of truth for the reported version: the package manifest. The
+// number used to be hard-coded here as well and drifted from package.json.
+const SERVER_VERSION = JSON.parse(
+  fs.readFileSync(join(__dirname, 'package.json'), 'utf8'),
+).version;
 
 const app = express();
 const httpServer = createServer(app);
@@ -39,6 +45,17 @@ app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 // cannot set headers. Left unset the server stays open, so existing local and
 // private deployments keep working unchanged.
 const API_TOKEN = (process.env.TURBO_API_TOKEN || '').trim();
+
+// A production deployment must be authenticated. The README's Render/Fly/
+// Docker guides produce a public URL, and an open server lets any caller
+// retarget downloads and write files wherever they choose. Refuse to boot
+// rather than expose that.
+if (process.env.NODE_ENV === 'production' && !API_TOKEN) {
+  console.error(
+    'Refusing to start: NODE_ENV=production requires TURBO_API_TOKEN to be set.',
+  );
+  process.exit(1);
+}
 
 function tokenMatches(candidate) {
   if (!candidate) return false;
@@ -80,7 +97,21 @@ app.get('/api/settings', (req, res) => {
 
 app.put('/api/settings', (req, res) => {
   try {
-    res.json(settingsManager.updateSettings(req.body || {}));
+    const patch = { ...(req.body || {}) };
+    // `defaultDir` decides where downloads are written, so leaving it
+    // client-settable turns any reachable endpoint into an arbitrary file
+    // write (point it at /root/.ssh, then download a file named
+    // `authorized_keys`). It is configurable from the environment only.
+    if ('defaultDir' in patch) {
+      const requested = String(patch.defaultDir);
+      const allowed = process.env.DOWNLOAD_DIR;
+      if (!allowed || resolve(requested) !== resolve(allowed)) {
+        return res.status(403).json({
+          error: 'defaultDir is set by the DOWNLOAD_DIR environment variable.',
+        });
+      }
+    }
+    res.json(settingsManager.updateSettings(patch));
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -96,7 +127,7 @@ app.get('/api/stats', (req, res) => {
 
 app.get('/api/system', (req, res) => {
   res.json({
-    version: '2.0.0',
+    version: SERVER_VERSION,
     media: mediaService.info(),
     downloadDir: settingsManager.getSettings().defaultDir,
     uptime: process.uptime(),
@@ -126,9 +157,11 @@ app.get('/api/media/supported', (req, res) => {
     platforms: [
       'YouTube', 'Vimeo', 'Dailymotion', 'TikTok', 'Instagram', 'Facebook',
       'Twitter/X', 'Twitch', 'SoundCloud', 'Bandcamp', 'Mixcloud', 'Reddit',
-      'Bilibili', 'VK', 'Netflix', 'Prime Video', 'Disney+', 'HBO Max',
-      'Hulu', 'Peacock', 'Paramount+', 'Crunchyroll', 'Spotify',
+      'Bilibili', 'VK',
     ],
+    // Subscription streaming services are deliberately not listed: yt-dlp
+    // cannot fetch DRM-protected streams, so claiming support would mislead
+    // users and invite takedown complaints.
   });
 });
 
@@ -136,7 +169,7 @@ app.get('/api/media/supported', (req, res) => {
 app.get('/api/export', (req, res) => {
   const payload = {
     exportedAt: new Date().toISOString(),
-    version: '2.0.0',
+    version: SERVER_VERSION,
     downloads: engine.getDownloads().map((d) => ({
       url: d.url,
       filename: d.filename,
@@ -168,7 +201,7 @@ app.post('/api/import', async (req, res, next) => {
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
-    version: '2.0.0',
+    version: SERVER_VERSION,
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     media: mediaService.info(),
@@ -178,7 +211,7 @@ app.get('/health', (req, res) => {
 app.get('/api/docs', (req, res) => {
   res.json({
     name: 'Turbo Downloader API',
-    version: '2.0.0',
+    version: SERVER_VERSION,
     endpoints: {
       'GET /api/downloads': 'List downloads + stats',
       'POST /api/downloads': 'Add one or many downloads',
@@ -266,10 +299,21 @@ app.use((error, req, res, next) => {
 // ------------------------------------------------------------------ bootstrap
 
 const PORT = process.env.PORT || 3001;
-httpServer.listen(PORT, () => {
+const HOST = process.env.HOST || '0.0.0.0';
+httpServer.listen(PORT, HOST, () => {
   console.log(`🚀 Turbo Downloader API on port ${PORT}`);
   console.log(`   Download dir: ${settingsManager.getSettings().defaultDir}`);
   console.log(`   yt-dlp: ${mediaService.isAvailable() ? `available (${mediaService.version})` : 'not installed (media downloads disabled)'}`);
+  // Binding to a non-loopback address without a token exposes the API to the
+  // network. Production refuses to start in this state; for local/private use
+  // it is allowed, but never silently.
+  const publicBind = HOST !== '127.0.0.1' && HOST !== '::1' && HOST !== 'localhost';
+  if (!API_TOKEN && (publicBind || process.env.NODE_ENV === 'production')) {
+    console.warn(
+      '⚠️  WARNING: TURBO_API_TOKEN is unset on a non-loopback bind. The API ' +
+        'is open to anyone who can reach this port. Set TURBO_API_TOKEN.',
+    );
+  }
 });
 
 function shutdown() {

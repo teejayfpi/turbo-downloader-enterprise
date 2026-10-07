@@ -160,6 +160,20 @@ jobs:
         with:
           path: artifacts
 
+      # The in-app updater verifies the asset it downloads against a published
+      # manifest and refuses to install when none covers it, so every release
+      # must carry one.
+      - name: Write checksums
+        shell: bash
+        run: |
+          cd artifacts
+          sha256sum \
+            turbo-windows-installer/TurboSetup-windows.exe \
+            turbo-release-macos/Turbo-macos.zip \
+            turbo-release-linux/Turbo-linux.tar.gz 2>/dev/null \
+            | sed 's# .*/# #' > SHA256SUMS.desktop || true
+          cat SHA256SUMS.desktop
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
@@ -172,3 +186,4 @@ jobs:
             artifacts/turbo-windows-installer/TurboSetup-windows.exe
             artifacts/turbo-release-macos/Turbo-macos.zip
             artifacts/turbo-release-linux/Turbo-linux.tar.gz
+            artifacts/SHA256SUMS.desktop

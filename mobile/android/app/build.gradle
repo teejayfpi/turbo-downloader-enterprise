@@ -6,14 +6,28 @@ plugins {
 }
 
 // Release signing is supplied out-of-band so the keystore never lands in git.
-// Without it the release build still succeeds, signed with the debug key, which
-// is only useful for local testing.
+// A release build refuses to run without it: the debug key is public, so an
+// APK signed with it can be impersonated by anyone (including the in-app
+// updater's checksum-wrapped download). Debug builds are unaffected.
 def keystoreProperties = new Properties()
 def keystorePropertiesFile = rootProject.file("key.properties")
 if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.withReader("UTF-8") { reader ->
         keystoreProperties.load(reader)
     }
+}
+
+def hasReleaseKeystore = keystorePropertiesFile.exists()
+def allowDebugSigning = project.hasProperty("allowDebugSigning")
+def buildingRelease = gradle.startParameter.taskNames.any {
+    it.toLowerCase().contains("release")
+}
+if (buildingRelease && !hasReleaseKeystore && !allowDebugSigning) {
+    throw new GradleException(
+        "Release signing is not configured. Create android/key.properties " +
+        "with storeFile/storePassword/keyAlias/keyPassword, or pass " +
+        "-PallowDebugSigning=true for a throwaway local build (never distribute it)."
+    )
 }
 
 android {
