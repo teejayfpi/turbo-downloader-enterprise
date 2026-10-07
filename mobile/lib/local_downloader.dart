@@ -1245,6 +1245,14 @@ class LocalDownloadManager extends ChangeNotifier {
       final end = task.segmentEnd[index];
       var done = index < task.segmentDone.length ? task.segmentDone[index] : 0;
 
+      // A segment that already holds its full length needs no request. This
+      // happens when a retry follows a failure *after* the bytes were fetched
+      // (e.g. the publish step), so re-requesting would send the server an
+      // empty range and turn a successful download into an error.
+      if (end >= 0 && done >= end - start + 1) {
+        return;
+      }
+
       final req = await _open(client, Uri.parse(task.fetchUrl));
       // Ask only for the bytes still missing. `end < 0` means the length is
       // unknown, so an open-ended range from the resume point is used.

@@ -162,27 +162,66 @@ class FileStore {
       '${downloads.path}${Platform.pathSeparator}'
       '${subfolderFor(filename).replaceAll('/', Platform.pathSeparator)}',
     );
-    if (!await dir.exists()) await dir.create(recursive: true);
-    final dest = _unique(File('${dir.path}${Platform.pathSeparator}$filename'));
-    return tempFile.rename(dest.path);
+    try {
+      if (!await dir.exists()) await dir.create(recursive: true);
+      final dest = _unique(File('${dir.path}${Platform.pathSeparator}$filename'));
+      return await tempFile.rename(dest.path);
+    } catch (_) {
+      // A read-only or missing folder must not lose an already-downloaded file.
+      return _appPrivate(tempFile, filename);
+    }
   }
 
-  /// The user's Downloads folder, derived from the documents directory so it
-  /// works the same on Windows, Linux, and macOS without extra plugins.
+  /// The user's Downloads folder. Uses the platform's known folder when it
+  /// exposes one, otherwise derives it from the documents directory so it works
+  /// on Windows, macOS, and minimal Linux setups. Falls back to the app's own
+  /// storage only when nothing else is available, so a finished download is
+  /// never lost.
   static Future<Directory?> _downloadsDir() async {
+    try {
+      final downloads = await getDownloadsDirectory();
+      if (downloads != null) return downloads;
+    } catch (_) {}
     try {
       final docs = await getApplicationDocumentsDirectory();
       return Directory('${docs.parent.path}${Platform.pathSeparator}Downloads');
     } catch (_) {
+      // No XDG user dirs configured: common on servers and minimal desktops.
+      // Resolving the documents directory throws there, so fall back to the
+      // conventional path under the home folder.
+      final home = Platform.environment['HOME'] ??
+          Platform.environment['USERPROFILE'];
+      if (home != null && home.isNotEmpty) {
+        return Directory('$home${Platform.pathSeparator}Downloads');
+      }
       return null;
     }
   }
 
-  /// Last-resort location when the user-visible folder is unavailable.
+  /// Last-resort location when no user-visible folder is available.
+  ///
+  /// Never throws: resolving the documents directory can fail on a headless or
+  /// minimally-configured machine, and a fully-downloaded file must not be
+  /// reported as failed over the publish step.
   static Future<File> _appPrivate(File tempFile, String filename) async {
-    final dir = await getExternalStorageDirectory() ??
-        await getApplicationDocumentsDirectory();
-    final dest = _unique(File('${dir.path}/$filename'));
+    Directory? dir;
+    try {
+      dir = await getApplicationDocumentsDirectory();
+    } catch (_) {}
+    if (dir == null) {
+      try {
+        dir = await getApplicationSupportDirectory();
+      } catch (_) {}
+    }
+    if (dir == null) {
+      final base = Platform.environment['HOME'] ??
+          Platform.environment['USERPROFILE'] ??
+          Directory.systemTemp.path;
+      dir = Directory('$base${Platform.pathSeparator}.turbo'
+          '${Platform.pathSeparator}Downloads');
+    }
+    if (!await dir.exists()) await dir.create(recursive: true);
+    final dest = _unique(File('${dir.path}${Platform.pathSeparator}$filename'));
     return tempFile.rename(dest.path);
   }
 
