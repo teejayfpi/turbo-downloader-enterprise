@@ -454,6 +454,26 @@ class LocalDownloadManager extends ChangeNotifier {
   /// Segment ceiling for range-capable hosts. Raised by Turbo speed mode.
   int maxConnections = 32;
 
+  /// When true, a ranged download starts with a small number of segments and
+  /// adds more as the host proves able to feed them (IDM-style adaptive
+  /// acceleration). Off means the full plan is used from the first request.
+  bool adaptiveConnections = true;
+
+  /// Segments to open before the first ramp evaluation. Small enough not to
+  /// overwhelm a slow host, large enough to measure real throughput.
+  int initialSegments = 2;
+
+  /// How long to let the initial segments run before each ramp evaluation.
+  Duration rampWindow = const Duration(milliseconds: 1500);
+
+  /// Adds a segment only when the host sustains at least this many bytes per
+  /// second per open connection (below it, extra connections rarely help).
+  int rampMinBytesPerSecond = 64 * 1024;
+
+  /// Ceiling on ramp-up evaluations per transfer, a backstop against a host
+  /// whose throughput looks high but never lets a segment finish.
+  static const int _kMaxRampSteps = 8;
+
   static Future<ResolvedMedia> _defaultResolve(
     String pageUrl, {
     String? formatId,
@@ -1308,29 +1328,19 @@ class LocalDownloadManager extends ChangeNotifier {
     final wantSegments = probe.range && known && probe.total > _kTolerance;
 
     if (wantSegments) {
-      final n = min(task.connections, _maxSegments(probe.total));
+      final maxSegs = min(task.connections, _maxSegments(probe.total));
+      // Keep a plan a previous run (or a ramp step) already built, so resume
+      // asks only for the bytes it is missing. Re-planning from zero would
+      // append duplicates into the part files.
+      if (_planIsValidFor(task, probe, maxSegs)) return;
 
-      // Keep the existing plan when it still matches so a resumed task asks
-      // only for the bytes it is missing. Re-planning from zero would append
-      // duplicates into the part files.
-      final resumable = task.segmentDone.length == n &&
-          task.segmentStart.length == n &&
-          task.total == probe.total &&
-          task.segmentStart.first == 0 &&
-          task.segmentEnd.last == probe.total - 1;
-      if (resumable) return;
-
-      final size = (probe.total / n).floor();
-      task.segmentStart = [];
-      task.segmentEnd = [];
-      task.segmentDone = [];
-      for (var i = 0; i < n; i++) {
-        final start = i * size;
-        final end = i == n - 1 ? probe.total - 1 : (start + size - 1);
-        task.segmentStart.add(start);
-        task.segmentEnd.add(end);
-        task.segmentDone.add(0);
-      }
+      // A fresh transfer opens [initialSegments] and lets the ramp add more;
+      // a resumed one keeps its existing (possibly ramped) width. When the
+      // ramp is off, jump straight to the requested width.
+      final target = adaptiveConnections
+          ? min(initialSegments, maxSegs)
+          : maxSegs;
+      _partition(task, probe.total, target);
       return;
     }
 
@@ -1348,25 +1358,74 @@ class LocalDownloadManager extends ChangeNotifier {
     }
   }
 
+  /// True when [task]'s current segment plan is a contiguous, whole-file
+  /// partition that still fits under [maxSegs] and can be resumed in place.
+  bool _planIsValidFor(LocalTask task, _Probe probe, int maxSegs) {
+    final n = task.segmentStart.length;
+    if (n == 0 || n > maxSegs) return false;
+    if (task.segmentEnd.length != n || task.segmentDone.length != n) {
+      return false;
+    }
+    if (task.segmentStart.first != 0) return false;
+    if (task.segmentEnd.last != probe.total - 1) return false;
+    if (task.total != 0 && task.total != probe.total) return false;
+    for (var i = 0; i < n; i++) {
+      if (task.segmentStart[i] > task.segmentEnd[i]) return false;
+      if (i > 0 && task.segmentStart[i] != task.segmentEnd[i - 1] + 1) {
+        return false;
+      }
+      if (task.segmentDone[i] < 0 ||
+          task.segmentDone[i] > task.segmentEnd[i] - task.segmentStart[i] + 1) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// Splits [total] bytes into [n] contiguous segments, resetting progress.
+  void _partition(LocalTask task, int total, int n) {
+    final size = (total / n).floor();
+    task.segmentStart = [];
+    task.segmentEnd = [];
+    task.segmentDone = [];
+    for (var i = 0; i < n; i++) {
+      final start = i * size;
+      final end = i == n - 1 ? total - 1 : start + size - 1;
+      task.segmentStart.add(start);
+      task.segmentEnd.add(end);
+      task.segmentDone.add(0);
+    }
+  }
+
+  /// Smallest piece worth carving out when ramp-up splits a segment. Below
+  /// this, the extra request costs more than the parallelism gains.
+  static const int _kMinSplitSegment = 1 << 18; // 256 KiB
+
   Future<void> _fetch(HttpClient client, LocalTask task, _Run run) async {
     final dir = _requireTaskDir(task.id);
     if (!await dir.exists()) await dir.create(recursive: true);
 
+    final inFlight = <int, Future<void>>{};
+    final rampTarget = min(task.connections, _maxSegments(task.total));
+
+    // Signalled when the map drains, so a ramp wait can end as soon as the
+    // transfer finishes instead of always burning the full window.
+    void Function()? onIdle;
+
     Future<void> fetchOne(int index) async {
       if (run.cancelled) return;
       final start = task.segmentStart[index];
-      final end = task.segmentEnd[index];
       var done = index < task.segmentDone.length ? task.segmentDone[index] : 0;
 
       // A segment that already holds its full length needs no request. This
       // happens when a retry follows a failure *after* the bytes were fetched
       // (e.g. the publish step), so re-requesting would send the server an
       // empty range and turn a successful download into an error.
-      if (end >= 0 && done >= end - start + 1) {
-        return;
-      }
+      var end = task.segmentEnd[index];
+      if (end >= 0 && done >= end - start + 1) return;
 
-      final req = await _open(client, Uri.parse(task.fetchUrl), headers: task.headers);
+      final req =
+          await _open(client, Uri.parse(task.fetchUrl), headers: task.headers);
       // Ask only for the bytes still missing. `end < 0` means the length is
       // unknown, so an open-ended range from the resume point is used.
       if (done > 0 || end >= 0) {
@@ -1416,27 +1475,122 @@ class LocalDownloadManager extends ChangeNotifier {
       try {
         await for (final chunk in res) {
           if (run.cancelled) break;
-          sink.add(chunk);
-          done += chunk.length;
+          // Ramp-up may have shrunk this segment to hand its tail to a new
+          // connection. The response still streams the original, wider range,
+          // so stop at the new boundary and write only the bytes that belong
+          // to this segment — otherwise the part file would overshoot and the
+          // split tail would duplicate bytes.
+          end = task.segmentEnd[index];
+          var data = chunk;
+          if (end >= 0) {
+            final need = end - start + 1 - done;
+            if (need <= 0) break;
+            if (data.length > need) data = data.sublist(0, need);
+          }
+          sink.add(data);
+          done += data.length;
           task.segmentDone[index] = done;
           task.downloaded = task.segmentDone.fold<int>(0, (a, b) => a + b);
-          run.addBytes(chunk.length);
+          run.addBytes(data.length);
         }
       } finally {
         await sink.close();
       }
 
+      end = task.segmentEnd[index];
       if (!run.cancelled && end >= 0 && done != end - start + 1) {
         throw DownloadErrors.endedEarly(end - start + 1, done);
       }
     }
 
-    final futures = <Future<void>>[];
-    for (var i = 0; i < task.segmentStart.length; i++) {
-      futures.add(fetchOne(i));
+    void spawn(int index) {
+      if (run.cancelled || inFlight.containsKey(index)) return;
+      inFlight[index] = fetchOne(index).whenComplete(() {
+        inFlight.remove(index);
+        if (inFlight.isEmpty) onIdle?.call();
+      });
     }
-    await Future.wait(futures);
+
+    for (var i = 0; i < task.segmentStart.length; i++) {
+      spawn(i);
+    }
+
+    // Adaptive ramp-up: let the initial connections prove their throughput,
+    // then hand the tail of the busiest segment to a new connection. This is
+    // what makes a fast host reach its full width without the slow-host
+    // penalty of opening the whole fan-out before any byte arrives.
+    if (adaptiveConnections && rampTarget > task.segmentStart.length) {
+      for (var step = 0;
+          step < _kMaxRampSteps &&
+              !run.cancelled &&
+              inFlight.isNotEmpty &&
+              task.segmentStart.length < rampTarget;
+          step++) {
+        // The first delay doubles as the startup grace period: the initial
+        // segments get a full window to produce bytes before any split.
+        final idle = Completer<void>();
+        onIdle = () {
+          if (!idle.isCompleted) idle.complete();
+        };
+        await Future.any([Future.delayed(rampWindow), idle.future]);
+        if (run.cancelled || inFlight.isEmpty) break;
+        if (task.segmentStart.length >= rampTarget) break;
+
+        final open = task.segmentStart.length;
+        final rate = run.takeRampRate(rampWindow.inMilliseconds);
+        final perConn = open == 0 ? 0 : rate ~/ open;
+        if (perConn < rampMinBytesPerSecond) continue;
+
+        final tail = _splitLargestRemaining(task);
+        if (tail < 0) break;
+        spawn(tail);
+      }
+    }
+
+    await Future.wait(inFlight.values.toList());
     run.flush(task);
+  }
+
+  /// Splits the segment with the most bytes still to fetch, handing its tail
+  /// to a new connection. The head keeps its index and part file; the tail is
+  /// appended (its index is [segmentStart].length - 1) so no part file needs
+  /// renaming — [_merge] reassembles by byte offset, not array order. Returns
+  /// the new index, or -1 when no segment is large enough to be worth it.
+  int _splitLargestRemaining(LocalTask task) {
+    var best = -1;
+    var bestRemaining = 0;
+    for (var i = 0; i < task.segmentStart.length; i++) {
+      final end = task.segmentEnd[i];
+      if (end < 0) continue; // unknown length: one open-ended stream
+      final start = task.segmentStart[i];
+      final done = i < task.segmentDone.length ? task.segmentDone[i] : 0;
+      final remaining = end - (start + done) + 1;
+      if (remaining > bestRemaining) {
+        bestRemaining = remaining;
+        best = i;
+      }
+    }
+    if (best < 0 || bestRemaining < 2 * _kMinSplitSegment) return -1;
+
+    final start = task.segmentStart[best];
+    final end = task.segmentEnd[best];
+    final done = task.segmentDone[best];
+    final mid = start + done + bestRemaining ~/ 2;
+
+    task.segmentEnd[best] = mid - 1;
+    task.segmentStart.add(mid);
+    task.segmentEnd.add(end);
+    task.segmentDone.add(0);
+    return task.segmentStart.length - 1;
+  }
+
+  /// Segment indices ordered by byte offset. A ramp-up split appends the tail
+  /// index, so the arrays are not always ascending; merge and resume check the
+  /// partition by byte order, never by array order.
+  List<int> _orderedIndices(LocalTask task) {
+    final indices = List<int>.generate(task.segmentStart.length, (i) => i);
+    indices.sort((a, b) => task.segmentStart[a].compareTo(task.segmentStart[b]));
+    return indices;
   }
 
   Future<File> _merge(LocalTask task, _Run run) async {
@@ -1445,7 +1599,7 @@ class LocalDownloadManager extends ChangeNotifier {
     if (await out.exists()) await out.delete();
     final sink = out.openWrite();
     try {
-      for (var i = 0; i < task.segmentStart.length; i++) {
+      for (final i in _orderedIndices(task)) {
         final part = File('${dir.path}/part_$i.part');
         if (!await part.exists()) continue;
         final reader = part.openRead();
@@ -1655,13 +1809,32 @@ class _Run {
   int _lastSampleBytes = 0;
   DateTime _lastSampleAt = DateTime.now();
 
+  /// Bytes accrued since the adaptive ramp-up last evaluated throughput. Kept
+  /// apart from [_totalBytes] so evaluating a split does not disturb the
+  /// speedometer.
+  int _rampBytes = 0;
+
   void cancel() => cancelled = true;
 
   /// Completed once the download loop for this run has fully unwound, so
   /// callers can delete the task folder without a writer recreating it.
   final Completer<void> done = Completer<void>();
 
-  void addBytes(int n) => _totalBytes += n;
+  void addBytes(int n) {
+    _totalBytes += n;
+    _rampBytes += n;
+  }
+
+  /// Reports throughput for the window since the last call and resets the
+  /// tally. The read and reset are adjacent with no `await` between them, so a
+  /// fetch loop cannot slip bytes into the wrong window (Dart runs each
+  /// isolate's synchronous stretches to completion).
+  int takeRampRate(int windowMs) {
+    final bytes = _rampBytes;
+    _rampBytes = 0;
+    if (windowMs <= 0) return 0;
+    return (bytes * 1000 / windowMs).round();
+  }
 
   /// Bytes per second, sampled over the window since the previous call.
   int speed() {

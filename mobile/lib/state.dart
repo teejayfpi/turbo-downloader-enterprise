@@ -178,6 +178,11 @@ class TurboState extends ChangeNotifier {
   /// Pause new transfers on a low, unplugged battery.
   bool batteryAware = false;
 
+  /// Start ranged downloads with a small number of segments and add more as
+  /// the host proves able to feed them (adaptive acceleration). When off, the
+  /// full connection width is opened immediately.
+  bool adaptiveConnections = true;
+
   /// Notify when the whole queue finishes, every download, or never.
   NotificationStyle notifyStyle = NotificationStyle.onQueueComplete;
 
@@ -279,6 +284,8 @@ class TurboState extends ChangeNotifier {
       wifiOnly = prefs.getBool(SettingsStore.kWifiOnly) ?? false;
       batteryAware = prefs.getBool(SettingsStore.kBatteryAware) ?? false;
       autoRetry = prefs.getBool(SettingsStore.kAutoRetry) ?? true;
+      adaptiveConnections =
+          prefs.getBool(SettingsStore.kAdaptiveConnections) ?? true;
       notifyProgress = prefs.getBool(SettingsStore.kNotifyProgress) ?? false;
       checkUpdates = prefs.getBool(SettingsStore.kCheckUpdates) ?? true;
       onboardingDone = prefs.getBool(SettingsStore.kOnboardingDone) ?? false;
@@ -288,6 +295,7 @@ class TurboState extends ChangeNotifier {
       clipboardMonitor = prefs.getBool(SettingsStore.kClipboardMonitor) ?? false;
 
       local.maxConnections = speedMode.connections(defaultConnections);
+      local.adaptiveConnections = adaptiveConnections;
       local.maxConcurrent = maxConcurrent;
       if (!autoRetry) local.retryPolicy = RetryPolicy.none;
 
@@ -489,6 +497,13 @@ class TurboState extends ChangeNotifier {
     autoRetry = value;
     local.retryPolicy = value ? const RetryPolicy() : RetryPolicy.none;
     await settings.setBool(SettingsStore.kAutoRetry, value);
+    _safeNotify();
+  }
+
+  Future<void> setAdaptiveConnections(bool value) async {
+    adaptiveConnections = value;
+    local.adaptiveConnections = value;
+    await settings.setBool(SettingsStore.kAdaptiveConnections, value);
     _safeNotify();
   }
 

@@ -739,6 +739,24 @@ class _EngineSection extends StatelessWidget {
                 fontSize: 10.5),
           ),
         ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: state.adaptiveConnections,
+          onChanged: state.setAdaptiveConnections,
+          title: Text('Adaptive acceleration',
+              style: TextStyle(
+                  fontFamily: TurboFonts.body,
+                  color: p.textPrimary,
+                  fontSize: 13)),
+          subtitle: Text(
+            'Start with a few connections and add more only when the host is '
+            'fast. Turn off to open the full width immediately.',
+            style: TextStyle(
+                fontFamily: TurboFonts.body,
+                color: p.textMuted,
+                fontSize: 10.5),
+          ),
+        ),
         if (!available) ...[
           const Divider(height: 20),
           const Kicker('Install', letterSpacing: 1.6),

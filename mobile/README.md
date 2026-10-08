@@ -84,6 +84,14 @@ Turbo mode (the default) raises the parallel-segment ceiling to 16 for
 range-capable hosts and lets several downloads run at once. The Add screen and
 Settings expose the connection count, and Settings has a Balanced/Turbo switch.
 
+By default a ranged download uses **adaptive acceleration**: it opens a couple
+of segments, measures the host's throughput over a short window, and hands the
+tail of the busiest segment to a new connection only when the host is fast
+enough to benefit. A slow host keeps the small footprint it started with, while
+a fast one ramps up to the configured ceiling — without the stall of opening the
+whole fan-out before a single byte arrives. Turn it off in
+Settings → Download engine to always open the full width immediately.
+
 ## Requirements
 
 - Flutter 3.24.x (Dart 3.5.4)

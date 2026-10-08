@@ -417,3 +417,16 @@ Changing one without the others silently caps speed.
   `setDefaultConnections` clamps to 32, `LocalDownloader.maxConnections` is 32,
   and `LocalDownloader.add` clamps to 32. A stray `clamp(1, 16)` silently undoes
   Turbo mode.
+- Mobile adaptive acceleration (`LocalDownloader.adaptiveConnections`) starts a
+  ranged transfer at `initialSegments` and ramps toward `task.connections`,
+  splitting the segment with the most bytes *remaining*. A split appends the
+  tail index, so `segmentStart`/`segmentEnd` are **not** byte-ascending and
+  `segmentStart[i]` is not necessarily below the segment before it in the array.
+  Two rules keep that safe: the partition checker (`_planIsValidFor`) validates
+  by byte order and contiguity, never by array order, and `_merge` reassembles
+  through `_orderedIndices` (sorted by byte offset), not `0..n`. A split also
+  shrinks the running segment's `segmentEnd`; the fetch loop re-reads `end` each
+  chunk and truncates (`sublist`) to the new boundary, because the in-flight
+  HTTP response still streams the original, wider range and would otherwise
+  overshoot into the tail's byte range.
+

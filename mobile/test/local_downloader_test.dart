@@ -119,7 +119,7 @@ class _Origin {
               HttpHeaders.contentRangeHeader, 'bytes $start-$end/$total')
           ..headers.contentLength = slice.length;
         _setValidator(req.response.headers);
-        req.response.add(slice);
+        await _writeThrottled(req.response, slice);
         await req.response.close();
         return;
       }
@@ -129,18 +129,26 @@ class _Origin {
       ..statusCode = HttpStatus.ok
       ..headers.contentLength = total;
     _setValidator(req.response.headers);
-    if (throttle != null) {
-      const chunk = 16 * 1024;
-      for (var i = 0; i < data.length; i += chunk) {
-        final end = min(i + chunk, data.length);
-        req.response.add(data.sublist(i, end));
-        await req.response.flush();
-        await Future.delayed(Duration(milliseconds: throttle!));
-      }
-    } else {
-      req.response.add(data);
-    }
+    await _writeThrottled(req.response, data);
     await req.response.close();
+  }
+
+  /// Writes [body], paced by [throttle] when set. Ranged and full responses
+  /// both use this so a test can hold a transfer open long enough to watch
+  /// the engine adapt.
+  Future<void> _writeThrottled(
+      HttpResponse response, List<int> body) async {
+    if (throttle == null) {
+      response.add(body);
+      return;
+    }
+    const chunk = 16 * 1024;
+    for (var i = 0; i < body.length; i += chunk) {
+      final end = min(i + chunk, body.length);
+      response.add(body.sublist(i, end));
+      await response.flush();
+      await Future.delayed(Duration(milliseconds: throttle!));
+    }
   }
 }
 
@@ -207,6 +215,85 @@ void main() {
 
     final saved = File(task.filePath!);
     expect(await saved.readAsBytes(), equals(data));
+  });
+
+  test('adaptive ramp-up widens the plan when the host is fast', () async {
+    // A host that delivers quickly should be pushed toward the requested
+    // width. The transfer must still assemble the exact bytes while the plan
+    // grows underneath it.
+    final data = _blob(8 * 1024 * 1024);
+    final origin = _Origin(data, throttle: 2)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    manager.adaptiveConnections = true;
+    manager.initialSegments = 2;
+    manager.rampWindow = const Duration(milliseconds: 80);
+    manager.rampMinBytesPerSecond = 32 * 1024;
+
+    final task = manager.add(origin.url, filename: 'fast.bin', connections: 6);
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    expect(task.segmentStart.length, greaterThan(2),
+        reason: 'a fast host should have earned more connections');
+    expect(await File(task.filePath!).readAsBytes(), equals(data));
+  });
+
+  test('adaptive ramp-up holds the initial width on a slow host', () async {
+    // Raising the throughput bar above what the host delivers must leave the
+    // plan at its starting width: no extra connections, no byte mistakes.
+    final data = _blob(2 * 1024 * 1024);
+    final origin = _Origin(data, throttle: 20)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    manager.adaptiveConnections = true;
+    manager.initialSegments = 2;
+    manager.rampWindow = const Duration(milliseconds: 60);
+    manager.rampMinBytesPerSecond = 500 * 1024 * 1024;
+
+    final task = manager.add(origin.url, filename: 'slow.bin', connections: 6);
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    expect(task.segmentStart.length, 2,
+        reason: 'a slow host should not be handed more connections');
+    expect(await File(task.filePath!).readAsBytes(), equals(data));
+  });
+
+  test('resumes a partially ramped download without duplicating bytes',
+      () async {
+    // Ramp-up appends split segments out of array order; a pause and resume in
+    // the middle must keep that partition intact instead of re-planning.
+    final data = _blob(4 * 1024 * 1024);
+    final origin = _Origin(data, throttle: 3)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    manager.adaptiveConnections = true;
+    manager.initialSegments = 2;
+    manager.rampWindow = const Duration(milliseconds: 80);
+    manager.rampMinBytesPerSecond = 32 * 1024;
+
+    final task = manager.add(origin.url, filename: 'ramped.bin', connections: 5);
+    await _waitFor(() => task.downloaded > 0 && task.segmentStart.length > 2);
+    manager.pause(task.id);
+    await _waitFor(() => !task.isActive);
+
+    final width = task.segmentStart.length;
+    manager.resume(task.id);
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    // Resume must keep the ramped partition (it may legitimately widen
+    // further), never fall back to the two-segment starting plan.
+    expect(task.segmentStart.length, greaterThanOrEqualTo(width));
+    expect(task.segmentStart.length, greaterThan(2));
+    expect(await File(task.filePath!).readAsBytes(), equals(data));
   });
 
   test('falls back to one connection when the server ignores ranges', () async {
