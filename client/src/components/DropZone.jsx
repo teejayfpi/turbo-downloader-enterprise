@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   Link as LinkIcon, Loader2, X, Plus, Zap, Clock,
-  SlidersHorizontal, ShieldCheck, Film, ChevronRight, AlertTriangle,
+  SlidersHorizontal, ShieldCheck, Film, ChevronRight, AlertTriangle, KeyRound,
 } from 'lucide-react';
 import { api } from '../hooks/useApi';
 import { useDownloadStore } from '../stores/downloadStore';
@@ -13,7 +13,7 @@ export default function DropZone({ onAdded }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showOptions, setShowOptions] = useState(false);
-  const [options, setOptions] = useState({ connections: '', scheduledAt: '', checksum: '', checksumAlgo: 'sha256' });
+  const [options, setOptions] = useState({ connections: '', scheduledAt: '', checksum: '', checksumAlgo: 'sha256', cookie: '', referer: '', authorization: '' });
   const [mediaInfo, setMediaInfo] = useState(null);
   const [mediaLoading, setMediaLoading] = useState(false);
   const [selectedFormat, setSelectedFormat] = useState('best');
@@ -43,6 +43,13 @@ export default function DropZone({ onAdded }) {
       opts.checksum = options.checksum.trim();
       opts.checksumAlgo = options.checksumAlgo;
     }
+    // Session passthrough for login-gated URLs. The server re-validates these
+    // and strips anything reserved; only send what the user actually typed.
+    const headers = {};
+    if (options.cookie.trim()) headers.Cookie = options.cookie.trim();
+    if (options.referer.trim()) headers.Referer = options.referer.trim();
+    if (options.authorization.trim()) headers.Authorization = options.authorization.trim();
+    if (Object.keys(headers).length) opts.headers = headers;
     return opts;
   };
 
@@ -57,6 +64,8 @@ export default function DropZone({ onAdded }) {
       setText('');
       setMediaInfo(null);
       setSelectedFormat('best');
+      // Do not leave credentials in the form for the next download.
+      setOptions((o) => ({ ...o, cookie: '', authorization: '' }));
       addNotification({
         type: 'info',
         title: 'Downloads queued',
@@ -336,6 +345,54 @@ export default function DropZone({ onAdded }) {
                 <option value="md5">MD5</option>
               </select>
             </label>
+
+            <div className="sm:col-span-2 border-t border-border-subtle pt-5 mt-1">
+              <p className="kicker mb-1 flex items-center gap-2">
+                <KeyRound className="w-3.5 h-3.5 text-accent" /> Session access
+              </p>
+              <p className="text-xs text-text-muted mb-4">
+                For a link behind a login. Sent with every request for this download and stored locally on the
+                server; the API never returns the values.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <label className="text-sm sm:col-span-2">
+                  <span className="kicker mb-2 block">Cookie</span>
+                  <input
+                    type="text"
+                    value={options.cookie}
+                    onChange={(e) => setOptions({ ...options, cookie: e.target.value })}
+                    placeholder="name=value; other=value"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="w-full px-3 py-2 bg-bg-secondary rounded-sm border border-border-subtle text-text-primary focus:border-accent font-mono text-xs"
+                  />
+                </label>
+                <label className="text-sm sm:col-span-2">
+                  <span className="kicker mb-2 block">Authorization</span>
+                  <input
+                    type="text"
+                    value={options.authorization}
+                    onChange={(e) => setOptions({ ...options, authorization: e.target.value })}
+                    placeholder="Bearer …"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="w-full px-3 py-2 bg-bg-secondary rounded-sm border border-border-subtle text-text-primary focus:border-accent font-mono text-xs"
+                  />
+                </label>
+                <label className="text-sm sm:col-span-2">
+                  <span className="kicker mb-2 block">Referer</span>
+                  <input
+                    type="text"
+                    value={options.referer}
+                    onChange={(e) => setOptions({ ...options, referer: e.target.value })}
+                    placeholder="https://site.example/page"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="w-full px-3 py-2 bg-bg-secondary rounded-sm border border-border-subtle text-text-primary focus:border-accent font-mono text-xs"
+                  />
+                </label>
+              </div>
+            </div>
           </div>
         )}
       </div>
