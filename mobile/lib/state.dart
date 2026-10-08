@@ -183,6 +183,12 @@ class TurboState extends ChangeNotifier {
   /// full connection width is opened immediately.
   bool adaptiveConnections = true;
 
+  /// Remember how wide a host let the ramp grow last time, so a repeat
+  /// download from that host starts near its proven width instead of ramping
+  /// from scratch. Only hosts that benefited are remembered; slow ones are not
+  /// penalised. Requires adaptive acceleration.
+  bool rememberHostSpeed = true;
+
   /// Notify when the whole queue finishes, every download, or never.
   NotificationStyle notifyStyle = NotificationStyle.onQueueComplete;
 
@@ -286,6 +292,8 @@ class TurboState extends ChangeNotifier {
       autoRetry = prefs.getBool(SettingsStore.kAutoRetry) ?? true;
       adaptiveConnections =
           prefs.getBool(SettingsStore.kAdaptiveConnections) ?? true;
+      rememberHostSpeed =
+          prefs.getBool(SettingsStore.kRememberHostSpeed) ?? true;
       notifyProgress = prefs.getBool(SettingsStore.kNotifyProgress) ?? false;
       checkUpdates = prefs.getBool(SettingsStore.kCheckUpdates) ?? true;
       onboardingDone = prefs.getBool(SettingsStore.kOnboardingDone) ?? false;
@@ -296,6 +304,7 @@ class TurboState extends ChangeNotifier {
 
       local.maxConnections = speedMode.connections(defaultConnections);
       local.adaptiveConnections = adaptiveConnections;
+      local.rememberHostSpeed = rememberHostSpeed;
       local.maxConcurrent = maxConcurrent;
       if (!autoRetry) local.retryPolicy = RetryPolicy.none;
 
@@ -504,6 +513,13 @@ class TurboState extends ChangeNotifier {
     adaptiveConnections = value;
     local.adaptiveConnections = value;
     await settings.setBool(SettingsStore.kAdaptiveConnections, value);
+    _safeNotify();
+  }
+
+  Future<void> setRememberHostSpeed(bool value) async {
+    rememberHostSpeed = value;
+    local.rememberHostSpeed = value;
+    await settings.setBool(SettingsStore.kRememberHostSpeed, value);
     _safeNotify();
   }
 

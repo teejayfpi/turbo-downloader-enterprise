@@ -429,4 +429,16 @@ Changing one without the others silently caps speed.
   chunk and truncates (`sublist`) to the new boundary, because the in-flight
   HTTP response still streams the original, wider range and would otherwise
   overshoot into the tail's byte range.
+- Mobile per-host speed memory (`LocalDownloader.rememberHostSpeed`, opt-out):
+  a host that lets the ramp grow is recorded in `host_speed.json` and seeds the
+  starting width of later downloads from the same `scheme://authority`, so the
+  ramp is paid once per host rather than once per download. Three invariants:
+  the memory **only ever grows** (`noteHostWidth` ignores a non-larger width, so
+  a `rememberHostSpeed=false` toggle cannot lower an entry), a slow host that
+  never splits is never written at all, and a valid entry is always `> 1` so it
+  can never shrink the [initialSegments] floor. Writes are debounced (2 s) and
+  serialised behind `_hostSave`, and flushed from the app lifecycle on
+  `paused`/`detached` so a backgrounded app does not drop the map. This memory
+  is an optimisation, never a correctness dependency: a corrupt/unreadable file
+  is ignored, and the ramp still adapts from the seeded width.
 

@@ -296,6 +296,70 @@ void main() {
     expect(await File(task.filePath!).readAsBytes(), equals(data));
   });
 
+  test('remembers a fast host and starts the next download wide', () async {
+    final data = _blob(8 * 1024 * 1024);
+    final origin = _Origin(data, throttle: 2)..start();
+    addTearDown(origin.stop);
+    final root = await Directory.systemTemp.createTemp('turbo_host_test');
+    addTearDown(() async {
+      if (await root.exists()) await root.delete(recursive: true);
+    });
+
+    final manager = await _manager(root);
+    manager.adaptiveConnections = true;
+    manager.rememberHostSpeed = true;
+    manager.initialSegments = 2;
+    manager.rampWindow = const Duration(milliseconds: 80);
+    manager.rampMinBytesPerSecond = 32 * 1024;
+
+    final first =
+        manager.add(origin.url, filename: 'one.bin', connections: 6);
+    await _waitFor(() => first.isCompleted || first.isFailed);
+    expect(first.isCompleted, isTrue, reason: first.error ?? '');
+    final learned = first.segmentStart.length;
+    expect(learned, greaterThan(2), reason: 'host should have earned width');
+
+    // Simulate a restart: a fresh manager reading the persisted memory.
+    manager.dispose();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    final restarted = await _manager(root);
+    addTearDown(restarted.dispose);
+    restarted.adaptiveConnections = true;
+    restarted.rememberHostSpeed = true;
+    restarted.initialSegments = 2;
+
+    final second =
+        restarted.add(origin.url, filename: 'two.bin', connections: 6);
+    await _waitFor(() => second.isCompleted || second.isFailed);
+    expect(second.isCompleted, isTrue, reason: second.error ?? '');
+    expect(second.segmentStart.length, greaterThan(2),
+        reason: 'a remembered host should start wider than the default');
+    expect(await File(second.filePath!).readAsBytes(), equals(data));
+  });
+
+  test('does not remember a slow host', () async {
+    final data = _blob(2 * 1024 * 1024);
+    final origin = _Origin(data, throttle: 20)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    manager.adaptiveConnections = true;
+    manager.rememberHostSpeed = true;
+    manager.initialSegments = 2;
+    manager.rampWindow = const Duration(milliseconds: 60);
+    manager.rampMinBytesPerSecond = 500 * 1024 * 1024;
+
+    final task = manager.add(origin.url, filename: 'slow.bin', connections: 6);
+    await _waitFor(() => task.isCompleted || task.isFailed);
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+
+    final memory = File('${root.path}/host_speed.json');
+    expect(await memory.exists() && (await memory.readAsString()).isNotEmpty,
+        isFalse,
+        reason: 'a host that never ramped should not be written down');
+  });
+
   test('falls back to one connection when the server ignores ranges', () async {
     final data = _blob(2 * 1024 * 1024);
     final origin = _Origin(data, supportRange: false, advertiseAcceptRanges: false)

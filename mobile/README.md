@@ -92,6 +92,13 @@ a fast one ramps up to the configured ceiling — without the stall of opening t
 whole fan-out before a single byte arrives. Turn it off in
 Settings → Download engine to always open the full width immediately.
 
+With **Remember fast hosts** on (the default), a host that let the ramp grow is
+remembered on the device: the next download from it starts near the width it
+proved, so the ramp is paid once, not every time. Only hosts that benefited are
+recorded, and the memory only ever grows, so a slow host is never penalised.
+The map is stored in `host_speed.json` in the app-support directory and flushed
+when the app leaves the foreground.
+
 ## Requirements
 
 - Flutter 3.24.x (Dart 3.5.4)

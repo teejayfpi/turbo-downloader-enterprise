@@ -470,6 +470,26 @@ class LocalDownloadManager extends ChangeNotifier {
   /// second per open connection (below it, extra connections rarely help).
   int rampMinBytesPerSecond = 64 * 1024;
 
+  /// When true, a host that let the ramp grow is remembered across app runs,
+  /// so a repeat download there starts near its proven width. Only hosts that
+  /// benefited are recorded; a slow host never lowers the starting width.
+  bool rememberHostSpeed = true;
+
+  /// Proven segment width per host, loaded from `host_speed.json`. A hit seeds
+  /// a fresh transfer's starting width; the ramp still adapts from there.
+  final Map<String, int> _hostWidth = {};
+
+  /// Hosts whose memory has been written this run, to avoid a write per
+  /// download when a queue holds several links from the same host.
+  final Set<String> _hostDirty = {};
+
+  bool _hostsLoaded = false;
+  bool _hostWriteScheduled = false;
+
+  /// Serialises `host_speed.json` writes so a queued flush cannot interleave
+  /// with a load and persist a half-empty map.
+  Future<void> _hostSave = Future<void>.value();
+
   /// Ceiling on ramp-up evaluations per transfer, a backstop against a host
   /// whose throughput looks high but never lets a segment finish.
   static const int _kMaxRampSteps = 8;
@@ -549,9 +569,92 @@ class LocalDownloadManager extends ChangeNotifier {
       }
     }
     _loaded = true;
+    await _loadHostMemory();
     await _recoverPartialData();
     _safeNotify();
     _pump();
+  }
+
+  /// Loads the per-host proven widths, if the file exists. A corrupt or
+  /// unreadable file is ignored: the memory is an optimisation, never a
+  /// correctness dependency.
+  Future<void> _loadHostMemory() async {
+    if (_hostsLoaded) return;
+    _hostsLoaded = true;
+    final root = _root;
+    if (root == null) return;
+    final file = File('${root.path}/host_speed.json');
+    if (!await file.exists()) return;
+    try {
+      final raw = jsonDecode(await file.readAsString());
+      if (raw is Map) {
+        raw.forEach((key, value) {
+          final width = value is int ? value : int.tryParse('$value');
+          if (width != null && width > 1) _hostWidth['$key'] = width;
+        });
+      }
+    } catch (_) {}
+  }
+
+  /// The stable key a host is remembered under: scheme + host + port, so
+  /// `https://cdn.example.com` and `https://cdn.example.com:8443` are distinct
+  /// but query strings and paths are not. Null for a non-http(s) or hostless
+  /// URL, which is not worth remembering.
+  static String? _hostKeyOf(String url) {
+    try {
+      final uri = Uri.parse(url);
+      if (uri.host.isEmpty) return null;
+      if (uri.scheme != 'http' && uri.scheme != 'https') return null;
+      return '${uri.scheme}://${uri.authority}';
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Records that [key] sustained [width] segments. Memory only ever grows, so
+  /// one fast host does not have its width knocked down by a later slow file
+  /// (and by construction we only call this when the ramp actually grew).
+  void noteHostWidth(String url, int width) {
+    if (!rememberHostSpeed || width <= 1) return;
+    final key = _hostKeyOf(url);
+    if (key == null) return;
+    final previous = _hostWidth[key] ?? 0;
+    if (width <= previous) return;
+    _hostWidth[key] = width;
+    _hostDirty.add(key);
+    _scheduleHostWrite();
+  }
+
+  /// Debounced write so a batch download records one file write, not one per
+  /// task. The flush is serialised behind [_hostSave].
+  void _scheduleHostWrite() {
+    if (_hostWriteScheduled) return;
+    _hostWriteScheduled = true;
+    Timer(const Duration(seconds: 2), () {
+      _hostWriteScheduled = false;
+      _hostSave = _hostSave.then((_) => _flushHostMemory());
+    });
+  }
+
+  Future<void> _flushHostMemory() async {
+    final root = _root;
+    if (root == null || _hostDirty.isEmpty) return;
+    final file = File('${root.path}/host_speed.json');
+    try {
+      await file.writeAsString(jsonEncode(_hostWidth));
+      _hostDirty.clear();
+    } catch (_) {}
+  }
+
+  /// Flushes any pending host memory immediately. Call before the app exits;
+  /// the timer alone may not fire on a hard kill.
+  Future<void> flushHostMemory() async {
+    final pending = _hostWriteScheduled;
+    _hostWriteScheduled = false;
+    if (pending || _hostDirty.isNotEmpty) {
+      _hostSave = _hostSave.then((_) => _flushHostMemory());
+      await _hostSave;
+    }
   }
 
   /// After a crash, a `.part` file can be longer than the byte count the queue
@@ -1336,9 +1439,15 @@ class LocalDownloadManager extends ChangeNotifier {
 
       // A fresh transfer opens [initialSegments] and lets the ramp add more;
       // a resumed one keeps its existing (possibly ramped) width. When the
-      // ramp is off, jump straight to the requested width.
+      // ramp is off, jump straight to the requested width. On a host whose
+      // proven width is already known, start there so the ramp does not have
+      // to re-earn it.
+      final learned = rememberHostSpeed
+          ? (_hostWidth[_hostKeyOf(task.fetchUrl) ?? ''] ?? 0)
+          : 0;
+      final startWidth = learned > initialSegments ? learned : initialSegments;
       final target = adaptiveConnections
-          ? min(initialSegments, maxSegs)
+          ? min(startWidth, maxSegs)
           : maxSegs;
       _partition(task, probe.total, target);
       return;
@@ -1544,6 +1653,9 @@ class LocalDownloadManager extends ChangeNotifier {
         final tail = _splitLargestRemaining(task);
         if (tail < 0) break;
         spawn(tail);
+        // The host earned another connection; remember how wide it got so a
+        // repeat download here can skip re-ramping from scratch.
+        noteHostWidth(task.fetchUrl, task.segmentStart.length);
       }
     }
 
@@ -1772,6 +1884,8 @@ class LocalDownloadManager extends ChangeNotifier {
     }
     _lastActiveForService = 0;
     unawaited(backgroundOverride(0));
+    // Persist any host memory the debounce has not written yet.
+    unawaited(flushHostMemory());
     super.dispose();
   }
 }

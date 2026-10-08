@@ -26,6 +26,7 @@ class SettingsStore {
   static const kTextScale = 'turbo.textScale';
   static const kAutoRetry = 'turbo.autoRetry';
   static const kAdaptiveConnections = 'turbo.adaptiveConnections';
+  static const kRememberHostSpeed = 'turbo.rememberHostSpeed';
   static const kUpdateChannel = 'turbo.updateChannel';
   static const kCheckUpdates = 'turbo.checkUpdates';
   static const kClipboardMonitor = 'turbo.clipboardMonitor';

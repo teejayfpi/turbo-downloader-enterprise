@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -39,13 +41,14 @@ class TurboApp extends StatefulWidget {
   State<TurboApp> createState() => _TurboAppState();
 }
 
-class _TurboAppState extends State<TurboApp> {
+class _TurboAppState extends State<TurboApp> with WidgetsBindingObserver {
   late final TurboState _state;
   LinkInbox? _inbox;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _state = TurboState()..init();
     if (widget.initialUrl != null) {
       _state.receiveLink(widget.initialUrl!);
@@ -55,7 +58,19 @@ class _TurboAppState extends State<TurboApp> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // A hard kill gives no shutdown callback, so persist the per-host speed
+    // memory as soon as the app leaves the foreground.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      unawaited(_state.local.flushHostMemory());
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(_state.local.flushHostMemory());
     _inbox?.dispose();
     _state.dispose();
     super.dispose();

@@ -757,6 +757,25 @@ class _EngineSection extends StatelessWidget {
                 fontSize: 10.5),
           ),
         ),
+        if (state.adaptiveConnections)
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: state.rememberHostSpeed,
+            onChanged: state.setRememberHostSpeed,
+            title: Text('Remember fast hosts',
+                style: TextStyle(
+                    fontFamily: TurboFonts.body,
+                    color: p.textPrimary,
+                    fontSize: 13)),
+            subtitle: Text(
+              'Start near the width a host proved last time, instead of '
+              'ramping from scratch. Slow hosts are never remembered.',
+              style: TextStyle(
+                  fontFamily: TurboFonts.body,
+                  color: p.textMuted,
+                  fontSize: 10.5),
+            ),
+          ),
         if (!available) ...[
           const Divider(height: 20),
           const Kicker('Install', letterSpacing: 1.6),
