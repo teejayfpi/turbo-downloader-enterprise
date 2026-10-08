@@ -356,7 +356,7 @@ void main() {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
       server.listen((req) async {
-        final isManifest = req.uri.path.endsWith('SHA256SUMS');
+        final isManifest = req.uri.path.contains('SHA256SUMS');
         final payload = isManifest ? manifest : body;
         req.response
           ..statusCode = HttpStatus.ok
@@ -391,7 +391,7 @@ void main() {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
       server.listen((req) async {
-        final isManifest = req.uri.path.endsWith('SHA256SUMS');
+        final isManifest = req.uri.path.contains('SHA256SUMS');
         final payload = isManifest ? manifest : body;
         req.response
           ..statusCode = HttpStatus.ok
@@ -425,7 +425,7 @@ void main() {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
       server.listen((req) async {
-        final isManifest = req.uri.path.endsWith('SHA256SUMS');
+        final isManifest = req.uri.path.contains('SHA256SUMS');
         final payload = isManifest ? manifest : body;
         req.response
           ..statusCode = HttpStatus.ok
