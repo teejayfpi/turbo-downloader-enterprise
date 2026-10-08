@@ -807,6 +807,7 @@ class TurboState extends ChangeNotifier {
     String? formatId,
     String? extensionHint,
     ProbeResult? mediaInfo,
+    Map<String, String>? headers,
   }) {
     final trimmed = url.trim();
     final known = isMediaUrl(trimmed);
@@ -838,6 +839,7 @@ class TurboState extends ChangeNotifier {
       mediaAuthor: mediaInfo?.author,
       mediaDuration: mediaInfo?.durationSeconds,
       thumbnailUrl: mediaInfo?.thumbnailUrl,
+      headers: headers,
     );
   }
 

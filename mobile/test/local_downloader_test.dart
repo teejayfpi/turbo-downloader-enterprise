@@ -24,6 +24,15 @@ class _Origin {
 
   /// The last `If-Range` header the server saw, for assertions.
   String? lastIfRange;
+
+  /// Session headers the origin saw on the most recent request.
+  String? lastCookie;
+  String? lastReferer;
+
+  /// When true, a request without a `Cookie` is answered 403, standing in for
+  /// a site that gates the file behind a login.
+  bool requireCookie;
+
   HttpServer? _server;
 
   _Origin(
@@ -33,6 +42,7 @@ class _Origin {
     this.throttle,
     this.rejectDartAgent = false,
     this.etag,
+    this.requireCookie = false,
   });
 
   /// Replaces the served bytes and their validator, as a redeployed file would.
@@ -61,6 +71,13 @@ class _Origin {
     final total = data.length;
     final ifRange = req.headers.value(HttpHeaders.ifRangeHeader);
     if (ifRange != null) lastIfRange = ifRange;
+    lastCookie = req.headers.value('cookie');
+    lastReferer = req.headers.value('referer');
+    if (requireCookie && (lastCookie == null || lastCookie!.isEmpty)) {
+      req.response.statusCode = HttpStatus.forbidden;
+      await req.response.close();
+      return;
+    }
 
     if (rejectDartAgent) {
       final agent = req.headers.value(HttpHeaders.userAgentHeader) ?? '';
@@ -854,5 +871,94 @@ void main() {
     // The stale bytes must have been discarded: the saved file is wholly the
     // new version, not a splice of the two.
     expect(await File(task.filePath!).readAsBytes(), equals(second));
+  });
+
+  test('sends session headers on every request and persists them', () async {
+    final data = _blob(80 * 1024);
+    final origin = _Origin(data)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    final task = manager.add(
+      origin.url,
+      filename: 'gated.bin',
+      connections: 1,
+      headers: {'Cookie': 'sid=abc123', 'Referer': 'https://site.example/x'},
+    );
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    expect(origin.lastCookie, 'sid=abc123',
+        reason: 'the session cookie must reach the origin');
+    expect(origin.lastReferer, 'https://site.example/x',
+        reason: 'the referer must reach the origin');
+
+    // The session survives a restart so a resumed transfer stays authenticated.
+    final reloaded = LocalDownloadManager();
+    reloaded.rootOverride = root;
+    await reloaded.init();
+    addTearDown(reloaded.dispose);
+    expect(reloaded.task(task.id)?.headers['Cookie'], 'sid=abc123');
+  });
+
+  test('drops headers the engine owns, and CR/LF injection', () async {
+    final data = _blob(40 * 1024);
+    final origin = _Origin(data)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    final task = manager.add(
+      origin.url,
+      filename: 'sanitized.bin',
+      connections: 1,
+      headers: {
+        'Cookie': 'sid=ok',
+        'User-Agent': 'evil',
+        'Range': 'bytes=0-1',
+        'Accept-Encoding': 'gzip',
+        'X-Trace': 'a\r\nInjected: 1',
+        'Bad Name': 'x',
+      },
+    );
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    expect(task.headers.keys, contains('Cookie'));
+    expect(task.headers.keys, isNot(contains('User-Agent')));
+    expect(task.headers.keys, isNot(contains('Range')));
+    expect(task.headers.keys, isNot(contains('Accept-Encoding')));
+    expect(task.headers.keys, isNot(contains('X-Trace')),
+        reason: 'a CR/LF value must be dropped, not forwarded');
+    expect(task.headers.keys, isNot(contains('Bad Name')));
+    expect(origin.lastCookie, 'sid=ok');
+  });
+
+  test('a gated origin fails without the session and succeeds with it',
+      () async {
+    final data = _blob(50 * 1024);
+
+    final locked = _Origin(data, requireCookie: true)..start();
+    addTearDown(locked.stop);
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    final unauth = manager.add(locked.url, filename: 'no-cookie.bin', connections: 1);
+    await _waitFor(() => unauth.isCompleted || unauth.isFailed);
+    expect(unauth.isFailed, isTrue,
+        reason: 'a 403 must surface as a failure, not a silent success');
+
+    final authed = manager.add(
+      locked.url,
+      filename: 'cookie.bin',
+      connections: 1,
+      headers: {'Cookie': 'sid=abc123'},
+    );
+    await _waitFor(() => authed.isCompleted || authed.isFailed);
+    expect(authed.isCompleted, isTrue, reason: authed.error ?? '');
+    expect(await File(authed.filePath!).readAsBytes(), equals(data));
   });
 }

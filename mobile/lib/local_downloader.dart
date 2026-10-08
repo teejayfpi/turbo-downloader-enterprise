@@ -70,6 +70,49 @@ const _userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
     'AppleWebKit/537.36 (KHTML, like Gecko) '
     'Chrome/124.0.0.0 Safari/537.36';
 
+/// Headers the engine sets itself on every request. A caller must not override
+/// them: `Range` and `Accept-Encoding` decide where each segment starts, so
+/// letting a caller set them would corrupt the byte math, and `Host`/`UA`
+/// spoofing is not something a session passthrough should enable.
+const _reservedHeaders = {
+  'range',
+  'accept-encoding',
+  'host',
+  'content-length',
+  'connection',
+  'transfer-encoding',
+  'content-type',
+  'user-agent',
+  'accept',
+};
+
+final _headerNamePattern = RegExp(r'^[A-Za-z0-9!#$%&*+.^_`|~-]+$');
+final _headerInjectionPattern = RegExp(r'[\r\n\x00]');
+
+/// Cleans caller-supplied session headers (`Cookie`, `Referer`,
+/// `Authorization`, …) down to what is safe to send.
+///
+/// This is the mobile twin of the server's allow-list: it drops CR/LF
+/// injection, non-token names, oversized or empty values, and the reserved set
+/// above, and caps the count. It returns an empty map when nothing survives,
+/// so a malformed paste becomes "no session" rather than a broken request.
+Map<String, String> sanitizeHeaders(Map<String, String>? raw) {
+  if (raw == null || raw.isEmpty) return const {};
+  final out = <String, String>{};
+  for (final entry in raw.entries) {
+    if (out.length >= 32) break;
+    final name = entry.key.trim();
+    if (name.isEmpty || name.length > 64) continue;
+    if (!_headerNamePattern.hasMatch(name)) continue;
+    if (_reservedHeaders.contains(name.toLowerCase())) continue;
+    final value = entry.value.trim();
+    if (value.isEmpty || value.length > 4096) continue;
+    if (_headerInjectionPattern.hasMatch(value)) continue;
+    out[name] = value;
+  }
+  return out;
+}
+
 Future<void> _deviceBackground(int active) async {
   try {
     await const MethodChannel('turbo_downloader/files')
@@ -197,6 +240,7 @@ class LocalTask {
     this.mediaAuthor,
     this.mediaDuration,
     this.thumbnailUrl,
+    Map<String, String>? headers,
     this.maxAttempts = 3,
     this.rangeSupported = true,
     this.etag,
@@ -206,9 +250,15 @@ class LocalTask {
     required this.createdAt,
     this.completedAt,
     this.startedAt,
-  })  : segmentStart = segmentStart ?? const [],
+  })  : headers = sanitizeHeaders(headers),
+        segmentStart = segmentStart ?? const [],
         segmentEnd = segmentEnd ?? const [],
         segmentDone = segmentDone ?? const [];
+
+  /// Extra request headers for sites that gate the file behind a session
+  /// (`Cookie`, `Referer`, `Authorization`, …), already cleaned by
+  /// [sanitizeHeaders]. Persisted with the task so resume keeps the session.
+  final Map<String, String> headers;
 
   bool get isActive => status == 'active';
   bool get isPaused => status == 'paused';
@@ -266,6 +316,7 @@ class LocalTask {
         'mediaAuthor': mediaAuthor,
         'mediaDuration': mediaDuration,
         'thumbnailUrl': thumbnailUrl,
+        if (headers.isNotEmpty) 'headers': headers,
         'fellBackToBuiltin': fellBackToBuiltin,
         'rangeSupported': rangeSupported,
         'etag': etag,
@@ -308,6 +359,8 @@ class LocalTask {
       mediaAuthor: json['mediaAuthor']?.toString(),
       mediaDuration: (json['mediaDuration'] as num?)?.toInt(),
       thumbnailUrl: json['thumbnailUrl']?.toString(),
+      headers: (json['headers'] as Map?)?.map(
+          (key, value) => MapEntry(key.toString(), value.toString())),
       rangeSupported: json['rangeSupported'] as bool? ?? true,
       etag: json['etag']?.toString(),
       maxAttempts: (json['maxAttempts'] as num?)?.toInt() ?? 3,
@@ -536,6 +589,7 @@ class LocalDownloadManager extends ChangeNotifier {
     String? mediaAuthor,
     int? mediaDuration,
     String? thumbnailUrl,
+    Map<String, String>? headers,
   }) {
     final trimmed = url.trim();
     final id = _newId();
@@ -555,6 +609,7 @@ class LocalDownloadManager extends ChangeNotifier {
       mediaAuthor: mediaAuthor,
       mediaDuration: mediaDuration,
       thumbnailUrl: thumbnailUrl,
+      headers: headers,
       maxAttempts: retryPolicy.maxAttempts,
       createdAt: DateTime.now(),
     );
@@ -582,6 +637,7 @@ class LocalDownloadManager extends ChangeNotifier {
     String? mediaAuthor,
     int? mediaDuration,
     String? thumbnailUrl,
+    Map<String, String>? headers,
   }) {
     if (isDuplicate(url)) return null;
     return add(
@@ -597,6 +653,7 @@ class LocalDownloadManager extends ChangeNotifier {
       mediaAuthor: mediaAuthor,
       mediaDuration: mediaDuration,
       thumbnailUrl: thumbnailUrl,
+      headers: headers,
     );
   }
 
@@ -971,7 +1028,7 @@ class LocalDownloadManager extends ChangeNotifier {
         }
       }
 
-      final probe = await _probe(client, task.fetchUrl);
+      final probe = await _probe(client, task.fetchUrl, task.headers);
       task.rangeSupported = probe.range;
       // Drop bytes from a previous run when the remote resource changed. The
       // `If-Range` header only protects mid-transfer resumes; across sessions
@@ -1032,6 +1089,7 @@ class LocalDownloadManager extends ChangeNotifier {
       media.url,
       videoPath,
       run,
+      headers: task.headers,
       onBytes: (n) {
         task.downloaded = n;
         _safeNotify();
@@ -1044,6 +1102,7 @@ class LocalDownloadManager extends ChangeNotifier {
       media.audioUrl!,
       audioPath,
       run,
+      headers: task.headers,
       onBytes: (n) {
         task.downloaded = videoDone + n;
         _safeNotify();
@@ -1091,10 +1150,11 @@ class LocalDownloadManager extends ChangeNotifier {
     String url,
     String path,
     _Run run, {
+    Map<String, String> headers = const {},
     required void Function(int bytes) onBytes,
   }) async {
     final file = File(path);
-    final req = await _open(client, Uri.parse(url));
+    final req = await _open(client, Uri.parse(url), headers: headers);
     final res = await req.close();
     if (res.statusCode != HttpStatus.ok &&
         res.statusCode != HttpStatus.partialContent) {
@@ -1152,10 +1212,12 @@ class LocalDownloadManager extends ChangeNotifier {
     await _cleanupParts(task);
   }
 
-  /// Opens a request with the shared browser-like headers. Every engine
-  /// request (probe, segment, muxed track) goes through here so a host that
-  /// rejects the default dart:io agent does not 403 one path but not another.
-  Future<HttpClientRequest> _open(HttpClient client, Uri uri) async {
+  /// Opens a request with the shared browser-like headers plus any per-task
+  /// session headers. Every engine request (probe, segment, muxed track) goes
+  /// through here so a host that rejects the default dart:io agent does not 403
+  /// one path but not another.
+  Future<HttpClientRequest> _open(HttpClient client, Uri uri,
+      {Map<String, String> headers = const {}}) async {
     final req = await client.getUrl(uri);
     req.headers.set(HttpHeaders.userAgentHeader, _userAgent);
     req.headers.set(HttpHeaders.acceptHeader, '*/*');
@@ -1163,10 +1225,18 @@ class LocalDownloadManager extends ChangeNotifier {
     // transparently gzipped reply would shift byte offsets and break ranged
     // and resumed downloads.
     req.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
+    headers.forEach((name, value) {
+      try {
+        req.headers.set(name, value);
+      } catch (_) {
+        // A header dart:io rejects is dropped rather than failing the request.
+      }
+    });
     return req;
   }
 
-  Future<_Probe> _probe(HttpClient client, String url) async {
+  Future<_Probe> _probe(HttpClient client, String url,
+      [Map<String, String> headers = const {}]) async {
     final uri = Uri.parse(url);
 
     // HEAD is free and tells us length, range support, and often the filename.
@@ -1175,6 +1245,11 @@ class LocalDownloadManager extends ChangeNotifier {
       head.headers.set(HttpHeaders.userAgentHeader, _userAgent);
       head.headers.set(HttpHeaders.acceptHeader, '*/*');
       head.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
+      headers.forEach((name, value) {
+        try {
+          head.headers.set(name, value);
+        } catch (_) {}
+      });
       final res = await head.close();
       final name =
           _nameFromDisposition(res.headers.value('content-disposition'));
@@ -1198,7 +1273,7 @@ class LocalDownloadManager extends ChangeNotifier {
       // Some servers reject HEAD; fall through to a ranged GET.
     }
 
-    final req = await _open(client, uri);
+    final req = await _open(client, uri, headers: headers);
     req.headers.set(HttpHeaders.rangeHeader, 'bytes=0-0');
     final res = await req.close();
     final status = res.statusCode;
@@ -1291,7 +1366,7 @@ class LocalDownloadManager extends ChangeNotifier {
         return;
       }
 
-      final req = await _open(client, Uri.parse(task.fetchUrl));
+      final req = await _open(client, Uri.parse(task.fetchUrl), headers: task.headers);
       // Ask only for the bytes still missing. `end < 0` means the length is
       // unknown, so an open-ended range from the resume point is used.
       if (done > 0 || end >= 0) {

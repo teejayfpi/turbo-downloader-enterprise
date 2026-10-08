@@ -27,11 +27,18 @@ class AddScreen extends StatefulWidget {
 class _AddScreenState extends State<AddScreen> {
   final _controller = TextEditingController();
   final _nameController = TextEditingController();
+  final _cookieController = TextEditingController();
+  final _authController = TextEditingController();
+  final _refererController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
   bool _submitting = false;
   bool _probing = false;
   int _connections = 4;
+
+  /// Whether the session-access fields are shown. Collapsed by default so the
+  /// common case (a public link) stays a one-field form.
+  bool _showSession = false;
 
   /// Result of inspecting the pasted media page.
   ProbeResult? _probe;
@@ -207,6 +214,7 @@ class _AddScreenState extends State<AddScreen> {
       formatSelector: isYtdlpFormat ? format?.id : null,
       formatId: isYtdlpFormat ? null : format?.id,
       extensionHint: format?.extension,
+      headers: _sessionHeaders(),
     );
 
     if (!mounted) return;
@@ -231,6 +239,23 @@ class _AddScreenState extends State<AddScreen> {
     _probe = null;
     _selectedFormat = null;
     _mediaReadyToInspect = false;
+    // Session fields deliberately survive: a user pulling several files from
+    // one gated site should not retype the login for each. They are dropped
+    // when the screen is disposed, and [sanitizeHeaders] rejects anything the
+    // engine must own before it reaches a request.
+  }
+
+  /// The session headers the user entered, or null when the panel is unused.
+  Map<String, String>? _sessionHeaders() {
+    if (!_showSession) return null;
+    final headers = <String, String>{};
+    final cookie = _cookieController.text.trim();
+    final auth = _authController.text.trim();
+    final referer = _refererController.text.trim();
+    if (cookie.isNotEmpty) headers['Cookie'] = cookie;
+    if (auth.isNotEmpty) headers['Authorization'] = auth;
+    if (referer.isNotEmpty) headers['Referer'] = referer;
+    return headers.isEmpty ? null : headers;
   }
 
   @override
@@ -352,6 +377,14 @@ class _AddScreenState extends State<AddScreen> {
               connections: _connections,
               mode: state.speedMode,
               onChanged: (v) => setState(() => _connections = v),
+            ),
+            const SizedBox(height: 18),
+            _SessionPanel(
+              expanded: _showSession,
+              onToggle: () => setState(() => _showSession = !_showSession),
+              cookieController: _cookieController,
+              authController: _authController,
+              refererController: _refererController,
             ),
             const SizedBox(height: 22),
             TurboButton(
@@ -607,3 +640,99 @@ class _SpeedRow extends StatelessWidget {
     );
   }
 }
+
+/// Collapsible fields for sites that gate a file behind a login. The values
+/// become per-task headers (`Cookie`, `Authorization`, `Referer`) and are
+/// cleaned by `sanitizeHeaders` before any request, so a typo cannot break the
+/// transfer. This mirrors the "Session access" panel in the web UI.
+class _SessionPanel extends StatelessWidget {
+  final bool expanded;
+  final VoidCallback onToggle;
+  final TextEditingController cookieController;
+  final TextEditingController authController;
+  final TextEditingController refererController;
+
+  const _SessionPanel({
+    required this.expanded,
+    required this.onToggle,
+    required this.cookieController,
+    required this.authController,
+    required this.refererController,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = context.palette;
+    return TurboPanel(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: onToggle,
+            child: Row(
+              children: [
+                Icon(Icons.key_rounded, color: palette.textMuted, size: 15),
+                const SizedBox(width: 8),
+                const Kicker('Session access', letterSpacing: 1.6),
+                const Spacer(),
+                Icon(
+                  expanded
+                      ? Icons.expand_less_rounded
+                      : Icons.expand_more_rounded,
+                  color: palette.textMuted,
+                  size: 18,
+                ),
+              ],
+            ),
+          ),
+          if (expanded) ...[
+            const SizedBox(height: 8),
+            Text(
+              'For a link behind a login. Sent with every request for this '
+              'download and stored only on this device; the queue never shows '
+              'the values.',
+              style: TextStyle(
+                fontFamily: TurboFonts.body,
+                color: palette.textMuted,
+                fontSize: 10,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _field(context, cookieController, 'Cookie',
+                'name=value; other=value'),
+            const SizedBox(height: 10),
+            _field(context, authController, 'Authorization', 'Bearer …'),
+            const SizedBox(height: 10),
+            _field(context, refererController, 'Referer',
+                'https://site.example/page'),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _field(BuildContext context, TextEditingController controller,
+      String label, String hint) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Kicker(label, letterSpacing: 1.2),
+        const SizedBox(height: 6),
+        TextField(
+          controller: controller,
+          autocorrect: false,
+          enableSuggestions: false,
+          style: TextStyle(
+            fontFamily: TurboFonts.mono,
+            color: context.palette.textPrimary,
+            fontSize: 12,
+          ),
+          decoration: InputDecoration(hintText: hint, isDense: true),
+        ),
+      ],
+    );
+  }
+}
+
