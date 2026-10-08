@@ -16,6 +16,7 @@ import {
   validateHttpUrl,
   assertPublicHost,
   pinnedLookup,
+  sanitizeHeaders,
 } from './utils.js';
 
 // The pool must be at least as large as the worst case the settings allow
@@ -59,7 +60,7 @@ async function mapLimit(items, limit, worker) {
 const COLUMNS = [
   'id', 'url', 'filename', 'filepath', 'total', 'downloaded', 'status',
   'progress', 'speed', 'error', 'platform', 'kind', 'format', 'connections',
-  'priority', 'resume_supported', 'checksum', 'checksum_algo', 'scheduled_at',
+  'priority', 'resume_supported', 'checksum', 'checksum_algo', 'headers', 'scheduled_at',
   'started_at', 'completed_at', 'created_at',
 ];
 
@@ -84,6 +85,13 @@ function rowToTask(row) {
     resumeSupported: !!row.resume_supported,
     checksum: row.checksum || null,
     checksumAlgo: row.checksum_algo || null,
+    headers: (() => {
+      try {
+        return sanitizeHeaders(JSON.parse(row.headers));
+      } catch {
+        return {};
+      }
+    })(),
     scheduledAt: row.scheduled_at,
     startedAt: row.started_at,
     completedAt: row.completed_at,
@@ -150,6 +158,7 @@ export class DownloadEngine {
       resume_supported: task.resumeSupported ? 1 : 0,
       checksum: task.checksum || null,
       checksum_algo: task.checksumAlgo || null,
+      headers: task.headers && Object.keys(task.headers).length ? JSON.stringify(task.headers) : null,
       scheduled_at: task.scheduledAt || null,
       started_at: task.startedAt || null,
       completed_at: task.completedAt || null,
@@ -201,6 +210,10 @@ export class DownloadEngine {
         connections: options.connections || this.settings.getSettings().connections,
         priority: options.priority || 0,
         resumeSupported: false,
+        // Session passthrough: a caller may supply Cookie/Referer/Authorization
+        // for a URL behind a login. Validated here so every request path that
+        // spreads baseHeaders() carries the same safe set.
+        headers: sanitizeHeaders(options.headers),
         checksum: options.checksum || null,
         checksumAlgo: options.checksumAlgo || null,
         scheduledAt,
@@ -414,6 +427,9 @@ export class DownloadEngine {
       priority: task.priority,
       resumeSupported: task.resumeSupported,
       segments: task._segments ? task._segments.length : 1,
+      // Never echo the values: they can hold cookies or bearer tokens. The UI
+      // only needs to know whether the download is authenticated.
+      hasCustomHeaders: !!(task.headers && Object.keys(task.headers).length),
       checksum: task.checksum,
       checksumAlgo: task.checksumAlgo,
       scheduledAt: task.scheduledAt,
@@ -588,17 +604,20 @@ export class DownloadEngine {
     await this.finalize(task);
   }
 
-  baseHeaders() {
+  baseHeaders(task = null) {
     return {
       'User-Agent': USER_AGENT,
       Accept: '*/*',
+      // Pinned so a compressed body cannot desync the byte ranges. A caller's
+      // sanitizeHeaders() already rejects their attempts to override it.
       'Accept-Encoding': 'identity',
+      ...(task?.headers || {}),
     };
   }
 
   async probe(urlObj, task, address = null) {
     try {
-      const { res } = await this.request(urlObj, { ...this.baseHeaders(), Range: 'bytes=0-0' }, 0, address);
+      const { res } = await this.request(urlObj, { ...this.baseHeaders(task), Range: 'bytes=0-0' }, 0, address);
       const status = res.statusCode;
       const headers = res.headers;
       res.destroy();
@@ -623,7 +642,7 @@ export class DownloadEngine {
       startByte = 0;
     }
 
-    const headers = { ...this.baseHeaders() };
+    const headers = { ...this.baseHeaders(task) };
     if (startByte > 0) headers.Range = `bytes=${startByte}-`;
 
     const { res } = await this.request(urlObj, headers, 0, address);
@@ -765,7 +784,7 @@ export class DownloadEngine {
     if (seg.downloaded >= expected) return;
 
     const start = seg.start + seg.downloaded;
-    const headers = { ...this.baseHeaders(), Range: `bytes=${start}-${seg.end}` };
+    const headers = { ...this.baseHeaders(task), Range: `bytes=${start}-${seg.end}` };
 
     const { res } = await this.request(urlObj, headers, 0, address);
     this.trackRequest(task, res);

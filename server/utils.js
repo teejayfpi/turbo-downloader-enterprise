@@ -143,6 +143,46 @@ export async function assertPublicHost(hostname) {
   return records[0].address;
 }
 
+/**
+ * Hop-by-hop and engine-managed headers a caller must not set. `Range` is set
+ * per chunk and `Accept-Encoding` is pinned to `identity` so compression cannot
+ * desync the byte math; `Host`/`Content-Length`/`Connection` are owned by Node.
+ */
+const RESERVED_HEADERS = new Set([
+  'host', 'content-length', 'connection', 'transfer-encoding', 'range',
+  'accept-encoding', 'upgrade', 'te', 'trailer', 'proxy-authorization',
+]);
+
+const HEADER_NAME_RE = /^[A-Za-z0-9!#$%&'*+\-.^_`|~]+$/;
+const MAX_CUSTOM_HEADERS = 32;
+const MAX_HEADER_VALUE = 8 * 1024;
+
+/**
+ * Normalizes a caller-supplied header map (e.g. Cookie/Referer/Authorization
+ * for a session-gated URL) into a safe subset. Rejects header injection via
+ * CR/LF, non-token names, reserved/engine-managed headers, and oversized
+ * values. Returns `{}` for anything malformed so callers can spread it without
+ * guarding.
+ */
+export function sanitizeHeaders(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out = {};
+  let count = 0;
+  for (const [name, value] of Object.entries(raw)) {
+    if (count >= MAX_CUSTOM_HEADERS) break;
+    const key = String(name).trim();
+    const val = String(value).trim();
+    if (!key || !val) continue;
+    if (!HEADER_NAME_RE.test(key)) continue;
+    if (RESERVED_HEADERS.has(key.toLowerCase())) continue;
+    if (/[\r\n\0]/.test(val)) continue;
+    if (val.length > MAX_HEADER_VALUE) continue;
+    out[key] = val;
+    count++;
+  }
+  return out;
+}
+
 /** A `lookup` implementation that always answers with [address]. */
 export function pinnedLookup(address) {
   const family = net.isIPv6(address) ? 6 : 4;
