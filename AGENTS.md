@@ -351,6 +351,15 @@ it is not a filter.
 - The release workflow hashes with no `|| true`: an unverifiable asset fails
   the release. Platforms that did not build are skipped so one broken platform
   cannot block the others.
+- Without ffmpeg a flexible media request must not resolve to
+  `best[ext=mp4]/best`: YouTube serves no progressive (video+audio in one file)
+  format, so nothing matches and yt-dlp fails the whole download with
+  "Requested format is not available". `resolveFormat` uses `NO_MERGE_BEST`
+  (`bestaudio/best`) instead; an explicit format id still passes through.
+- yt-dlp errors are classified by text into typed errors so the client can
+  react: `YOUTUBE_DATACENTER_BLOCK` (HTTP 451, retryable: false) and
+  `MEDIA_FORMAT_UNAVAILABLE` (retryable: false). Anything else is a plain
+  Error. Do not let a new failure mode fall through to the raw yt-dlp text.
 
 ## Throughput invariants (server + mobile)
 
