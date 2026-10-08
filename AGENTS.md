@@ -49,6 +49,13 @@ real tests in `mobile/test/local_downloader_test.dart`; they bind a loopback
 `HttpServer` and check exact bytes for segmented, non-range, lying-server,
 unknown-length, and resume cases. Run them before touching `local_downloader.dart`.
 
+Session headers (`Cookie`/`Authorization`/`Referer`) for gated links travel on
+the **task** and are cleaned by `sanitizeHeaders()` in `local_downloader.dart`
+before any request — the mobile twin of the server's allow-list. Add new
+per-request behaviour in `_open()`, not at the call sites, so the HEAD probe,
+segments and muxed tracks stay consistent. yt-dlp page/media downloads use their
+own cookie jar in Settings, not these headers.
+
 `npm run build` builds the client. After pushing to `main`, confirm the Render
 deploy reaches `live` and re-check `GET /health`.
 
