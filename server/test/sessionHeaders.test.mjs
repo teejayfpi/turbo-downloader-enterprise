@@ -55,6 +55,26 @@ test('sanitizeHeaders tolerates non-objects and caps size', () => {
   assert.ok(Object.keys(many).length <= 32, 'header count capped');
 });
 
+test('serialize never exposes header values to the API', async () => {
+  // Scheduled in the future so add() does not start a network request; we only
+  // care about the serialized shape the API hands back.
+  const future = new Date(Date.now() + 3600_000).toISOString();
+  const [task] = await engine.add({
+    urls: ['https://example.com/private.zip'],
+    options: {
+      scheduledAt: future,
+      headers: { Cookie: 'secret=s3cr3t', Authorization: 'Bearer topsecret' },
+    },
+  });
+  const serialized = engine.serialize(engine.tasks.get(task.id));
+
+  assert.equal(serialized.hasCustomHeaders, true);
+  assert.ok(!('headers' in serialized), 'raw headers must not be exposed');
+  const json = JSON.stringify(serialized);
+  assert.ok(!json.includes('s3cr3t'), 'cookie value must not be serialized');
+  assert.ok(!json.includes('topsecret'), 'authorization value must not be serialized');
+});
+
 async function runWithHeaders(server, headers, options = {}) {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const { port } = server.address();

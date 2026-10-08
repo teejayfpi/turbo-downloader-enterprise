@@ -37,6 +37,20 @@ media URL.
 - Click the toolbar icon → the popup lists what it found → **Send** on any item.
 - Or right-click the page / a link / a video → **Send … to Turbo**.
 
+## Why not send cookies from here
+
+The hand-off is a `turbo://add?url=…` custom-scheme link. Cookies must not ride
+in it: a custom-scheme URL is visible to the OS handler, other registered
+handlers, and any log that records opened URLs, so a session token in the query
+string is a disclosure with no way to take it back. Reading cookies also needs
+the `cookies` permission, which the store review flags and which this extension
+does not request.
+
+Session-gated URLs are therefore handled by the app instead: paste the Cookie /
+Authorization / Referer into the New Transfer options in the UI, and the server
+sends them per download. If automatic cookie capture is ever wanted, it must go
+over a POST body to the app's HTTP API, never through the deep link.
+
 ## Distribution note
 
 Unpacked loading is fine for personal use. To publish on the Chrome Web Store
