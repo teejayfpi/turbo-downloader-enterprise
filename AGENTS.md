@@ -333,6 +333,14 @@ it is not a filter.
 
 ## Security review notes (server)
 
+- Session passthrough: `options.headers` (Cookie/Referer/Authorization) lets a
+  login-gated URL download. Every caller-supplied header goes through
+  `sanitizeHeaders()` before storage; it strips CR/LF injection, invalid names,
+  oversized values, and the `RESERVED_HEADERS` set (notably `Range`,
+  `Accept-Encoding`, `Host`, `Content-Length` — the engine owns these per
+  request). Those values are secrets and must never leave the process: the API
+  serializer exposes only `hasCustomHeaders`, never the values. Persisting them
+  means `sqlite`'s `headers` column and any DB backup are sensitive.
 - CORS is fail-safe: `CORS_ORIGIN` unset means anonymous reads only
   (`credentials: false`). Pinning an origin list is what enables credentials.
   Never pair `origin: '*'` with `credentials: true` — browsers reject it, and if

@@ -31,7 +31,7 @@ router.get('/', (req, res) => {
 
 // Create one or more downloads
 router.post('/', asyncHandler(async (req, res) => {
-  const { url, urls, options = {}, format, formatId, scheduledAt, checksum, checksumAlgo, connections, filename, priority } = req.body || {};
+  const { url, urls, options = {}, format, formatId, scheduledAt, checksum, checksumAlgo, connections, filename, priority, headers } = req.body || {};
   const list = urls || (url ? [url] : []);
 
   if (!Array.isArray(list) || list.length === 0) {
@@ -50,6 +50,7 @@ router.post('/', asyncHandler(async (req, res) => {
       scheduledAt: scheduledAt || options.scheduledAt,
       checksum: checksum || options.checksum,
       checksumAlgo: checksumAlgo || options.checksumAlgo,
+      headers: headers || options.headers,
       connections: connections || options.connections,
       filename: filename || options.filename,
       priority: priority ?? options.priority,

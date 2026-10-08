@@ -53,4 +53,12 @@ db.exec(`
   );
 `);
 
+// `CREATE TABLE IF NOT EXISTS` never adds a column to an existing database, so
+// new columns are applied explicitly. SQLite has no `ADD COLUMN IF NOT EXISTS`,
+// hence the table_info check.
+const downloadColumns = db.prepare('PRAGMA table_info(downloads)').all().map((c) => c.name);
+if (!downloadColumns.includes('headers')) {
+  db.exec('ALTER TABLE downloads ADD COLUMN headers TEXT');
+}
+
 export default db;
