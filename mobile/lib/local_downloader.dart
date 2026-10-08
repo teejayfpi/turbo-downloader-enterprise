@@ -392,6 +392,7 @@ class LocalDownloadManager extends ChangeNotifier {
   bool _disposed = false;
   Timer? _ticker;
   Timer? _retryTimer;
+  Timer? _scheduleTimer;
   int _lastActiveForService = 0;
 
   /// How many downloads may run at once. Surplus tasks wait in the queue.
@@ -402,6 +403,15 @@ class LocalDownloadManager extends ChangeNotifier {
 
   /// Set while the network or power state forbids starting new transfers.
   bool _networkBlocked = false;
+
+  /// Off-peak scheduling. When [scheduleEnabled], the worker starts new
+  /// transfers only inside the local-time window `[scheduleStartMinute,
+  /// scheduleEndMinute)`. It throttles *starting* work: a transfer already in
+  /// flight is left to finish, so the user is not surprised mid-download.
+  bool scheduleEnabled = false;
+  int scheduleStartMinute = 60; // 01:00 local
+  int scheduleEndMinute = 420; // 07:00 local
+  bool _scheduleHold = false;
 
   /// Partial-data root, exposed so the storage panel can size and clean it.
   Directory? get partsRoot =>
@@ -527,6 +537,65 @@ class LocalDownloadManager extends ChangeNotifier {
 
   /// True while new transfers are held back by the network or power policy.
   bool get networkBlocked => _networkBlocked;
+
+  /// True while new transfers are held back by the off-peak schedule.
+  bool get scheduleHold => _scheduleHold;
+
+  /// Whether the current local time is inside the configured window. Always
+  /// true when the schedule is disabled, so the UI reads "open" rather than a
+  /// stale hold.
+  bool get inScheduleWindow => !scheduleEnabled || _inScheduleWindow;
+
+  /// True when the worker is deliberately not starting new transfers, whether
+  /// for the network/power policy or the off-peak window.
+  bool get holdingNewTransfers => _networkBlocked || _scheduleHold;
+
+  /// Whether [minute] (0..1439, local time) falls inside the configured
+  /// window. A start after the end is a window that wraps past midnight, e.g.
+  /// 22:00–06:00. A zero-length window is treated as always open so a stray
+  /// value cannot wedge the queue forever. Pure, so the boundary logic is
+  /// unit-testable without touching the clock.
+  @visibleForTesting
+  static bool withinWindow(int minute, int start, int end) {
+    if (start == end) return true;
+    if (start < end) return minute >= start && minute < end;
+    return minute >= start || minute < end;
+  }
+
+  bool get _inScheduleWindow =>
+      withinWindow(_minutesOfDay(DateTime.now()), scheduleStartMinute,
+          scheduleEndMinute);
+
+  static int _minutesOfDay(DateTime now) => now.hour * 60 + now.minute;
+
+  /// Re-reads the clock and holds or releases new work accordingly. Returns
+  /// the new hold state so the caller can react to a transition (start or
+  /// cancel the wake timer).
+  bool _applySchedule() {
+    if (!scheduleEnabled) {
+      if (_scheduleHold) _scheduleHold = false;
+      return false;
+    }
+    _scheduleHold = !_inScheduleWindow;
+    return _scheduleHold;
+  }
+
+  /// Applies the off-peak window from settings and pumps the queue, so
+  /// enabling the schedule while outside the window immediately holds work,
+  /// and disabling it starts work immediately.
+  void setOffPeakSchedule({
+    required bool enabled,
+    required int startMinute,
+    required int endMinute,
+  }) {
+    scheduleEnabled = enabled;
+    scheduleStartMinute = startMinute.clamp(0, 1439);
+    scheduleEndMinute = endMinute.clamp(0, 1439);
+    final held = _applySchedule();
+    if (!held) resumeAll();
+    _safeNotify();
+    _pump();
+  }
 
   /// Applies the Wi-Fi-only / battery-aware policy. When [blocked], no new
   /// transfer starts and running ones are paused.
@@ -911,9 +980,25 @@ class LocalDownloadManager extends ChangeNotifier {
   // ------------------------------------------------------------------ worker
 
   /// Starts queued tasks until the concurrency limit is reached. A task waiting
-  /// for its backoff window is skipped until its timer fires.
+  /// for its backoff window is skipped until its timer fires. When the off-peak
+  /// schedule holds, no new task starts and a timer is armed to wake the queue
+  /// when the window opens.
   void _pump() {
-    if (_networkBlocked) return;
+    if (_networkBlocked) {
+      _cancelScheduleTimer();
+      return;
+    }
+    final wasHold = _scheduleHold;
+    _applySchedule();
+    if (_scheduleHold != wasHold) _safeNotify();
+    if (_scheduleHold) {
+      _cancelScheduleTimer();
+      _armScheduleTimer();
+      if (_runs.isEmpty) _stopTicker();
+      return;
+    }
+
+    _cancelScheduleTimer();
     final now = DateTime.now();
     for (final id in List.of(_order)) {
       if (_runs.length >= maxConcurrent) break;
@@ -923,6 +1008,50 @@ class LocalDownloadManager extends ChangeNotifier {
       _start(task);
     }
     if (_runs.isEmpty) _stopTicker();
+  }
+
+  /// Arms a one-shot timer to re-pump when the current hold is due to lift,
+  /// either because the off-peak window opens or because a retry backoff ends.
+  /// Listening on the soonest of the two keeps a queued download from sitting
+  /// idle until the next unrelated event.
+  void _armScheduleTimer() {
+    final now = DateTime.now();
+    Duration? until;
+    if (_scheduleHold) {
+      until = _durationUntilWindowOpen(now);
+    }
+    final nextRetry = _byId.values
+        .where((t) => t.isQueued && t.nextRetryAt != null)
+        .map((t) => t.nextRetryAt!)
+        .fold<DateTime?>(null, (min, d) => min == null || d.isBefore(min) ? d : min);
+    if (nextRetry != null) {
+      final d = nextRetry.difference(now);
+      if (!d.isNegative && (until == null || d < until)) until = d;
+    }
+    if (until == null) return;
+    _scheduleTimer?.cancel();
+    // Never wake instantly; the minimum granularity is one second.
+    final delay = until < const Duration(seconds: 1)
+        ? const Duration(seconds: 1)
+        : until;
+    _scheduleTimer = Timer(delay, _pump);
+  }
+
+  /// Time from [now] until the off-peak window next opens.
+  Duration _durationUntilWindowOpen(DateTime now) {
+    final minute = _minutesOfDay(now);
+    final start = scheduleStartMinute;
+    if (withinWindow(minute, start, scheduleEndMinute)) {
+      return Duration.zero;
+    }
+    final minutesAhead = (start - minute + 1440) % 1440;
+    final secondsAhead = minutesAhead * 60 - now.second;
+    return Duration(seconds: secondsAhead < 1 ? 1 : secondsAhead);
+  }
+
+  void _cancelScheduleTimer() {
+    _scheduleTimer?.cancel();
+    _scheduleTimer = null;
   }
 
   void _start(LocalTask task) {
@@ -1879,6 +2008,7 @@ class LocalDownloadManager extends ChangeNotifier {
     _disposed = true;
     _stopTicker();
     _retryTimer?.cancel();
+    _cancelScheduleTimer();
     for (final run in _runs.values) {
       run.cancel();
     }

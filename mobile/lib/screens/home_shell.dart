@@ -103,6 +103,8 @@ class _HomeShellState extends State<HomeShell> {
             child: _StatusChip(
               active: state.local.activeCount,
               blocked: state.local.networkBlocked,
+              scheduled:
+                  state.local.scheduleHold && state.local.activeCount == 0,
             ),
           ),
         ],
@@ -247,17 +249,18 @@ class _DropSurface extends StatelessWidget {
 class _StatusChip extends StatelessWidget {
   final int active;
   final bool blocked;
-  const _StatusChip({required this.active, this.blocked = false});
+  final bool scheduled;
+  const _StatusChip({required this.active, this.blocked = false, this.scheduled = false});
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
     final color = blocked
         ? p.warning
-        : (active > 0 ? p.success : p.textMuted);
+        : (scheduled ? p.accent : (active > 0 ? p.success : p.textMuted));
     final label = blocked
         ? 'PAUSED'
-        : (active > 0 ? 'ACTIVE' : 'READY');
+        : (scheduled ? 'SCHEDULED' : (active > 0 ? 'ACTIVE' : 'READY'));
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(

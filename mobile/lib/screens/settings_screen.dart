@@ -191,6 +191,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 16),
         _NotificationsSection(state: state),
         const SizedBox(height: 16),
+        _ScheduleSection(state: state),
+        const SizedBox(height: 16),
         _Section(
           title: 'Appearance',
           accent: accent,
@@ -1047,6 +1049,112 @@ class _AboutSection extends StatelessWidget {
   }
 }
 
+class _ScheduleSection extends StatelessWidget {
+  final TurboState state;
+  const _ScheduleSection({required this.state});
+
+  static String _clock(int minutes) {
+    final h = (minutes ~/ 60) % 24;
+    final m = minutes % 60;
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _pick(
+    BuildContext context, {
+    required bool isStart,
+  }) async {
+    final current = isStart
+        ? state.scheduleStartMinute
+        : state.scheduleEndMinute;
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: current ~/ 60, minute: current % 60),
+    );
+    if (picked == null) return;
+    final minutes = picked.hour * 60 + picked.minute;
+    await state.setScheduleWindow(
+      startMinute: isStart ? minutes : null,
+      endMinute: isStart ? null : minutes,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final open = state.local.inScheduleWindow;
+    return _Section(
+      title: 'Off-peak scheduling',
+      accent: p.accent,
+      children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: state.scheduleEnabled,
+          onChanged: state.setScheduleEnabled,
+          title: Text('Only download off-peak',
+              style: TextStyle(
+                  fontFamily: TurboFonts.body,
+                  color: p.textPrimary,
+                  fontSize: 13)),
+          subtitle: Text(
+            'Hold new transfers until the daily window below. A download '
+            'already running is left to finish.',
+            style: TextStyle(
+                fontFamily: TurboFonts.body,
+                color: p.textMuted,
+                fontSize: 10.5),
+          ),
+        ),
+        if (state.scheduleEnabled) ...[
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Icon(Icons.bedtime_rounded, color: p.textMuted, size: 15),
+              const SizedBox(width: 8),
+              const Kicker('Window', letterSpacing: 1.6),
+              const Spacer(),
+              Text(
+                '${_clock(state.scheduleStartMinute)}–'
+                '${_clock(state.scheduleEndMinute)}',
+                style: TextStyle(
+                  fontFamily: TurboFonts.mono,
+                  color: p.accent,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _pick(context, isStart: true),
+                  child: Text('Starts ${_clock(state.scheduleStartMinute)}'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _pick(context, isStart: false),
+                  child: Text('Ends ${_clock(state.scheduleEndMinute)}'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _Hint(
+            state.scheduleStartMinute > state.scheduleEndMinute
+                ? 'This window wraps past midnight. Currently '
+                    '${open ? 'open' : 'closed'}.'
+                : 'Currently ${open ? 'open' : 'closed'}.',
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 class _Section extends StatelessWidget {
   final String title;
   final List<Widget> children;
@@ -1056,7 +1164,6 @@ class _Section extends StatelessWidget {
     required this.children,
     required this.accent,
   });
-
   @override
   Widget build(BuildContext context) {
     return Column(

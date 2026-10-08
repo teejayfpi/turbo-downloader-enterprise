@@ -178,6 +178,15 @@ class TurboState extends ChangeNotifier {
   /// Pause new transfers on a low, unplugged battery.
   bool batteryAware = false;
 
+  /// Hold new transfers until an off-peak time window (local time), useful for
+  /// metered or peak-priced connections. Running transfers are left to finish.
+  bool scheduleEnabled = false;
+
+  /// Window bounds as minutes from local midnight (`start` inclusive, `end`
+  /// exclusive). A start after the end wraps past midnight, e.g. 22:00–06:00.
+  int scheduleStartMinute = 60; // 01:00
+  int scheduleEndMinute = 420; // 07:00
+
   /// Start ranged downloads with a small number of segments and add more as
   /// the host proves able to feed them (adaptive acceleration). When off, the
   /// full connection width is opened immediately.
@@ -289,6 +298,10 @@ class TurboState extends ChangeNotifier {
       maxConcurrent = prefs.getInt(SettingsStore.kMaxConcurrent) ?? 1;
       wifiOnly = prefs.getBool(SettingsStore.kWifiOnly) ?? false;
       batteryAware = prefs.getBool(SettingsStore.kBatteryAware) ?? false;
+      scheduleEnabled = prefs.getBool(SettingsStore.kScheduleEnabled) ?? false;
+      scheduleStartMinute =
+          prefs.getInt(SettingsStore.kScheduleStart) ?? 60;
+      scheduleEndMinute = prefs.getInt(SettingsStore.kScheduleEnd) ?? 420;
       autoRetry = prefs.getBool(SettingsStore.kAutoRetry) ?? true;
       adaptiveConnections =
           prefs.getBool(SettingsStore.kAdaptiveConnections) ?? true;
@@ -305,6 +318,11 @@ class TurboState extends ChangeNotifier {
       local.maxConnections = speedMode.connections(defaultConnections);
       local.adaptiveConnections = adaptiveConnections;
       local.rememberHostSpeed = rememberHostSpeed;
+      local.setOffPeakSchedule(
+        enabled: scheduleEnabled,
+        startMinute: scheduleStartMinute,
+        endMinute: scheduleEndMinute,
+      );
       local.maxConcurrent = maxConcurrent;
       if (!autoRetry) local.retryPolicy = RetryPolicy.none;
 
@@ -534,6 +552,31 @@ class TurboState extends ChangeNotifier {
     batteryAware = value;
     await settings.setBool(SettingsStore.kBatteryAware, value);
     await refreshDevice();
+    _safeNotify();
+  }
+
+  Future<void> setScheduleEnabled(bool value) async {
+    scheduleEnabled = value;
+    local.setOffPeakSchedule(
+      enabled: scheduleEnabled,
+      startMinute: scheduleStartMinute,
+      endMinute: scheduleEndMinute,
+    );
+    await settings.setBool(SettingsStore.kScheduleEnabled, value);
+    _safeNotify();
+  }
+
+  /// Updates one bound of the off-peak window and reschedules.
+  Future<void> setScheduleWindow({int? startMinute, int? endMinute}) async {
+    if (startMinute != null) scheduleStartMinute = startMinute.clamp(0, 1439);
+    if (endMinute != null) scheduleEndMinute = endMinute.clamp(0, 1439);
+    local.setOffPeakSchedule(
+      enabled: scheduleEnabled,
+      startMinute: scheduleStartMinute,
+      endMinute: scheduleEndMinute,
+    );
+    await settings.setInt(SettingsStore.kScheduleStart, scheduleStartMinute);
+    await settings.setInt(SettingsStore.kScheduleEnd, scheduleEndMinute);
     _safeNotify();
   }
 

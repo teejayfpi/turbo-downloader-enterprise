@@ -27,6 +27,9 @@ class SettingsStore {
   static const kAutoRetry = 'turbo.autoRetry';
   static const kAdaptiveConnections = 'turbo.adaptiveConnections';
   static const kRememberHostSpeed = 'turbo.rememberHostSpeed';
+  static const kScheduleEnabled = 'turbo.scheduleEnabled';
+  static const kScheduleStart = 'turbo.scheduleStart';
+  static const kScheduleEnd = 'turbo.scheduleEnd';
   static const kUpdateChannel = 'turbo.updateChannel';
   static const kCheckUpdates = 'turbo.checkUpdates';
   static const kClipboardMonitor = 'turbo.clipboardMonitor';

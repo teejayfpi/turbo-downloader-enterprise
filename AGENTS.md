@@ -441,4 +441,13 @@ Changing one without the others silently caps speed.
   `paused`/`detached` so a backgrounded app does not drop the map. This memory
   is an optimisation, never a correctness dependency: a corrupt/unreadable file
   is ignored, and the ramp still adapts from the seeded width.
+- Mobile off-peak scheduling (`LocalDownloader.setOffPeakSchedule`): a daily
+  local-time window that gates *starting* work only via `_scheduleHold`; running
+  transfers are never paused, so it cannot surprise a user mid-download. The
+  window is half-open (`start` inclusive, `end` exclusive) and wraps past
+  midnight when `start > end`; a degenerate `start == end` is treated as always
+  open so a stray value cannot wedge the queue. `_pump` arms a one-shot
+  `_scheduleTimer` for the soonest of the window opening and the earliest retry
+  backoff, so a held queue resumes on its own. `withinWindow` is a pure static
+  helper and the boundary cases (normal / wrap / empty) are unit-tested.
 

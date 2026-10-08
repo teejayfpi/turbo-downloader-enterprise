@@ -99,6 +99,16 @@ recorded, and the memory only ever grows, so a slow host is never penalised.
 The map is stored in `host_speed.json` in the app-support directory and flushed
 when the app leaves the foreground.
 
+## Off-peak scheduling
+
+If your connection is metered or peak-priced, Settings → Off-peak scheduling can
+hold new transfers until a daily window (local time). A start later than the end
+is a window that wraps past midnight, so 22:00–06:00 works. The window throttles
+*starting* work only: a download already running is left to finish, and turning
+the schedule off (or the window opening) releases everything immediately. The
+worker arms a timer for the window opening, so a queued job resumes on its own
+without needing another app event.
+
 ## Requirements
 
 - Flutter 3.24.x (Dart 3.5.4)

@@ -360,6 +360,93 @@ void main() {
         reason: 'a host that never ramped should not be written down');
   });
 
+  test('off-peak window logic handles normal, wrap, and empty windows', () {
+    // Normal window 01:00–07:00.
+    expect(LocalDownloadManager.withinWindow(60, 60, 420), isTrue);
+    expect(LocalDownloadManager.withinWindow(419, 60, 420), isTrue);
+    expect(LocalDownloadManager.withinWindow(420, 60, 420), isFalse);
+    expect(LocalDownloadManager.withinWindow(59, 60, 420), isFalse);
+    expect(LocalDownloadManager.withinWindow(0, 60, 420), isFalse);
+
+    // Wrapping window 22:00–06:00.
+    expect(LocalDownloadManager.withinWindow(1320, 1320, 360), isTrue);
+    expect(LocalDownloadManager.withinWindow(1380, 1320, 360), isTrue);
+    expect(LocalDownloadManager.withinWindow(30, 1320, 360), isTrue);
+    expect(LocalDownloadManager.withinWindow(360, 1320, 360), isFalse);
+    expect(LocalDownloadManager.withinWindow(720, 1320, 360), isFalse);
+
+    // A zero-length window is always open, so a stray value cannot wedge the
+    // queue.
+    expect(LocalDownloadManager.withinWindow(0, 300, 300), isTrue);
+    expect(LocalDownloadManager.withinWindow(1439, 300, 300), isTrue);
+  });
+
+  test('off-peak scheduling holds a queued download until the window opens',
+      () async {
+    final data = _blob(1024 * 1024);
+    final origin = _Origin(data)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    manager.maxConcurrent = 1;
+
+    final now = DateTime.now();
+    final minuteOfDay = now.hour * 60 + now.minute;
+    // A window that opens well after now, so the task is held.
+    manager.setOffPeakSchedule(
+      enabled: true,
+      startMinute: (minuteOfDay + 30) % 1440,
+      endMinute: (minuteOfDay + 90) % 1440,
+    );
+    expect(manager.scheduleHold, isTrue);
+    expect(manager.holdingNewTransfers, isTrue);
+
+    final task = manager.add(origin.url, filename: 'later.bin', connections: 1);
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    expect(task.isQueued, isTrue, reason: 'the schedule should hold it');
+    expect(task.downloaded, 0);
+
+    // Open the window around now; the worker should pick the task up.
+    manager.setOffPeakSchedule(
+      enabled: true,
+      startMinute: (minuteOfDay - 1 + 1440) % 1440,
+      endMinute: (minuteOfDay + 1) % 1440,
+    );
+    expect(manager.scheduleHold, isFalse);
+
+    await _waitFor(() => task.isCompleted || task.isFailed);
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    expect(await File(task.filePath!).readAsBytes(), equals(data));
+  });
+
+  test('disabling the schedule releases a held download immediately',
+      () async {
+    final data = _blob(1024 * 1024);
+    final origin = _Origin(data)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    final now = DateTime.now();
+    final minuteOfDay = now.hour * 60 + now.minute;
+    manager.setOffPeakSchedule(
+      enabled: true,
+      startMinute: (minuteOfDay + 30) % 1440,
+      endMinute: (minuteOfDay + 90) % 1440,
+    );
+    final task = manager.add(origin.url, filename: 'off.bin', connections: 1);
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    expect(task.isQueued, isTrue);
+
+    manager.setOffPeakSchedule(enabled: false, startMinute: 0, endMinute: 1);
+    expect(manager.scheduleHold, isFalse);
+
+    await _waitFor(() => task.isCompleted || task.isFailed);
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+  });
+
   test('falls back to one connection when the server ignores ranges', () async {
     final data = _blob(2 * 1024 * 1024);
     final origin = _Origin(data, supportRange: false, advertiseAcceptRanges: false)
