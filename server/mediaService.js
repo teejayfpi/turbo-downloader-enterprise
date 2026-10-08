@@ -18,6 +18,14 @@ const JS_RUNTIME = process.env.YT_DLP_JS_RUNTIME === undefined
 
 const MEDIA_EXT = /\.(mp4|mkv|webm|mp3|m4a|opus|ogg|flac|wav)$/i;
 
+// Selector used when ffmpeg is absent and no exact format id was requested.
+// YouTube has served no progressive (video+audio in one file) format for years,
+// so `best[ext=mp4]/best` matches nothing there and yt-dlp fails the whole
+// download with "Requested format is not available". Falling back to the best
+// audio track at least yields a playable file; a format id still gets the user
+// the exact stream they asked for.
+const NO_MERGE_BEST = 'bestaudio/best';
+
 /** Non-fragment media files in a directory. */
 function listMediaFragments(dir) {
   let entries;
@@ -204,15 +212,19 @@ class MediaService {
    * combined-stream fallback: YouTube withholds the separate video and audio
    * streams from datacenter IPs, and a hard "Requested format is not available"
    * is worse for the user than a lower-resolution file that actually plays.
-   * Without ffmpeg there is no merging at all, so flexible requests collapse to
-   * a progressive stream (YouTube serves no combined stream above 360p).
+   * Without ffmpeg there is no merging at all, so a flexible request collapses
+   * to `NO_MERGE_BEST` rather than a progressive stream that YouTube does not
+   * serve.
    */
   resolveFormat(formatId) {
     const requested = (formatId || 'best').trim();
 
     if (/^\d+[\w-]*$/.test(requested)) return requested;
 
-    if (!this.hasFfmpeg()) return 'best[ext=mp4]/best';
+    if (!this.hasFfmpeg()) {
+      if (requested === 'best') return NO_MERGE_BEST;
+      return `${requested}/${NO_MERGE_BEST}`;
+    }
 
     const flexible = requested === 'best' || /bestvideo|bestaudio|\+/.test(requested);
     if (!flexible) return requested;
@@ -344,6 +356,18 @@ export class YouTubeDatacenterBlockError extends Error {
   }
 }
 
+// The requested selector matched nothing. Retrying the same selector cannot
+// succeed, and the raw yt-dlp text ("Use --list-formats") tells the user
+// nothing actionable, so this carries guidance instead.
+export class MediaFormatUnavailableError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'MediaFormatUnavailableError';
+    this.code = 'MEDIA_FORMAT_UNAVAILABLE';
+    this.retryable = false;
+  }
+}
+
 // The definitive IP-block signature: the CDN refuses the media bytes with a
 // 403. A "Sign in to confirm you're not a bot" challenge is deliberately *not*
 // matched here, because that one is cookie-solvable and must keep routing to
@@ -380,6 +404,12 @@ export function isDatacenterBlock(message) {
   return DATACENTER_BLOCK_RE.test(String(message || ''));
 }
 
+const FORMAT_UNAVAILABLE_RE = /Requested format is not available/i;
+
+export function isFormatUnavailable(message) {
+  return FORMAT_UNAVAILABLE_RE.test(String(message || ''));
+}
+
 /**
  * Builds the error to reject with from a failed yt-dlp run. A datacenter block
  * becomes a typed [YouTubeDatacenterBlockError] so the route can answer with a
@@ -389,6 +419,12 @@ export function isDatacenterBlock(message) {
 function mediaError(stderr, code) {
   if (isDatacenterBlock(stderr)) {
     return new YouTubeDatacenterBlockError(cleanError(stderr));
+  }
+  if (isFormatUnavailable(stderr)) {
+    return new MediaFormatUnavailableError(
+      'The requested format is not available for this video. '
+      + 'Choose a different format, or install ffmpeg so separate video and audio streams can be merged.',
+    );
   }
   return new Error(cleanError(stderr) || `yt-dlp exited with code ${code}`);
 }
