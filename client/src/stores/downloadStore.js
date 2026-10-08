@@ -2,8 +2,8 @@ import { create } from 'zustand';
 
 export const DEFAULT_SETTINGS = {
   connections: 8,
-  concurrentDownloads: 3,
-  split: 8,
+  concurrentDownloads: 5,
+  split: 16,
   defaultDir: '',
   duplicateHandling: 'rename',
   notifications: true,

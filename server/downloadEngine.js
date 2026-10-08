@@ -18,12 +18,41 @@ import {
   pinnedLookup,
 } from './utils.js';
 
-const HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: 64 });
-const HTTPS_AGENT = new https.Agent({ keepAlive: true, maxSockets: 64 });
+// The pool must be at least as large as the worst case the settings allow
+// (max concurrent downloads x max segments), or node silently queues the
+// surplus requests on a free socket and a raised concurrency setting delivers
+// no extra throughput. `maxSockets` is a cap, not an allocation, so a large
+// value costs nothing when the client stays at its defaults.
+const MAX_INFLIGHT_STREAMS = 20 * 32;
+const HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: MAX_INFLIGHT_STREAMS });
+const HTTPS_AGENT = new https.Agent({ keepAlive: true, maxSockets: MAX_INFLIGHT_STREAMS });
 const TICK_MS = 500;
 const SPEED_WINDOW_MS = 3000;
 const SEGMENT_THRESHOLD = 4 * 1024 * 1024; // multi-connection above 4 MB
+const MIN_SEGMENT_BYTES = 1 * 1024 * 1024; // never split a segment below 1 MB
+const MAX_SEGMENT_STREAMS = 24; // in-flight segment sockets for a single file
+const WRITE_HIGH_WATER_MARK = 1 * 1024 * 1024; // buffered bytes per part file
 const USER_AGENT = 'Mozilla/5.0 (compatible; TurboDownloader/2.0)';
+
+/**
+ * Runs `worker` over `items` with at most `limit` in flight. Used so a raised
+ * segment count cannot open an unbounded number of sockets at once, which on a
+ * large file would exhaust file descriptors and collapse throughput.
+ */
+async function mapLimit(items, limit, worker) {
+  const results = new Array(items.length);
+  let next = 0;
+  const runners = Array.from(
+    { length: Math.max(1, Math.min(limit, items.length)) },
+    async () => {
+      for (let i = next++; i < items.length; i = next++) {
+        results[i] = await worker(items[i], i);
+      }
+    },
+  );
+  await Promise.all(runners);
+  return results;
+}
 
 const COLUMNS = [
   'id', 'url', 'filename', 'filepath', 'total', 'downloaded', 'status',
@@ -529,8 +558,14 @@ export class DownloadEngine {
     task.resumeSupported = probe.rangeSupported;
     if (probe.total) task.total = probe.total;
 
-    const { connections } = this.settings.getSettings();
-    const segCount = Math.min(task.connections || connections, 32);
+    const { connections, split } = this.settings.getSettings();
+    // `connections` is the requested parallelism and `split` is the ceiling.
+    // Bound by both, and by the size floor so a small file is not carved into
+    // segments too small to amortise a request.
+    const segCount = Math.max(
+      1,
+      Math.min(task.connections || connections, split, Math.floor(probe.total / MIN_SEGMENT_BYTES)),
+    );
 
     if (probe.rangeSupported && probe.total >= SEGMENT_THRESHOLD && segCount > 1) {
       await this.downloadSegmented(task, urlObj, finalPath, probe.total, segCount, address);
@@ -619,7 +654,10 @@ export class DownloadEngine {
     }
 
     const hash = task.checksum ? crypto.createHash(task.checksumAlgo || 'sha256') : null;
-    const stream = fs.createWriteStream(partBase, { flags: resuming ? 'a' : 'w' });
+    const stream = fs.createWriteStream(partBase, {
+      flags: resuming ? 'a' : 'w',
+      highWaterMark: WRITE_HIGH_WATER_MARK,
+    });
     const budget = this.perStreamBudget(1);
     res.on('data', (chunk) => {
       task.downloaded += chunk.length;
@@ -647,6 +685,24 @@ export class DownloadEngine {
     const segments = this.buildSegments(total, segCount);
     task._segments = segments;
 
+    // A part file only lines up with a segment whose boundaries match the
+    // layout it was written with. The layout is derived from (total, segCount),
+    // and segCount changes when the user edits connections/split, so a retry
+    // after such an edit would resume at offsets from the old layout and stitch
+    // corrupt bytes. Record the layout and discard parts that do not match it.
+    const planPath = `${finalPath}.turbo.plan`;
+    let previous = null;
+    try {
+      previous = JSON.parse(await fsp.readFile(planPath, 'utf8'));
+    } catch {
+      previous = null;
+    }
+    if (previous && (previous.total !== total || previous.segCount !== segCount)) {
+      await Promise.all(segments.map((s) =>
+        fsp.rm(`${finalPath}.turbo.part${s.index}`, { force: true }).catch(() => {})));
+    }
+    await fsp.writeFile(planPath, JSON.stringify({ total, segCount })).catch(() => {});
+
     // Restore progress from any existing part files.
     for (const seg of segments) {
       seg.part = `${finalPath}.turbo.part${seg.index}`;
@@ -666,7 +722,12 @@ export class DownloadEngine {
     task.downloaded = segments.reduce((sum, s) => sum + s.downloaded, 0);
 
     const budget = this.perStreamBudget(segments.length);
-    await Promise.all(segments.map((seg) => this.downloadSegment(task, urlObj, seg, budget, address)));
+    // Cap concurrent segment sockets. The `split` ceiling can be 32; opening all
+    // of them at once on a multi-gigabyte file risks descriptor exhaustion, so
+    // in-flight streams are bounded (segment count when smaller).
+    const streamLimit = Math.min(segments.length, MAX_SEGMENT_STREAMS);
+    await mapLimit(segments, streamLimit, (seg) =>
+      this.downloadSegment(task, urlObj, seg, budget, address));
 
     if (task._cancel || task._paused) return;
 
@@ -678,6 +739,7 @@ export class DownloadEngine {
     }
 
     await this.mergeSegments(segments, finalPath);
+    await fsp.rm(`${finalPath}.turbo.plan`, { force: true }).catch(() => {});
     task.downloaded = total;
 
     if (task.checksum) {
@@ -713,7 +775,10 @@ export class DownloadEngine {
       throw new Error('Server does not support range requests for this file');
     }
 
-    const stream = fs.createWriteStream(seg.part, { flags: seg.downloaded > 0 ? 'a' : 'w' });
+    const stream = fs.createWriteStream(seg.part, {
+      flags: seg.downloaded > 0 ? 'a' : 'w',
+      highWaterMark: WRITE_HIGH_WATER_MARK,
+    });
     res.on('data', (chunk) => {
       seg.downloaded += chunk.length;
       this.recomputeDownloaded(task);
@@ -746,14 +811,35 @@ export class DownloadEngine {
 
   async mergeSegments(segments, finalPath) {
     const tmp = `${finalPath}.turbo.merge`;
-    const out = fs.createWriteStream(tmp, { flags: 'w' });
+    const out = fs.createWriteStream(tmp, {
+      flags: 'w',
+      highWaterMark: WRITE_HIGH_WATER_MARK,
+    });
+    // A write error must fail the merge rather than hang: the write stream
+    // outlives every per-part promise, so its error is latched and re-checked.
+    let writeError = null;
+    out.on('error', (error) => {
+      writeError = error;
+    });
     try {
+      // `pipeline` attaches its own error/close/finish listeners to the shared
+      // output stream and only releases them when that stream ends, so calling
+      // it once per part accumulated listeners up to the segment count and
+      // tripped MaxListenersExceededWarning at higher split values. Piping each
+      // part and awaiting its own `end` keeps the listeners on the per-part
+      // read stream, which is discarded after every segment.
       for (const seg of segments) {
-        await pipeline(fs.createReadStream(seg.part), out, { end: false });
+        await new Promise((resolve, reject) => {
+          const src = fs.createReadStream(seg.part, { highWaterMark: WRITE_HIGH_WATER_MARK });
+          src.on('error', reject);
+          src.on('end', () => (writeError ? reject(writeError) : resolve()));
+          src.pipe(out, { end: false });
+        });
       }
     } finally {
       await new Promise((resolve) => out.end(resolve));
     }
+    if (writeError) throw writeError;
     await fsp.rename(tmp, finalPath);
     await Promise.all(segments.map((s) => fsp.rm(s.part, { force: true }).catch(() => {})));
   }
@@ -918,6 +1004,7 @@ export class DownloadEngine {
     if (task.filepath) {
       targets.push(`${task.filepath}.turbo.part`);
       targets.push(`${task.filepath}.turbo.merge`);
+      targets.push(`${task.filepath}.turbo.plan`);
       for (let i = 0; i < 64; i++) targets.push(`${task.filepath}.turbo.part${i}`);
       if (removeFinal) targets.push(task.filepath);
     }

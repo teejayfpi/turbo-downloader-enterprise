@@ -27,8 +27,8 @@ enum SpeedMode {
   turbo;
 
   int connections(int base) => switch (this) {
-        SpeedMode.balanced => base.clamp(1, 8),
-        SpeedMode.turbo => 16,
+        SpeedMode.balanced => base.clamp(1, 16),
+        SpeedMode.turbo => 32,
       };
 
   String get label => switch (this) {
@@ -446,7 +446,7 @@ class TurboState extends ChangeNotifier {
   }
 
   Future<void> setDefaultConnections(int value) async {
-    defaultConnections = value.clamp(1, 16);
+    defaultConnections = value.clamp(1, 32);
     local.maxConnections = speedMode.connections(defaultConnections);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('turbo.connections', defaultConnections);

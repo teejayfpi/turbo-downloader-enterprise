@@ -399,7 +399,7 @@ class LocalDownloadManager extends ChangeNotifier {
   final FfmpegMuxer muxer = FfmpegMuxer();
 
   /// Segment ceiling for range-capable hosts. Raised by Turbo speed mode.
-  int maxConnections = 16;
+  int maxConnections = 32;
 
   static Future<ResolvedMedia> _defaultResolve(
     String pageUrl, {
@@ -545,7 +545,7 @@ class LocalDownloadManager extends ChangeNotifier {
       filename: filename?.trim().isNotEmpty == true
           ? filename!.trim()
           : _fallbackName(url),
-      connections: connections.clamp(1, 16),
+      connections: connections.clamp(1, 32),
       kind: kind,
       engine: engine,
       formatSelector: formatSelector,
@@ -1443,7 +1443,11 @@ class LocalDownloadManager extends ChangeNotifier {
     } catch (_) {}
   }
 
-  int _maxSegments(int total) => max(1, min(maxConnections, total ~/ (1 << 19)));
+  /// Segments for a file of [total] bytes. Bounded by the connection ceiling
+  /// and by a 1 MB floor, so a small file is not carved into segments too small
+  /// to amortise a request (which loses more to round-trips than it gains in
+  /// parallelism).
+  int _maxSegments(int total) => max(1, min(maxConnections, total ~/ (1 << 20)));
 
   static int _totalFromContentRange(String? header) {
     // "bytes 0-0/12345"

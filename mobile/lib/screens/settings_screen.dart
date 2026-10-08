@@ -60,8 +60,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Slider(
               value: state.defaultConnections.toDouble(),
               min: 1,
-              max: 16,
-              divisions: 15,
+              max: 32,
+              divisions: 31,
               label: '${state.defaultConnections}',
               onChanged: (v) => state.setDefaultConnections(v.round()),
             ),

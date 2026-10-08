@@ -214,15 +214,15 @@ function ConnectionSettings({ settings, onChange }) {
       />
       <Slider
         label="Concurrent downloads"
-        hint="How many files download at the same time."
+        hint="How many files download at the same time (1–20)."
         value={settings.concurrentDownloads}
         min={1}
-        max={10}
+        max={20}
         onChange={(v) => onChange('concurrentDownloads', v)}
       />
       <Slider
         label="Split count"
-        hint="Preferred number of segments when the server supports ranges."
+        hint="Ceiling on segments per file. A download uses the smaller of this and 'Connections per download', so raising only one has no effect."
         value={settings.split}
         min={1}
         max={32}

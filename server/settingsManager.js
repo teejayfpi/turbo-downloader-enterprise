@@ -5,8 +5,12 @@ import db from './database.js';
 
 export const DEFAULT_SETTINGS = {
   connections: 8,
-  concurrentDownloads: 3,
-  split: 8,
+  concurrentDownloads: 5,
+  // Segment cap. `connections` is the requested parallelism; `split` is the
+  // ceiling, so raising one without the other has no effect. Previously `split`
+  // was stored, validated, and shown in the UI but never read by the engine,
+  // which silently capped every download at `connections`.
+  split: 16,
   defaultDir: process.env.DOWNLOAD_DIR || path.join(os.homedir(), 'TurboDownloads'),
   duplicateHandling: 'rename', // skip | rename | overwrite
   notifications: true,
@@ -21,7 +25,7 @@ export const DEFAULT_SETTINGS = {
 
 const NUMERIC_RANGES = {
   connections: [1, 32],
-  concurrentDownloads: [1, 10],
+  concurrentDownloads: [1, 20],
   split: [1, 32],
   bandwidthLimit: [0, 1000000],
   maxRetries: [0, 20],

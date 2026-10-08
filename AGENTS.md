@@ -351,3 +351,31 @@ it is not a filter.
 - The release workflow hashes with no `|| true`: an unverifiable asset fails
   the release. Platforms that did not build are skipped so one broken platform
   cannot block the others.
+
+## Throughput invariants (server + mobile)
+
+Turbo is positioned as the fastest downloader, so these bounds are deliberate.
+Changing one without the others silently caps speed.
+
+- `connections` is the requested parallelism per file; `split` is the ceiling.
+  A download uses `min(connections, split, total / MIN_SEGMENT_BYTES)`. `split`
+  used to be stored, validated, and shown in the UI but never read by the
+  engine, so raising it did nothing — keep it wired through `runHttp`.
+- `MAX_INFLIGHT_STREAMS` (20 x 32) is the socket-pool size and must be at least
+  `maxConcurrentDownloads x maxSplit`, or node queues surplus requests on a free
+  socket and a raised setting buys no throughput. `MAX_SEGMENT_STREAMS` (24)
+  bounds in-flight segment sockets for a single file via `mapLimit`.
+- Segment and merge write streams use `WRITE_HIGH_WATER_MARK` (1 MiB) rather
+  than the 16 KiB default, so a fast host is not stalled by small buffered
+  writes. `mergeSegments` must not use `pipeline()` on the shared output stream
+  once per part: it leaks listeners up to the segment count and trips
+  `MaxListenersExceededWarning`. It pipes each part and awaits that part's `end`.
+- Resume is layout-aware. Part files are named by segment index and resumed by
+  size, so they only line up with the layout in `<file>.turbo.plan`. When
+  `(total, segCount)` differs from the plan, the parts are discarded; otherwise
+  a retry after a settings change stitches bytes at the wrong offsets. The plan
+  is removed on completion and by `cleanupArtifacts`.
+- The mobile ceiling is 32 connections everywhere: `SpeedMode.turbo` returns 32,
+  `setDefaultConnections` clamps to 32, `LocalDownloader.maxConnections` is 32,
+  and `LocalDownloader.add` clamps to 32. A stray `clamp(1, 16)` silently undoes
+  Turbo mode.
