@@ -407,11 +407,14 @@ void main() {
     expect(task.isQueued, isTrue, reason: 'the schedule should hold it');
     expect(task.downloaded, 0);
 
-    // Open the window around now; the worker should pick the task up.
+    // Open the window around now; the worker should pick the task up. The
+    // bounds are widened so a clock tick mid-test cannot fall outside the
+    // (end-exclusive) window.
+    final openMinute = DateTime.now().hour * 60 + DateTime.now().minute;
     manager.setOffPeakSchedule(
       enabled: true,
-      startMinute: (minuteOfDay - 1 + 1440) % 1440,
-      endMinute: (minuteOfDay + 1) % 1440,
+      startMinute: (openMinute - 5 + 1440) % 1440,
+      endMinute: (openMinute + 5) % 1440,
     );
     expect(manager.scheduleHold, isFalse);
 
