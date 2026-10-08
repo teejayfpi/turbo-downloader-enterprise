@@ -29,7 +29,9 @@ const HTTPS_AGENT = new https.Agent({ keepAlive: true, maxSockets: MAX_INFLIGHT_
 const TICK_MS = 500;
 const SPEED_WINDOW_MS = 3000;
 const SEGMENT_THRESHOLD = 4 * 1024 * 1024; // multi-connection above 4 MB
-const MIN_SEGMENT_BYTES = 1 * 1024 * 1024; // never split a segment below 1 MB
+const MIN_SEGMENT_BYTES = 1 * 1024 * 1024; // never split a chunk below 1 MB
+const CHUNK_TARGET_BYTES = 3 * 1024 * 1024; // aim for chunks this size
+const MAX_CHUNKS = 256; // cap part files and plan rows for one download
 const MAX_SEGMENT_STREAMS = 24; // in-flight segment sockets for a single file
 const WRITE_HIGH_WATER_MARK = 1 * 1024 * 1024; // buffered bytes per part file
 const USER_AGENT = 'Mozilla/5.0 (compatible; TurboDownloader/2.0)';
@@ -562,13 +564,22 @@ export class DownloadEngine {
     // `connections` is the requested parallelism and `split` is the ceiling.
     // Bound by both, and by the size floor so a small file is not carved into
     // segments too small to amortise a request.
-    const segCount = Math.max(
+    const parallel = Math.max(
       1,
       Math.min(task.connections || connections, split, Math.floor(probe.total / MIN_SEGMENT_BYTES)),
     );
+    // Dynamic segmentation: slice the file into many more chunks than there are
+    // workers. A worker pulls the next unclaimed chunk as soon as it frees up,
+    // so one slow connection cannot leave a long tail and the others soak up
+    // the slack. Chunk size targets CHUNK_TARGET_BYTES but never drops below
+    // MIN_SEGMENT_BYTES, and the grid is capped so the file does not become
+    // thousands of part files.
+    const byTarget = Math.ceil(probe.total / CHUNK_TARGET_BYTES);
+    const byFloor = Math.floor(probe.total / MIN_SEGMENT_BYTES);
+    const chunkCount = Math.max(1, Math.min(Math.max(parallel, byTarget), byFloor, MAX_CHUNKS));
 
-    if (probe.rangeSupported && probe.total >= SEGMENT_THRESHOLD && segCount > 1) {
-      await this.downloadSegmented(task, urlObj, finalPath, probe.total, segCount, address);
+    if (probe.rangeSupported && probe.total >= SEGMENT_THRESHOLD && chunkCount > 1) {
+      await this.downloadSegmented(task, urlObj, finalPath, probe.total, chunkCount, parallel, address);
     } else {
       await this.downloadSingle(task, urlObj, finalPath, partBase, address);
     }
@@ -681,15 +692,16 @@ export class DownloadEngine {
     await fsp.rename(partBase, finalPath);
   }
 
-  async downloadSegmented(task, urlObj, finalPath, total, segCount, address = null) {
-    const segments = this.buildSegments(total, segCount);
-    task._segments = segments;
+  async downloadSegmented(task, urlObj, finalPath, total, chunkCount, workers, address = null) {
+    const chunks = this.buildChunks(total, chunkCount);
+    task._segments = chunks;
 
-    // A part file only lines up with a segment whose boundaries match the
-    // layout it was written with. The layout is derived from (total, segCount),
-    // and segCount changes when the user edits connections/split, so a retry
-    // after such an edit would resume at offsets from the old layout and stitch
-    // corrupt bytes. Record the layout and discard parts that do not match it.
+    // A part file only lines up with a chunk whose boundaries match the layout
+    // it was written with. The layout is derived from (total, chunkCount), and
+    // chunkCount changes when the user edits connections/split or a future
+    // version changes the grid, so a retry after such a change would resume at
+    // offsets from the old layout and stitch corrupt bytes. Record the layout
+    // and discard parts that do not match it.
     const planPath = `${finalPath}.turbo.plan`;
     let previous = null;
     try {
@@ -697,48 +709,47 @@ export class DownloadEngine {
     } catch {
       previous = null;
     }
-    if (previous && (previous.total !== total || previous.segCount !== segCount)) {
-      await Promise.all(segments.map((s) =>
-        fsp.rm(`${finalPath}.turbo.part${s.index}`, { force: true }).catch(() => {})));
+    if (previous && (previous.total !== total || previous.chunkCount !== chunkCount)) {
+      await Promise.all(chunks.map((c) =>
+        fsp.rm(`${finalPath}.turbo.part${c.index}`, { force: true }).catch(() => {})));
     }
-    await fsp.writeFile(planPath, JSON.stringify({ total, segCount })).catch(() => {});
+    await fsp.writeFile(planPath, JSON.stringify({ total, chunkCount })).catch(() => {});
 
     // Restore progress from any existing part files.
-    for (const seg of segments) {
-      seg.part = `${finalPath}.turbo.part${seg.index}`;
+    for (const chunk of chunks) {
+      chunk.part = `${finalPath}.turbo.part${chunk.index}`;
       try {
-        const stat = await fsp.stat(seg.part);
-        const expected = seg.end - seg.start + 1;
+        const stat = await fsp.stat(chunk.part);
+        const expected = chunk.end - chunk.start + 1;
         if (stat.size > expected) {
-          await fsp.rm(seg.part, { force: true });
-          seg.downloaded = 0;
+          await fsp.rm(chunk.part, { force: true });
+          chunk.downloaded = 0;
         } else {
-          seg.downloaded = stat.size;
+          chunk.downloaded = stat.size;
         }
       } catch {
-        seg.downloaded = 0;
+        chunk.downloaded = 0;
       }
     }
-    task.downloaded = segments.reduce((sum, s) => sum + s.downloaded, 0);
+    task.downloaded = chunks.reduce((sum, c) => sum + c.downloaded, 0);
 
-    const budget = this.perStreamBudget(segments.length);
-    // Cap concurrent segment sockets. The `split` ceiling can be 32; opening all
-    // of them at once on a multi-gigabyte file risks descriptor exhaustion, so
-    // in-flight streams are bounded (segment count when smaller).
-    const streamLimit = Math.min(segments.length, MAX_SEGMENT_STREAMS);
-    await mapLimit(segments, streamLimit, (seg) =>
-      this.downloadSegment(task, urlObj, seg, budget, address));
+    const budget = this.perStreamBudget(workers);
+    // Only `workers` sockets are open at once even though the grid can hold
+    // many more chunks; the rest are claimed on demand as each worker frees up.
+    const streamLimit = Math.max(1, Math.min(workers, MAX_SEGMENT_STREAMS));
+    await mapLimit(chunks, streamLimit, (chunk) =>
+      this.downloadSegment(task, urlObj, chunk, budget, address));
 
     if (task._cancel || task._paused) return;
 
-    for (const seg of segments) {
-      const expected = seg.end - seg.start + 1;
-      if (seg.downloaded < expected) {
-        throw new Error(`Segment ${seg.index} incomplete (${seg.downloaded}/${expected})`);
+    for (const chunk of chunks) {
+      const expected = chunk.end - chunk.start + 1;
+      if (chunk.downloaded < expected) {
+        throw new Error(`Segment ${chunk.index} incomplete (${chunk.downloaded}/${expected})`);
       }
     }
 
-    await this.mergeSegments(segments, finalPath);
+    await this.mergeSegments(chunks, finalPath);
     await fsp.rm(`${finalPath}.turbo.plan`, { force: true }).catch(() => {});
     task.downloaded = total;
 
@@ -793,15 +804,15 @@ export class DownloadEngine {
     }
   }
 
-  buildSegments(total, count) {
+  buildChunks(total, count) {
     const size = Math.ceil(total / count);
-    const segments = [];
+    const chunks = [];
     for (let i = 0; i < count; i++) {
       const start = i * size;
       if (start >= total) break;
-      segments.push({ index: i, start, end: Math.min(start + size - 1, total - 1), downloaded: 0, part: null });
+      chunks.push({ index: i, start, end: Math.min(start + size - 1, total - 1), downloaded: 0, part: null });
     }
-    return segments;
+    return chunks;
   }
 
   recomputeDownloaded(task) {
