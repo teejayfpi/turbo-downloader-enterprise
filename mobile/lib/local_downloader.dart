@@ -52,6 +52,7 @@ typedef YtdlpDownloadFn = Future<File?> Function({
   required String stem,
   void Function(int downloaded, int total, int speed)? onProgress,
   bool Function()? isCancelled,
+  int limitBps,
 });
 
 /// Merges a downloaded video-only stream with its audio track. Tests
@@ -413,6 +414,13 @@ class LocalDownloadManager extends ChangeNotifier {
   int scheduleEndMinute = 420; // 07:00 local
   bool _scheduleHold = false;
 
+  /// Global download speed cap, in bytes per second. Zero (or less) means
+  /// unlimited. Shared across every running transfer, so a queue of several
+  /// downloads still respects one ceiling. Set [speedLimitBps] and call
+  /// [applySpeedLimit] together.
+  int speedLimitBps = 0;
+  _SpeedGate? _speedGate;
+
   /// Partial-data root, exposed so the storage panel can size and clean it.
   Directory? get partsRoot =>
       _root == null ? null : Directory('${_root!.path}/parts');
@@ -515,6 +523,7 @@ class LocalDownloadManager extends ChangeNotifier {
     required String stem,
     void Function(int downloaded, int total, int speed)? onProgress,
     bool Function()? isCancelled,
+    int limitBps = 0,
   }) =>
       ytdlp.download(
         url: url,
@@ -523,6 +532,7 @@ class LocalDownloadManager extends ChangeNotifier {
         stem: stem,
         onProgress: onProgress,
         isCancelled: isCancelled,
+        limitBps: limitBps,
       );
 
   List<LocalTask> get tasks =>
@@ -591,6 +601,25 @@ class LocalDownloadManager extends ChangeNotifier {
     if (!held) resumeAll();
     _safeNotify();
     _pump();
+  }
+
+  /// Applies the global speed cap. A non-positive [bytesPerSecond] removes the
+  /// cap and releases anything waiting on it.
+  void applySpeedLimit(int bytesPerSecond) {
+    speedLimitBps = bytesPerSecond > 0 ? bytesPerSecond : 0;
+    _speedGate?.updateLimit(speedLimitBps);
+    if (speedLimitBps == 0) _speedGate = null;
+    _safeNotify();
+  }
+
+  /// Blocks the caller until one more [n] bytes may go out under the global
+  /// cap. A no-op when no cap is set.
+  Future<void> _limit(int n) async {
+    var gate = _speedGate;
+    if (gate == null && speedLimitBps > 0) {
+      gate = _speedGate = _SpeedGate(speedLimitBps);
+    }
+    if (gate != null) await gate.reserve(n);
   }
 
   /// Applies the Wi-Fi-only / battery-aware policy. When [blocked], no new
@@ -1414,6 +1443,7 @@ class LocalDownloadManager extends ChangeNotifier {
     try {
       await for (final chunk in res) {
         if (run.cancelled) break;
+        await _limit(chunk.length);
         sink.add(chunk);
         done += chunk.length;
         run.addBytes(chunk.length);
@@ -1440,6 +1470,7 @@ class LocalDownloadManager extends ChangeNotifier {
       selector: selector,
       dir: dir,
       stem: stem,
+      limitBps: speedLimitBps,
       isCancelled: () => run.cancelled,
       onProgress: (downloaded, total, speed) {
         task.downloaded = downloaded;
@@ -1726,6 +1757,7 @@ class LocalDownloadManager extends ChangeNotifier {
           task.segmentDone[index] = done;
           task.downloaded = task.segmentDone.fold<int>(0, (a, b) => a + b);
           run.addBytes(data.length);
+          await _limit(data.length);
         }
       } finally {
         await sink.close();
@@ -2092,3 +2124,65 @@ class _Run {
     task.speed = 0;
   }
 }
+
+/// Token-bucket limiter shared by every parallel segment. [reserve] returns
+/// only once [n] bytes have been debited against the cap, so a burst is spread
+/// across the wall clock instead of being sent at once. The manager creates a
+/// fresh gate whenever the cap changes, so a stale wake-up from an old burst
+/// can never wedge a new one.
+class _SpeedGate {
+  _SpeedGate(this._limitBps)
+      : _tokens = _limitBps.toDouble(),
+        _last = DateTime.now();
+
+  int _limitBps;
+  double _tokens;
+  DateTime _last;
+  Future<void> _chain = Future<void>.value();
+  bool _pending = false;
+
+  /// A waiter is only asked to pay for the slack it caused, so a burst is
+  /// charged against this window rather than dropped entirely.
+  static const int _slack = 48 * 1024;
+
+  void updateLimit(int limitBps) {
+    final now = DateTime.now();
+    final elapsed = now.difference(_last).inMicroseconds;
+    if (elapsed > 0) {
+      _tokens += _limitBps * elapsed / 1000000;
+      _last = now;
+    }
+    _limitBps = limitBps;
+    if (_tokens > _limitBps) _tokens = _limitBps.toDouble();
+  }
+
+  Future<void> reserve(int n) {
+    final completer = Completer<void>();
+    _chain = _chain.then((_) async {
+      _refill();
+      if (_tokens < n) {
+        final deficit = (n - _tokens).clamp(0, _slack);
+        final waitMs =
+            (_limitBps <= 0) ? 0 : ((deficit * 1000) / _limitBps).ceil();
+        _pending = true;
+        await Future<void>.delayed(Duration(milliseconds: waitMs));
+        _pending = false;
+        _refill();
+      }
+      _tokens -= n;
+      if (!completer.isCompleted) completer.complete();
+    });
+    return completer.future;
+  }
+
+  void _refill() {
+    if (_pending) return;
+    final now = DateTime.now();
+    final elapsed = now.difference(_last).inMicroseconds;
+    if (elapsed <= 0) return;
+    _tokens =
+        min(_limitBps.toDouble(), _tokens + _limitBps * elapsed / 1000000);
+    _last = now;
+  }
+}
+

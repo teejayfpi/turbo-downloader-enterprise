@@ -145,11 +145,14 @@ class YtdlpEngine {
       ];
 
   /// The full argument vector for a download. See [probeArgs] for the TLS note.
+  /// [limitBps] adds `--limit-rate` so a capped transfer honours the global
+  /// speed ceiling too.
   Future<List<String>> downloadArgs({
     required String url,
     required String selector,
     required Directory dir,
     required String stem,
+    int limitBps = 0,
   }) async =>
       [
         url,
@@ -157,6 +160,7 @@ class YtdlpEngine {
         '--no-playlist',
         '--no-warnings',
         '--newline',
+        if (limitBps > 0) ...['--limit-rate', '${limitBps}B'],
         ...await _jsArgs(),
         ..._cookieArgs(),
         '-P', dir.path,
@@ -284,6 +288,7 @@ class YtdlpEngine {
     required String stem,
     void Function(int downloaded, int total, int speed)? onProgress,
     bool Function()? isCancelled,
+    int limitBps = 0,
   }) async {
     final bin = await locate();
     if (bin == null) {
@@ -298,6 +303,7 @@ class YtdlpEngine {
       selector: selector,
       dir: dir,
       stem: stem,
+      limitBps: limitBps,
     );
 
     final process = await Process.start(bin, args);

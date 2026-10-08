@@ -450,6 +450,35 @@ void main() {
     expect(task.isCompleted, isTrue, reason: task.error ?? '');
   });
 
+  test('a global speed cap throttles a download and can be lifted', () async {
+    final data = _blob(512 * 1024);
+    final origin = _Origin(data)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    manager.applySpeedLimit(128 * 1024); // 128 KiB/s over a 512 KiB file.
+
+    final sw = Stopwatch()..start();
+    final task = manager.add(origin.url, filename: 'capped.bin', connections: 1);
+    await _waitFor(() => task.isCompleted || task.isFailed);
+    sw.stop();
+
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    expect(await File(task.filePath!).readAsBytes(), equals(data));
+    // A token bucket allows a burst, so the floor is far below the ideal 4 s
+    // but must be well clear of an unthrottled (tens-of-milliseconds) run.
+    expect(sw.elapsedMilliseconds, greaterThan(350),
+        reason: 'the cap should visibly slow the transfer');
+
+    // Lifting the cap releases the waiting tokens and lets a second file run
+    // at full speed.
+    manager.applySpeedLimit(0);
+    final fast = manager.add(origin.url, filename: 'fast.bin', connections: 1);
+    await _waitFor(() => fast.isCompleted || fast.isFailed);
+    expect(fast.isCompleted, isTrue, reason: fast.error ?? '');
+  });
+
   test('falls back to one connection when the server ignores ranges', () async {
     final data = _blob(2 * 1024 * 1024);
     final origin = _Origin(data, supportRange: false, advertiseAcceptRanges: false)
@@ -733,6 +762,7 @@ void main() {
       required String stem,
       void Function(int, int, int)? onProgress,
       bool Function()? isCancelled,
+      int limitBps = 0,
     }) async {
       seenUrl = url;
       seenSelector = selector;
@@ -770,6 +800,7 @@ void main() {
       required String stem,
       void Function(int, int, int)? onProgress,
       bool Function()? isCancelled,
+      int limitBps = 0,
     }) async =>
         throw const YtdlpException('Video unavailable');
 
@@ -800,6 +831,7 @@ void main() {
       required String stem,
       void Function(int, int, int)? onProgress,
       bool Function()? isCancelled,
+      int limitBps = 0,
     }) async {
       calls += 1;
       throw const YtdlpException(
@@ -841,6 +873,7 @@ void main() {
       required String stem,
       void Function(int, int, int)? onProgress,
       bool Function()? isCancelled,
+      int limitBps = 0,
     }) async =>
         throw const YtdlpException('HTTP Error 403: Forbidden');
 
@@ -877,6 +910,7 @@ void main() {
       required String stem,
       void Function(int, int, int)? onProgress,
       bool Function()? isCancelled,
+      int limitBps = 0,
     }) async =>
         throw const YtdlpException(
           'Requested format is not available. Use --list-formats for a list '
@@ -918,6 +952,7 @@ void main() {
       required String stem,
       void Function(int, int, int)? onProgress,
       bool Function()? isCancelled,
+      int limitBps = 0,
     }) async {
       final f = File('${dir.path}/$stem.mp4');
       await f.writeAsBytes(bytes);

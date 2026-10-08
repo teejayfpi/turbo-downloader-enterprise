@@ -450,4 +450,13 @@ Changing one without the others silently caps speed.
   `_scheduleTimer` for the soonest of the window opening and the earliest retry
   backoff, so a held queue resumes on its own. `withinWindow` is a pure static
   helper and the boundary cases (normal / wrap / empty) are unit-tested.
+- Global speed cap (`LocalDownloadManager.applySpeedLimit`): one shared ceiling
+  across every running transfer, not per-download. The built-in byte loops
+  `await _limit(chunk.length)` before writing, against a `_SpeedGate` token
+  bucket shared by all segments. The gate is created lazily and replaced
+  wholesale when the cap changes (never mutated in place), so a stale wake-up
+  from an old burst can never wedge a new one; `reserve` chains on a single
+  future so several segments cannot race the bucket. A yt-dlp transfer receives
+  the same number as `--limit-rate <n>B` so both engines honour one figure.
+  Setting the cap to 0 removes the gate and releases anything waiting.
 

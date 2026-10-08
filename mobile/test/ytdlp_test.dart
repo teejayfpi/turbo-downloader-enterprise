@@ -248,4 +248,28 @@ void main() {
       expect(args, contains('--no-playlist'));
     }
   });
+
+  test('a speed cap is passed to yt-dlp as --limit-rate', () async {
+    final dir = Directory.systemTemp.createTempSync('ytdlp-rate');
+    final engine = YtdlpEngine();
+
+    final capped = await engine.downloadArgs(
+      url: 'https://example.com/watch',
+      selector: 'best',
+      dir: dir,
+      stem: 'clip',
+      limitBps: 1024 * 1024,
+    );
+    expect(capped, contains('--limit-rate'));
+    expect(capped.sublist(capped.indexOf('--limit-rate') + 1, capped.indexOf('--limit-rate') + 2),
+        ['1048576B']);
+
+    final uncapped = await engine.downloadArgs(
+      url: 'https://example.com/watch',
+      selector: 'best',
+      dir: dir,
+      stem: 'clip',
+    );
+    expect(uncapped, isNot(contains('--limit-rate')));
+  });
 }

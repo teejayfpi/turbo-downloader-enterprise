@@ -30,6 +30,7 @@ class SettingsStore {
   static const kScheduleEnabled = 'turbo.scheduleEnabled';
   static const kScheduleStart = 'turbo.scheduleStart';
   static const kScheduleEnd = 'turbo.scheduleEnd';
+  static const kSpeedLimitBps = 'turbo.speedLimitBps';
   static const kUpdateChannel = 'turbo.updateChannel';
   static const kCheckUpdates = 'turbo.checkUpdates';
   static const kClipboardMonitor = 'turbo.clipboardMonitor';

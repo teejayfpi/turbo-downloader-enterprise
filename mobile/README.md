@@ -109,6 +109,16 @@ the schedule off (or the window opening) releases everything immediately. The
 worker arms a timer for the window opening, so a queued job resumes on its own
 without needing another app event.
 
+## Speed limit
+
+Settings → Speed limit caps the total download speed across every running
+transfer, useful when you want to keep browsing responsive or stay under a
+data budget. It is a single shared ceiling, not per-download: with several jobs
+running the cap is split between them. The built-in engine spreads the burst
+with a token-bucket limiter, and a yt-dlp transfer is passed the same figure as
+`--limit-rate`, so both paths honour one number. Choosing "No cap" removes the
+limit and releases anything waiting on it immediately.
+
 ## Requirements
 
 - Flutter 3.24.x (Dart 3.5.4)

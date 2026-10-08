@@ -187,6 +187,9 @@ class TurboState extends ChangeNotifier {
   int scheduleStartMinute = 60; // 01:00
   int scheduleEndMinute = 420; // 07:00
 
+  /// Global download speed cap in bytes per second. Zero means unlimited.
+  int speedLimitBps = 0;
+
   /// Start ranged downloads with a small number of segments and add more as
   /// the host proves able to feed them (adaptive acceleration). When off, the
   /// full connection width is opened immediately.
@@ -302,6 +305,7 @@ class TurboState extends ChangeNotifier {
       scheduleStartMinute =
           prefs.getInt(SettingsStore.kScheduleStart) ?? 60;
       scheduleEndMinute = prefs.getInt(SettingsStore.kScheduleEnd) ?? 420;
+      speedLimitBps = prefs.getInt(SettingsStore.kSpeedLimitBps) ?? 0;
       autoRetry = prefs.getBool(SettingsStore.kAutoRetry) ?? true;
       adaptiveConnections =
           prefs.getBool(SettingsStore.kAdaptiveConnections) ?? true;
@@ -323,6 +327,7 @@ class TurboState extends ChangeNotifier {
         startMinute: scheduleStartMinute,
         endMinute: scheduleEndMinute,
       );
+      local.applySpeedLimit(speedLimitBps);
       local.maxConcurrent = maxConcurrent;
       if (!autoRetry) local.retryPolicy = RetryPolicy.none;
 
@@ -577,6 +582,14 @@ class TurboState extends ChangeNotifier {
     );
     await settings.setInt(SettingsStore.kScheduleStart, scheduleStartMinute);
     await settings.setInt(SettingsStore.kScheduleEnd, scheduleEndMinute);
+    _safeNotify();
+  }
+
+  /// Sets the global speed cap (bytes per second); 0 removes it.
+  Future<void> setSpeedLimit(int bytesPerSecond) async {
+    speedLimitBps = bytesPerSecond > 0 ? bytesPerSecond : 0;
+    local.applySpeedLimit(speedLimitBps);
+    await settings.setInt(SettingsStore.kSpeedLimitBps, speedLimitBps);
     _safeNotify();
   }
 

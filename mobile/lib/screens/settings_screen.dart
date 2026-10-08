@@ -116,6 +116,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const _Hint('How many downloads run at the same time. Extra jobs wait in '
                 'the queue.'),
+            const SizedBox(height: 14),
+            const Kicker('Speed limit', letterSpacing: 1.6),
+            const SizedBox(height: 6),
+            ModeSegment(
+              value: '${state.speedLimitBps}',
+              onChanged: (v) => state.setSpeedLimit(int.parse(v)),
+              options: const [
+                ModeSegmentOption('0', Icons.all_inclusive_rounded, 'No cap'),
+                ModeSegmentOption('1048576', Icons.speed_rounded, '1 MB'),
+                ModeSegmentOption('5242880', Icons.speed_rounded, '5 MB'),
+                ModeSegmentOption('10485760', Icons.speed_rounded, '10 MB'),
+              ],
+            ),
+            const SizedBox(height: 6),
+            _Hint(state.speedLimitBps > 0
+                ? 'Total download speed is capped at '
+                    '${formatBytes(state.speedLimitBps)}/s across every running '
+                    'download.'
+                : 'No cap: downloads use all the bandwidth they can.'),
           ],
         ),
         const SizedBox(height: 16),
