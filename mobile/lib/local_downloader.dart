@@ -494,11 +494,7 @@ class LocalDownloadManager extends ChangeNotifier {
   final Set<String> _hostDirty = {};
 
   bool _hostsLoaded = false;
-  bool _hostWriteScheduled = false;
-
-  /// Serialises `host_speed.json` writes so a queued flush cannot interleave
-  /// with a load and persist a half-empty map.
-  Future<void> _hostSave = Future<void>.value();
+  Timer? _hostWriteTimer;
 
   /// Ceiling on ramp-up evaluations per transfer, a backstop against a host
   /// whose throughput looks high but never lets a segment finish.
@@ -695,35 +691,35 @@ class LocalDownloadManager extends ChangeNotifier {
   }
 
   /// Debounced write so a batch download records one file write, not one per
-  /// task. The flush is serialised behind [_hostSave].
+  /// task.
   void _scheduleHostWrite() {
-    if (_hostWriteScheduled) return;
-    _hostWriteScheduled = true;
-    Timer(const Duration(seconds: 2), () {
-      _hostWriteScheduled = false;
-      _hostSave = _hostSave.then((_) => _flushHostMemory());
+    if (_hostWriteTimer != null) return;
+    _hostWriteTimer = Timer(const Duration(seconds: 2), () {
+      _hostWriteTimer = null;
+      _flushHostMemory();
     });
   }
 
-  Future<void> _flushHostMemory() async {
+  /// Writes the map synchronously. Kept synchronous so it can never overlap
+  /// another write, and so [dispose] completes it before the caller proceeds —
+  /// an async write there would race a Windows temp-dir delete and fail with a
+  /// file-in-use error.
+  void _flushHostMemory() {
     final root = _root;
     if (root == null || _hostDirty.isEmpty) return;
-    final file = File('${root.path}/host_speed.json');
     try {
-      await file.writeAsString(jsonEncode(_hostWidth));
+      File('${root.path}/host_speed.json')
+          .writeAsStringSync(jsonEncode(_hostWidth));
       _hostDirty.clear();
     } catch (_) {}
   }
 
-  /// Flushes any pending host memory immediately. Call before the app exits;
-  /// the timer alone may not fire on a hard kill.
+  /// Flushes any pending host memory immediately and cancels the debounce.
+  /// Call before the app exits; the timer alone may not fire on a hard kill.
   Future<void> flushHostMemory() async {
-    final pending = _hostWriteScheduled;
-    _hostWriteScheduled = false;
-    if (pending || _hostDirty.isNotEmpty) {
-      _hostSave = _hostSave.then((_) => _flushHostMemory());
-      await _hostSave;
-    }
+    _hostWriteTimer?.cancel();
+    _hostWriteTimer = null;
+    _flushHostMemory();
   }
 
   /// After a crash, a `.part` file can be longer than the byte count the queue
