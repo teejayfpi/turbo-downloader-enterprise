@@ -360,6 +360,13 @@ it is not a filter.
   react: `YOUTUBE_DATACENTER_BLOCK` (HTTP 451, retryable: false) and
   `MEDIA_FORMAT_UNAVAILABLE` (retryable: false). Anything else is a plain
   Error. Do not let a new failure mode fall through to the raw yt-dlp text.
+- `pinnedLookup` must honour `options.all`. Node enables autoSelectFamily
+  (Happy Eyeballs) by default and asks a custom `lookup` for every answer at
+  once; returning the single-address form makes net fail the connect with
+  `ERR_INVALID_IP_ADDRESS` and breaks *every* direct download. The loopback
+  engine e2e cannot catch this because `TURBO_ALLOW_PRIVATE_HOSTS=1` disables
+  pinning, so `server/test/pinnedLookup.test.mjs` guards it (`npm test` in
+  `server/`).
 
 ## Throughput invariants (server + mobile)
 

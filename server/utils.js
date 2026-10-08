@@ -146,7 +146,17 @@ export async function assertPublicHost(hostname) {
 /** A `lookup` implementation that always answers with [address]. */
 export function pinnedLookup(address) {
   const family = net.isIPv6(address) ? 6 : 4;
-  return (_hostname, _options, callback) => callback(null, address, family);
+  return (_hostname, options, callback) => {
+    // Node enables autoSelectFamily (Happy Eyeballs) by default, which asks for
+    // every answer at once. That request is `{ all: true }`, and returning the
+    // single-address form makes net reject it with ERR_INVALID_IP_ADDRESS —
+    // which would break every direct download, not just dual-stack hosts.
+    if (options && options.all) {
+      callback(null, [{ address, family }]);
+      return;
+    }
+    callback(null, address, family);
+  };
 }
 
 export function validateHttpUrl(rawUrl) {
