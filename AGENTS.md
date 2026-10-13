@@ -126,6 +126,13 @@ These caused real, user-visible bugs. Do not regress them.
   `Mobile` boots straight into a standard splash screen (mark, name, spinner,
   designer credit) and then the three tabs
   (`lib/screens/home_shell.dart`). Do not reintroduce a setup/server mode.
+- **Leaving the first-run tour must not wait on storage.** `onboarding_screen.dart`
+  fires `completeOnboarding()` without awaiting it, and `TurboState` flips the
+  in-memory `onboardingDone` flag (and notifies) *before* the `SharedPreferences`
+  write. Awaiting the write before `Navigator.pushReplacement` left SKIP and
+  Start unresponsive when the platform channel was slow, and dropped the write
+  when the widget had already been disposed — so the tour reappeared every
+  launch. The write is best-effort: worst case, the tour shows once more.
 - **Build with JDK 17, not 21.** JDK 21 makes the Android Gradle Plugin's
   `JdkImageTransform` fail with a `jlink` error on `core-for-system-modules.jar`.
   Set `JAVA_HOME` to a JDK 17 before `flutter build`.
