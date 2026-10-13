@@ -624,9 +624,16 @@ class TurboState extends ChangeNotifier {
   }
 
   Future<void> completeOnboarding() async {
+    // Flip the in-memory flag first and notify, so any caller can navigate off
+    // the tour immediately rather than waiting on a platform write.
     onboardingDone = true;
-    await settings.setBool(SettingsStore.kOnboardingDone, true);
     _safeNotify();
+    // Persisting is best-effort. A slow or failing platform channel must never
+    // block leaving the tour or trap the user on it; the worst case is that the
+    // tour is shown once more on the next launch.
+    try {
+      await settings.setBool(SettingsStore.kOnboardingDone, true);
+    } catch (_) {}
   }
 
   // -------------------------------------------------------- device and storage

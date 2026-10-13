@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -53,8 +55,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.dispose();
   }
 
-  Future<void> _finish() async {
-    await context.read<TurboState>().completeOnboarding();
+  void _finish() {
+    // Leave the tour immediately; persist in the background. Waiting on the
+    // storage write here is what left SKIP/Start unresponsive when the platform
+    // channel was slow, and skipped the write when the widget was gone.
+    final state = context.read<TurboState>();
+    unawaited(state.completeOnboarding());
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(builder: (_) => const HomeShell()),
