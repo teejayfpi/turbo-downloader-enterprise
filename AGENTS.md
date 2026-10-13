@@ -224,6 +224,17 @@ These caused real, user-visible bugs. Do not regress them.
   `platform_links.dart` registers the handler at desktop startup, and the
   Android manifest and macOS `Info.plist` declare it. Change the shape in one
   place and update all four.
+- **The browser extension is a separate MV3 extension, API-first.** It is plain
+  JS (no build step) with two manifests: `manifest.json` (Chrome/Edge/Brave) and
+  `manifest.firefox.json` (Firefox; needs an add-on id and `background.scripts`).
+  Hand-off order is `POST http://127.0.0.1:3001/api/downloads` first, then the
+  `turbo://` deep link as fallback, so the popup can say whether the app actually
+  took the link. Permissions are least-privilege on purpose (`activeTab`,
+  `contextMenus`, `storage`, loopback hosts only) — do not add `scripting`,
+  `tabs`, `cookies`, or `<all_urls>`. Detection lives in
+  `browser-extension/lib/detector.js` and is DOM-optional so it unit-tests under
+  `node --test`. `.github/workflows/extension.yml` validates, lints the Firefox
+  manifest with `web-ext`, and packages both zips.
 - **`app_links` stays under 6.4.** 6.4+ reads `flutter.compileSdkVersion` from
   its Android Gradle script, which the Flutter 3.24 template does not expose;
   the release APK fails to assemble without the pin in `pubspec.yaml`.
