@@ -42,6 +42,18 @@ media URL.
 3. Click **Load unpacked** and select this `browser-extension/` folder.
 4. Pin the Turbo icon to the toolbar.
 
+**Select the folder that directly contains `manifest.json`.** That folder is
+`browser-extension/` — it holds `manifest.json`, `background.js`, `content.js`,
+`popup.html`, `popup.js` and `lib/`. Chrome reports *"Manifest file is missing or
+unreadable"* if you point it somewhere else, most often at the Flutter app
+bundle (`data/flutter_assets`, `lib/`, `turbo_downloader`) from a desktop
+release, which is a different thing entirely.
+
+A ready-to-load zip (with `manifest.json` at its root) is built by the
+**Browser extension** workflow and attached as the `turbo-browser-extension`
+artifact on every run under the repository's **Actions** tab. Unzip it, then
+load the unzipped folder as above.
+
 ## Using it
 
 - Click the toolbar icon → the popup lists what it found → **Send** on any item.

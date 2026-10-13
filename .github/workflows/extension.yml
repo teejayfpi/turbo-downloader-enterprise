@@ -37,3 +37,35 @@ jobs:
 
       - name: Unit tests
         run: cd browser-extension && node --test
+
+  # Builds the loadable extension as a zip with manifest.json at its root, so
+  # "Load unpacked" (or dropping the zip on chrome://extensions) works without
+  # guessing which folder is the extension. Runtime files only — no tests/docs.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build extension zip
+        run: |
+          set -e
+          cd browser-extension
+          zip -r ../turbo-browser-extension.zip \
+            manifest.json background.js content.js popup.html popup.js icons lib
+          cd ..
+          sha256sum turbo-browser-extension.zip > turbo-browser-extension.zip.sha256
+          unzip -l turbo-browser-extension.zip
+
+      - name: Verify manifest is at the zip root
+        run: |
+          set -e
+          unzip -l turbo-browser-extension.zip | grep -qE '^\s+[0-9]+\s+.*\smanifest\.json$' \
+            || { echo "::error::manifest.json is not at the archive root"; exit 1; }
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: turbo-browser-extension
+          path: |
+            turbo-browser-extension.zip
+            turbo-browser-extension.zip.sha256
+          if-no-files-found: error
