@@ -2,9 +2,10 @@
   "manifest_version": 3,
   "name": "Turbo Downloader — Media Detector",
   "version": "1.0.0",
-  "description": "Detects videos, audio and files on the page and sends them to the Turbo download manager.",
-  "permissions": ["activeTab", "scripting", "contextMenus", "storage", "notifications"],
-  "host_permissions": ["http://*/*", "https://*/*"],
+  "description": "Detects videos, audio and files on the page and sends them to the Turbo download manager on your device.",
+  "minimum_chrome_version": "102",
+  "permissions": ["activeTab", "contextMenus", "storage"],
+  "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"],
   "action": {
     "default_title": "Turbo — send to download manager",
     "default_popup": "popup.html",

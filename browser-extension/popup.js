@@ -2,8 +2,8 @@
 //
 // Asks the active tab's content script what media/files it can see, lists them,
 // and hands the chosen one to the Turbo app via the background worker. The
-// background also records every hand-off, which is shown here as a copyable
-// fallback for when the `turbo://` scheme has no registered handler.
+// background reports whether the app's local API accepted it or whether it fell
+// back to the deep link; the last hand-off is also shown here for copying.
 
 const listEl = document.getElementById('list');
 const countEl = document.getElementById('count');
@@ -19,7 +19,7 @@ function toast(text) {
   const el = document.getElementById('toast');
   el.textContent = text;
   el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), 1400);
+  setTimeout(() => el.classList.remove('show'), 1600);
 }
 
 function hostOf(url) {
@@ -28,10 +28,16 @@ function hostOf(url) {
 
 function send(url, meta) {
   if (!url) return;
-  chrome.runtime.sendMessage({ type: 'turbo:send', url, meta });
-  toast('Sent to Turbo');
-  // The background stores it before opening turbo://, so refresh the fallback.
-  setTimeout(showFallback, 300);
+  chrome.runtime.sendMessage({ type: 'turbo:send', url, meta }, (resp) => {
+    if (chrome.runtime.lastError || !resp) {
+      toast('Could not reach Turbo');
+    } else if (resp.via === 'api') {
+      toast('Added to Turbo');
+    } else {
+      toast('Opening Turbo…');
+    }
+    showFallback();
+  });
 }
 
 function showFallback() {
@@ -103,7 +109,6 @@ function scan() {
 
     chrome.tabs.sendMessage(tab.id, { type: 'turbo:detect' }, (resp) => {
       if (chrome.runtime.lastError || !resp) {
-        // Content script not present (e.g. chrome:// pages).
         render([]);
         return;
       }

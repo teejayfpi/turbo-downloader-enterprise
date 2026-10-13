@@ -27,9 +27,13 @@ solution, and no fragment-scraping is attempted here.
 
 ## How the hand-off works
 
-Each item becomes a `turbo://add?url=<encoded>` link, which the Turbo app
-registers as its custom protocol. Opening it launches (or focuses) the app with
-that URL pre-filled. On Android you can also just use **Share → Turbo**.
+The primary path is a `POST` to the Turbo app's local API
+(`http://127.0.0.1:3001/api/downloads`) — the same mechanism other download
+manager extensions use. It confirms the app actually received the link and
+needs no custom-scheme registration. If the app is not reachable, the extension
+falls back to the `turbo://add?url=<encoded>` deep link, which launches (or
+focuses) the app with the URL pre-filled. On Android you can also just use
+**Share → Turbo**.
 
 The popup also has **Send this page to Turbo**, which passes the page URL so the
 app's own extractor resolves the stream — useful when the page hides the real
@@ -49,10 +53,34 @@ unreadable"* if you point it somewhere else, most often at the Flutter app
 bundle (`data/flutter_assets`, `lib/`, `turbo_downloader`) from a desktop
 release, which is a different thing entirely.
 
-A ready-to-load zip (with `manifest.json` at its root) is built by the
+Ready-to-load zips (with `manifest.json` at the root) are built by the
 **Browser extension** workflow and attached as the `turbo-browser-extension`
-artifact on every run under the repository's **Actions** tab. Unzip it, then
-load the unzipped folder as above.
+artifact on every run under the repository's **Actions** tab:
+`turbo-browser-extension.zip` for Chrome, `turbo-browser-extension-firefox.zip`
+for Firefox. Unzip, then load the unzipped folder as above.
+
+## Permissions
+
+The extension asks for the minimum it needs; store review rejects unused
+permissions, so nothing is declared "just in case".
+
+| Permission | Why |
+| --- | --- |
+| `activeTab` | Read the current tab's URL and title when you open the popup. Granted only on click. |
+| `contextMenus` | The right-click "Send … to Turbo" entries. |
+| `storage` | Remember the last hand-off so the popup can offer it for copying. |
+| host access to `localhost` / `127.0.0.1` | POST to the Turbo app's local API. No other host access. |
+
+It does **not** request `tabs` (no browsing history), `scripting`, `cookies`,
+`downloads`, or `<all_urls>` host access.
+
+## Firefox
+
+`manifest.firefox.json` is the Firefox build: same code, with an add-on ID, a
+`strict_min_version`, and the MV2-style `background.scripts` key Firefox still
+requires in MV3. Build it by copying that file over `manifest.json` (the CI
+`package` job does this and produces the Firefox zip). It lints clean with
+`web-ext lint`.
 
 ## Using it
 
@@ -78,10 +106,17 @@ Authorization / Referer into the New Transfer options in the UI, and the server
 sends them per download. If automatic cookie capture is ever wanted, it must go
 over a POST body to the app's HTTP API, never through the deep link.
 
-## Distribution note
+## Store submission
 
-Unpacked loading is fine for personal use. To publish on the Chrome Web Store
-the extension needs store listing assets and review; the code here is already
-MV3-compliant. Firefox uses the same sources but wants `background.scripts`
-instead of `service_worker` — add a Firefox-specific `manifest.json` if you
-target it.
+The code is store-grade: MV3, least-privilege permissions, correctly sized
+icons (16/48/128), no remote code, and no data collection. To publish you still
+need the listing assets the store requires, which are not code:
+
+- 128×128 store icon (use `icons/icon-128.png`), 1–5 screenshots, a promo tile
+- a privacy policy URL (the extension collects nothing and sends nothing off
+  device, so this is short)
+- a single-purpose statement: "add links to the Turbo download manager"
+
+Chrome Web Store and Microsoft Edge Add-ons both take the Chrome zip; Firefox
+Add-ons (AMO) takes the Firefox zip. `web-ext lint` is run in CI for the Firefox
+build, and both zips are produced by the `package` job.

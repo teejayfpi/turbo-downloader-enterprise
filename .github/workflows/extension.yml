@@ -38,34 +38,62 @@ jobs:
       - name: Unit tests
         run: cd browser-extension && node --test
 
-  # Builds the loadable extension as a zip with manifest.json at its root, so
-  # "Load unpacked" (or dropping the zip on chrome://extensions) works without
+      - name: Lint the Firefox manifest (web-ext)
+        run: |
+          set -e
+          rm -rf /tmp/ext-ff
+          mkdir -p /tmp/ext-ff
+          cp -r browser-extension/. /tmp/ext-ff/
+          cp /tmp/ext-ff/manifest.firefox.json /tmp/ext-ff/manifest.json
+          rm -f /tmp/ext-ff/manifest.firefox.json
+          npx --yes web-ext lint --source-dir /tmp/ext-ff --output json > /tmp/lint.json
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/lint.json'))
+          errs = d.get('errors', [])
+          for e in errs:
+              print('ERROR', e.get('code'), '-', e.get('message'))
+          if errs:
+              raise SystemExit('web-ext lint reported errors')
+          print('web-ext lint: 0 errors')
+          PY
+
+  # Builds loadable zips with manifest.json at the archive root, so "Load
+  # unpacked" (or dropping the zip on chrome://extensions) works without
   # guessing which folder is the extension. Runtime files only — no tests/docs.
   package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
-      - name: Build extension zip
+      - name: Build Chrome and Firefox zips
         run: |
           set -e
-          cd browser-extension
-          zip -r ../turbo-browser-extension.zip \
-            manifest.json background.js content.js popup.html popup.js icons lib
-          cd ..
-          sha256sum turbo-browser-extension.zip > turbo-browser-extension.zip.sha256
+          files="background.js content.js popup.html popup.js icons lib"
+          # Chrome build.
+          (cd browser-extension && zip -qr ../turbo-browser-extension.zip manifest.json $files)
+          # Firefox build: the Firefox manifest replaces manifest.json at the root.
+          rm -rf /tmp/ext-ff && mkdir -p /tmp/ext-ff
+          cp -r browser-extension/. /tmp/ext-ff/
+          mv /tmp/ext-ff/manifest.firefox.json /tmp/ext-ff/manifest.json
+          (cd /tmp/ext-ff && zip -qr "$GITHUB_WORKSPACE/turbo-browser-extension-firefox.zip" manifest.json $files)
+          sha256sum turbo-browser-extension.zip turbo-browser-extension-firefox.zip > turbo-browser-extension.sha256
           unzip -l turbo-browser-extension.zip
 
-      - name: Verify manifest is at the zip root
+      - name: Verify manifest is at each zip's root
         run: |
           set -e
-          unzip -l turbo-browser-extension.zip | grep -qE '^\s+[0-9]+\s+.*\smanifest\.json$' \
-            || { echo "::error::manifest.json is not at the archive root"; exit 1; }
+          for z in turbo-browser-extension.zip turbo-browser-extension-firefox.zip; do
+            unzip -l "$z" | grep -qE '^\s+[0-9]+\s+.*\smanifest\.json$' \
+              || { echo "::error::manifest.json is not at the root of $z"; exit 1; }
+            echo "$z: manifest at root"
+          done
 
       - uses: actions/upload-artifact@v5
         with:
           name: turbo-browser-extension
           path: |
             turbo-browser-extension.zip
-            turbo-browser-extension.zip.sha256
+            turbo-browser-extension-firefox.zip
+            turbo-browser-extension.sha256
           if-no-files-found: error
