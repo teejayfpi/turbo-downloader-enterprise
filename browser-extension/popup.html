@@ -99,6 +99,8 @@
     }
     .item button:hover { border-color: var(--accent); color: var(--accent); }
     .empty { color: var(--muted); padding: 14px 16px; text-align: center; }
+    .hint { color: var(--muted); font-size: 11px; margin-top: 8px; }
+    .hint code { color: var(--text); }
     footer {
       padding: 12px 16px;
       color: var(--muted);
@@ -141,6 +143,23 @@
   <div class="section">
     <h3>Media &amp; files on this page (<span id="count">0</span>)</h3>
     <div id="list"></div>
+  </div>
+
+  <div class="section" id="fallback" hidden>
+    <h3>Last hand-off</h3>
+    <div class="item">
+      <div class="kind">link</div>
+      <div class="meta">
+        <div class="label" id="fallbackLabel"></div>
+        <div class="host" id="fallbackUrl"></div>
+      </div>
+      <button id="fallbackCopy">Copy</button>
+    </div>
+    <div class="hint">
+      Nothing happened when you clicked Send? The Turbo app may not be
+      installed, so the <code>turbo://</code> link had no handler. Copy this
+      link and paste it into Turbo → Add.
+    </div>
   </div>
 
   <footer>

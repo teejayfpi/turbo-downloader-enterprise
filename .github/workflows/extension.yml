@@ -30,7 +30,10 @@ jobs:
 
       - name: Syntax-check scripts
         run: |
-          for f in browser-extension/content.js browser-extension/background.js browser-extension/popup.js; do
+          for f in $(find browser-extension -name '*.js' -not -path '*/node_modules/*'); do
             node --check "$f"
             echo "$f ok"
           done
+
+      - name: Unit tests
+        run: cd browser-extension && node --test
