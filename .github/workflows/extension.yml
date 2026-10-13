@@ -58,27 +58,30 @@ jobs:
           print('web-ext lint: 0 errors')
           PY
 
-  # Builds loadable zips with manifest.json at the archive root, so "Load
-  # unpacked" (or dropping the zip on chrome://extensions) works without
-  # guessing which folder is the extension. Runtime files only — no tests/docs.
+  # Produces loadable builds. GitHub always wraps artifacts in a zip, so the
+  # artifacts here are the UNPACKED extension directories: extracting the
+  # downloaded artifact once yields a folder whose top level is manifest.json,
+  # which is what "Load unpacked" needs. Store-ready zips (a zip of those same
+  # files) are uploaded separately, because stores want a zip, not a folder.
   package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
-      - name: Build Chrome and Firefox zips
+      - name: Stage unpacked Chrome and Firefox builds
         run: |
           set -e
           files="background.js content.js popup.html popup.js icons lib"
-          # Chrome build.
-          (cd browser-extension && zip -qr ../turbo-browser-extension.zip manifest.json $files)
-          # Firefox build: the Firefox manifest replaces manifest.json at the root.
-          rm -rf /tmp/ext-ff && mkdir -p /tmp/ext-ff
-          cp -r browser-extension/. /tmp/ext-ff/
-          mv /tmp/ext-ff/manifest.firefox.json /tmp/ext-ff/manifest.json
-          (cd /tmp/ext-ff && zip -qr "$GITHUB_WORKSPACE/turbo-browser-extension-firefox.zip" manifest.json $files)
+          rm -rf dist && mkdir -p dist/chrome dist/firefox
+          cp browser-extension/manifest.json dist/chrome/manifest.json
+          cp browser-extension/manifest.firefox.json dist/firefox/manifest.json
+          for d in chrome firefox; do
+            for f in $files; do cp -r "browser-extension/$f" "dist/$d/"; done
+          done
+          # Store-ready zips (zip of the same files, manifest.json at the root).
+          (cd dist/chrome  && zip -qr "$GITHUB_WORKSPACE/turbo-browser-extension.zip" .)
+          (cd dist/firefox && zip -qr "$GITHUB_WORKSPACE/turbo-browser-extension-firefox.zip" .)
           sha256sum turbo-browser-extension.zip turbo-browser-extension-firefox.zip > turbo-browser-extension.sha256
-          unzip -l turbo-browser-extension.zip
 
       - name: Verify manifest is at each zip's root
         run: |
@@ -89,9 +92,23 @@ jobs:
             echo "$z: manifest at root"
           done
 
+      # Extract the downloaded artifact once and this folder IS the extension.
       - uses: actions/upload-artifact@v5
         with:
           name: turbo-browser-extension
+          path: dist/chrome
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: turbo-browser-extension-firefox
+          path: dist/firefox
+          if-no-files-found: error
+
+      # For store submission (Chrome Web Store / Edge / AMO) and checksums.
+      - uses: actions/upload-artifact@v5
+        with:
+          name: turbo-browser-extension-store-zips
           path: |
             turbo-browser-extension.zip
             turbo-browser-extension-firefox.zip

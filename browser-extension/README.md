@@ -53,11 +53,37 @@ unreadable"* if you point it somewhere else, most often at the Flutter app
 bundle (`data/flutter_assets`, `lib/`, `turbo_downloader`) from a desktop
 release, which is a different thing entirely.
 
-Ready-to-load zips (with `manifest.json` at the root) are built by the
-**Browser extension** workflow and attached as the `turbo-browser-extension`
-artifact on every run under the repository's **Actions** tab:
-`turbo-browser-extension.zip` for Chrome, `turbo-browser-extension-firefox.zip`
-for Firefox. Unzip, then load the unzipped folder as above.
+### Loading a build from CI
+
+The **Browser extension** workflow attaches ready-to-load builds under the
+repository's **Actions** tab (open the latest run, scroll to **Artifacts**):
+
+- `turbo-browser-extension` — Chrome / Edge / Brave
+- `turbo-browser-extension-firefox` — Firefox
+
+Download one and **extract it once**. GitHub always delivers an artifact as a
+zip, so extracting gives you a folder whose top level is `manifest.json` — that
+folder is the extension. Select it in **Load unpacked**.
+
+> Do not select the folder you unzipped *to* if it merely contains another zip.
+> If you see `turbo-browser-extension.zip` (or a nested folder) instead of
+> `manifest.json`, you have not extracted the inner archive yet. Chrome reports
+> *"Manifest file is missing or unreadable"* when the folder it is pointed at has
+> no `manifest.json` directly inside it.
+
+Store-ready zips (`turbo-browser-extension.zip`,
+`turbo-browser-extension-firefox.zip`, and a `.sha256`) are attached separately
+as the `turbo-browser-extension-store-zips` artifact.
+
+### Edge
+
+Edge is Chromium-based and uses the same Chrome build:
+
+1. Open `edge://extensions`.
+2. Turn on **Developer mode** (left sidebar).
+3. Click **Load unpacked** and select the extracted Chrome folder.
+
+The extension was tested on Edge 131 (detection and both hand-off paths).
 
 ## Permissions
 
