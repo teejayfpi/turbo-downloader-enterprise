@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,6 +21,16 @@ class _HangingSettings extends SettingsStore {
 
   @override
   Future<void> setBool(String key, bool value) => _never.future;
+}
+
+/// A settings store whose writes throw, standing in for a platform channel that
+/// is missing or refuses the write. In the old code the awaited write aborted
+/// `_finish()` before it navigated, which is the desktop bug: the tap did
+/// nothing.
+class _ThrowingSettings extends SettingsStore {
+  @override
+  Future<void> setBool(String key, bool value) async =>
+      throw PlatformException(code: 'unavailable');
 }
 
 void main() {
@@ -82,6 +93,20 @@ void main() {
           reason: 'the flag flips at once, before any write');
       expect(find.byType(HomeShell), findsOneWidget,
           reason: 'a slow write must not block leaving the tour');
+    });
+
+    testWidgets('SKIP still navigates when the settings write throws',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final state = await pumpTour(tester, settings: _ThrowingSettings());
+
+      await tester.tap(find.text('SKIP'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(state.onboardingDone, isTrue);
+      expect(find.byType(HomeShell), findsOneWidget,
+          reason: 'a failing write must not abort navigation');
     });
   });
 
