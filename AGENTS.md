@@ -133,6 +133,16 @@ These caused real, user-visible bugs. Do not regress them.
   Start unresponsive when the platform channel was slow, and dropped the write
   when the widget had already been disposed — so the tour reappeared every
   launch. The write is best-effort: worst case, the tour shows once more.
+  On desktop the same bug can be worse: the platform write *throws* (rather
+  than returning a bool), and awaiting it aborted `_finish()` before it
+  navigated, so the tap did nothing at all.
+- **A fix on `main` is not shipped until it is released.** Users get desktop
+  and Android builds from GitHub releases (the in-app updater compares the
+  release tag against `credits.dart`'s `appVersion` and only offers a strictly
+  newer version), so a same-version rebuild never reaches them. Ship a user-facing
+  fix by bumping `pubspec.yaml`'s `version` and `credits.dart`'s `appVersion`,
+  then tagging `v<version>`; the tag triggers `desktop.yml`/`android.yml` to
+  rebuild and attach the installers.
 - **Build with JDK 17, not 21.** JDK 21 makes the Android Gradle Plugin's
   `JdkImageTransform` fail with a `jlink` error on `core-for-system-modules.jar`.
   Set `JAVA_HOME` to a JDK 17 before `flutter build`.
