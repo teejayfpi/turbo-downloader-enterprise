@@ -279,93 +279,134 @@ class TurboState extends ChangeNotifier {
   @visibleForTesting
   Future<MediaInfo> Function(String pageUrl)? describeOverride;
 
+  /// When false, [init] skips the periodic refresh and update checks, which
+  /// reach for platform plugins a unit test does not have.
+  @visibleForTesting
+  bool startBackgroundServices = true;
+
   Future<void> init() async {
+    // Each stage is isolated: a failure in one must not skip the stages after
+    // it. Previously they shared one try, so a preferences or history failure
+    // left the download queue without a storage root and every download then
+    // reported "Turbo could not reach its storage folder."
     var stage = 'preferences';
     try {
-      final prefs = await SharedPreferences.getInstance()
-          .timeout(_startupTimeout);
-      accentKey = prefs.getString('turbo.accent') ?? 'cyan';
-      defaultConnections = prefs.getInt('turbo.connections') ?? 4;
-      speedMode = prefs.getString('turbo.speedMode') == 'balanced'
-          ? SpeedMode.balanced
-          : SpeedMode.turbo;
-      preferEngine = prefs.getBool('turbo.preferredEngine') ?? true;
-      playSound = prefs.getBool('turbo.playSound') ?? true;
-      local.ytdlp.overridePath = prefs.getString('turbo.ytdlpPath');
-
-      themeMode = _themeModeFrom(prefs.getString(SettingsStore.kThemeMode));
-      localeCode = prefs.getString(SettingsStore.kLocale);
-      highContrast = prefs.getBool(SettingsStore.kHighContrast) ?? false;
-      reducedMotion = prefs.getBool(SettingsStore.kReducedMotion) ?? false;
-      textScale = prefs.getDouble(SettingsStore.kTextScale) ?? 1.0;
-      maxConcurrent = prefs.getInt(SettingsStore.kMaxConcurrent) ?? 1;
-      wifiOnly = prefs.getBool(SettingsStore.kWifiOnly) ?? false;
-      batteryAware = prefs.getBool(SettingsStore.kBatteryAware) ?? false;
-      scheduleEnabled = prefs.getBool(SettingsStore.kScheduleEnabled) ?? false;
-      scheduleStartMinute =
-          prefs.getInt(SettingsStore.kScheduleStart) ?? 60;
-      scheduleEndMinute = prefs.getInt(SettingsStore.kScheduleEnd) ?? 420;
-      speedLimitBps = prefs.getInt(SettingsStore.kSpeedLimitBps) ?? 0;
-      autoRetry = prefs.getBool(SettingsStore.kAutoRetry) ?? true;
-      adaptiveConnections =
-          prefs.getBool(SettingsStore.kAdaptiveConnections) ?? true;
-      rememberHostSpeed =
-          prefs.getBool(SettingsStore.kRememberHostSpeed) ?? true;
-      notifyProgress = prefs.getBool(SettingsStore.kNotifyProgress) ?? false;
-      checkUpdates = prefs.getBool(SettingsStore.kCheckUpdates) ?? true;
-      onboardingDone = prefs.getBool(SettingsStore.kOnboardingDone) ?? false;
-      updateChannel = _channelFrom(prefs.getString(SettingsStore.kUpdateChannel));
-      notifyStyle =
-          _notifyStyleFrom(prefs.getString(SettingsStore.kNotifyComplete));
-      clipboardMonitor = prefs.getBool(SettingsStore.kClipboardMonitor) ?? false;
-
-      local.maxConnections = speedMode.connections(defaultConnections);
-      local.adaptiveConnections = adaptiveConnections;
-      local.rememberHostSpeed = rememberHostSpeed;
-      local.setOffPeakSchedule(
-        enabled: scheduleEnabled,
-        startMinute: scheduleStartMinute,
-        endMinute: scheduleEndMinute,
-      );
-      local.applySpeedLimit(speedLimitBps);
-      local.maxConcurrent = maxConcurrent;
-      if (!autoRetry) local.retryPolicy = RetryPolicy.none;
-
-      stage = 'history';
-      await history.init().timeout(_startupTimeout);
-      stage = 'diagnostics';
-      await diagnostics.init().timeout(_startupTimeout);
-      stage = 'notifications';
-      await notifications.ensureChannel().timeout(_startupTimeout);
-      stage = 'download queue recovery';
-      await local.init().timeout(_startupTimeout);
-
-      unawaited(refreshEngine());
-      unawaited(refreshStorage());
-      unawaited(refreshDevice());
-      _deviceTimer ??= Timer.periodic(const Duration(seconds: 20), (_) {
-        unawaited(refreshDevice());
-      });
-      _progressTimer ??= Timer.periodic(const Duration(seconds: 3), (_) {
-        _pushProgressNotification();
-      });
-      if (checkUpdates) unawaited(checkForUpdates());
+      await _loadPreferences().timeout(_startupTimeout);
     } catch (error) {
-      // A startup failure must never strand the user on the splash. Keep the
-      // diagnostic intentionally generic: paths, URLs, and personal data do
-      // not belong in the local diagnostic bundle.
-      try {
-        await diagnostics.error(
-          'startup_failed',
-          '$stage: ${error.runtimeType}',
-        );
-      } catch (_) {}
-    } finally {
-      // This is the critical handoff. Previously, any exception or hung plugin
-      // call before this point left loading=true forever.
-      loading = false;
-      _safeNotify();
+      await _reportStartupFailure(stage, error);
     }
+
+    stage = 'history';
+    try {
+      await history.init().timeout(_startupTimeout);
+    } catch (error) {
+      await _reportStartupFailure(stage, error);
+    }
+
+    stage = 'diagnostics';
+    try {
+      await diagnostics.init().timeout(_startupTimeout);
+    } catch (error) {
+      await _reportStartupFailure(stage, error);
+    }
+
+    stage = 'notifications';
+    try {
+      await notifications.ensureChannel().timeout(_startupTimeout);
+    } catch (error) {
+      await _reportStartupFailure(stage, error);
+    }
+
+    // Recovering the queue gives the worker its storage root, so it runs last
+    // and unconditionally, even if an earlier stage failed.
+    stage = 'download queue recovery';
+    try {
+      await local.init().timeout(_startupTimeout);
+    } catch (error) {
+      await _reportStartupFailure(stage, error);
+    }
+
+    _startBackgroundServices();
+
+    // This is the critical handoff. Previously, any exception or hung plugin
+    // call before this point left loading=true forever.
+    loading = false;
+    _safeNotify();
+  }
+
+  /// Reads every persisted preference into the state. Kept apart from [init]
+  /// so a failure here cannot skip the download-queue recovery below.
+  Future<void> _loadPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    accentKey = prefs.getString('turbo.accent') ?? 'cyan';
+    defaultConnections = prefs.getInt('turbo.connections') ?? 4;
+    speedMode = prefs.getString('turbo.speedMode') == 'balanced'
+        ? SpeedMode.balanced
+        : SpeedMode.turbo;
+    preferEngine = prefs.getBool('turbo.preferredEngine') ?? true;
+    playSound = prefs.getBool('turbo.playSound') ?? true;
+    local.ytdlp.overridePath = prefs.getString('turbo.ytdlpPath');
+
+    themeMode = _themeModeFrom(prefs.getString(SettingsStore.kThemeMode));
+    localeCode = prefs.getString(SettingsStore.kLocale);
+    highContrast = prefs.getBool(SettingsStore.kHighContrast) ?? false;
+    reducedMotion = prefs.getBool(SettingsStore.kReducedMotion) ?? false;
+    textScale = prefs.getDouble(SettingsStore.kTextScale) ?? 1.0;
+    maxConcurrent = prefs.getInt(SettingsStore.kMaxConcurrent) ?? 1;
+    wifiOnly = prefs.getBool(SettingsStore.kWifiOnly) ?? false;
+    batteryAware = prefs.getBool(SettingsStore.kBatteryAware) ?? false;
+    scheduleEnabled = prefs.getBool(SettingsStore.kScheduleEnabled) ?? false;
+    scheduleStartMinute = prefs.getInt(SettingsStore.kScheduleStart) ?? 60;
+    scheduleEndMinute = prefs.getInt(SettingsStore.kScheduleEnd) ?? 420;
+    speedLimitBps = prefs.getInt(SettingsStore.kSpeedLimitBps) ?? 0;
+    autoRetry = prefs.getBool(SettingsStore.kAutoRetry) ?? true;
+    adaptiveConnections =
+        prefs.getBool(SettingsStore.kAdaptiveConnections) ?? true;
+    rememberHostSpeed =
+        prefs.getBool(SettingsStore.kRememberHostSpeed) ?? true;
+    notifyProgress = prefs.getBool(SettingsStore.kNotifyProgress) ?? false;
+    checkUpdates = prefs.getBool(SettingsStore.kCheckUpdates) ?? true;
+    onboardingDone = prefs.getBool(SettingsStore.kOnboardingDone) ?? false;
+    updateChannel = _channelFrom(prefs.getString(SettingsStore.kUpdateChannel));
+    notifyStyle =
+        _notifyStyleFrom(prefs.getString(SettingsStore.kNotifyComplete));
+    clipboardMonitor = prefs.getBool(SettingsStore.kClipboardMonitor) ?? false;
+
+    local.maxConnections = speedMode.connections(defaultConnections);
+    local.adaptiveConnections = adaptiveConnections;
+    local.rememberHostSpeed = rememberHostSpeed;
+    local.setOffPeakSchedule(
+      enabled: scheduleEnabled,
+      startMinute: scheduleStartMinute,
+      endMinute: scheduleEndMinute,
+    );
+    local.applySpeedLimit(speedLimitBps);
+    local.maxConcurrent = maxConcurrent;
+    if (!autoRetry) local.retryPolicy = RetryPolicy.none;
+  }
+
+  /// Records a non-fatal startup failure. The diagnostic is intentionally
+  /// generic: paths, URLs, and personal data do not belong in the local bundle.
+  Future<void> _reportStartupFailure(String stage, Object error) async {
+    try {
+      await diagnostics.error('startup_failed', '$stage: ${error.runtimeType}');
+    } catch (_) {}
+  }
+
+  /// Starts the periodic refresh and update checks once the core state is
+  /// loaded. Safe to call even if a stage above failed.
+  void _startBackgroundServices() {
+    if (!startBackgroundServices) return;
+    unawaited(refreshEngine());
+    unawaited(refreshStorage());
+    unawaited(refreshDevice());
+    _deviceTimer ??= Timer.periodic(const Duration(seconds: 20), (_) {
+      unawaited(refreshDevice());
+    });
+    _progressTimer ??= Timer.periodic(const Duration(seconds: 3), (_) {
+      _pushProgressNotification();
+    });
+    if (checkUpdates) unawaited(checkForUpdates());
   }
 
   /// Mirrors the queue into Android's ongoing progress notification, when the

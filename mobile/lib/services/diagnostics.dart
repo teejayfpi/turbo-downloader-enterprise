@@ -43,8 +43,16 @@ class Diagnostics {
   static const _maxEvents = 500;
 
   Future<Directory> _root() async {
-    final dir = _rootOverride ??
-        (await getApplicationSupportDirectory());
+    Directory? dir = _rootOverride;
+    if (dir == null) {
+      try {
+        dir = await getApplicationSupportDirectory();
+      } catch (_) {
+        // Logging must never be the reason startup fails; fall back to a
+        // directory that is always writable.
+        dir = Directory.systemTemp;
+      }
+    }
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
   }

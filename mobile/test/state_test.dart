@@ -1,9 +1,42 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'package:shared_preferences_platform_interface/types.dart';
 
 import 'package:turbo_downloader/media_extractor.dart';
 import 'package:turbo_downloader/media_url.dart';
+import 'package:turbo_downloader/services/diagnostics.dart';
+import 'package:turbo_downloader/services/history_store.dart';
+import 'package:turbo_downloader/services/secure_store.dart';
+import 'package:turbo_downloader/services/update_checker.dart';
 import 'package:turbo_downloader/services/youtube_browser.dart';
 import 'package:turbo_downloader/state.dart';
+
+/// A preferences store whose read throws, standing in for a platform channel
+/// that is missing or refuses to answer. It also fails every write, so the
+/// app's best-effort persistence does not paper over the failure.
+class _FailingPrefsStore extends SharedPreferencesStorePlatform {
+  @override
+  Future<Map<String, Object>> getAll() async =>
+      throw Exception('preferences unavailable');
+
+  @override
+  Future<Map<String, Object>> getAllWithParameters(
+          GetAllParameters parameters) async =>
+      throw Exception('preferences unavailable');
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async =>
+      throw Exception('preferences unavailable');
+
+  @override
+  Future<bool> remove(String key) async => true;
+
+  @override
+  Future<bool> clear() async => true;
+}
 
 BrowseVideo _video(String id) => BrowseVideo(
       id: id,
@@ -28,6 +61,42 @@ MediaInfo _info(String title) => MediaInfo(
     );
 
 void main() {
+  group('startup resilience', () {
+    late Directory dir;
+
+    setUp(() async {
+      dir = await Directory.systemTemp.createTemp('turbo_state_test');
+    });
+
+    tearDown(() async {
+      SharedPreferences.resetStatic();
+      if (await dir.exists()) await dir.delete(recursive: true);
+    });
+
+    test('a preferences failure does not skip the download-queue recovery',
+        () async {
+      SharedPreferencesStorePlatform.instance = _FailingPrefsStore();
+
+      final state = TurboState(
+        history: HistoryStore(rootOverride: dir),
+        diagnostics: Diagnostics(rootOverride: dir),
+        secure: SecureStore(rootOverride: dir),
+        updater: UpdateChecker(repo: '127.0.0.1:1/x'),
+      )
+        ..startBackgroundServices = false;
+      addTearDown(state.dispose);
+
+      // The preferences stage throws, but init must still reach the queue
+      // recovery, so downloads have a storage root instead of failing with
+      // "Turbo could not reach its storage folder."
+      await state.init();
+
+      expect(state.loading, isFalse);
+      expect(state.local.isInitialized, isTrue);
+      expect(state.local.partsRoot, isNotNull);
+    });
+  });
+
   group('TurboState is device-only', () {
     test('starts with no server, token, or account', () {
       final state = TurboState();

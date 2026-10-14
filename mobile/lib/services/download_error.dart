@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 /// The category of a download failure. The UI uses it to choose an icon, a
@@ -88,6 +89,12 @@ class DownloadError implements Exception {
 
     if (error is HttpException) {
       return _fromHttpText(text);
+    }
+
+    // A stalled connection is a timeout, not the opaque "stopped
+    // unexpectedly": it is transient and worth retrying.
+    if (error is TimeoutException || lower.contains('timed out')) {
+      return DownloadErrors.timeout;
     }
 
     if (error is FileSystemException) {

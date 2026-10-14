@@ -390,6 +390,7 @@ class LocalDownloadManager extends ChangeNotifier {
 
   Directory? _root;
   bool _loaded = false;
+  Future<void>? _initFuture;
   bool _disposed = false;
   Timer? _ticker;
   Timer? _retryTimer;
@@ -640,9 +641,19 @@ class LocalDownloadManager extends ChangeNotifier {
       .where((t) => !t.isCompleted)
       .fold(0, (sum, t) => sum + (t.total > 0 ? t.total - t.downloaded : 0));
 
-  Future<void> init() async {
+  /// True once the queue has been recovered and the worker is running.
+  bool get isInitialized => _loaded;
+
+  Future<void> init() {
+    // Reentrant-safe: the app's startup timeout can abandon this future while
+    // it is still running, and the resumed queue must be recovered exactly
+    // once.
+    return _initFuture ??= _init();
+  }
+
+  Future<void> _init() async {
     if (_loaded) return;
-    _root ??= await getApplicationSupportDirectory();
+    _root ??= await _resolveRoot();
     final file = File('${_root!.path}/local_tasks.json');
     if (await file.exists()) {
       try {
@@ -667,6 +678,110 @@ class LocalDownloadManager extends ChangeNotifier {
     await _recoverPartialData();
     _safeNotify();
     _pump();
+  }
+
+  /// Resolves the directory that holds the queue, parts, and host memory.
+  ///
+  /// `getApplicationSupportDirectory()` depends on the platform channel being
+  /// wired and the OS data directory being writable. When it throws or hands
+  /// back a directory the app cannot write — a restricted install, a
+  /// locked-down desktop, or a missing plugin — the whole startup used to be
+  /// lost with it: [init] never set `_root`, the queue was never recovered,
+  /// and *every* download failed with "Turbo could not reach its storage
+  /// folder." Falling back keeps downloads working (the root is scratch space,
+  /// not the user's saved files, which go through [FileStore]).
+  Future<Directory> _resolveRoot() async {
+    try {
+      final dir = await getApplicationSupportDirectory();
+      if (await _isWritable(dir)) return dir;
+    } catch (_) {
+      // Fall through to the fallback root.
+    }
+    final dir = await _fallbackRoot();
+    // No path here: the diagnostic bundle is local, but a path can carry a
+    // username. The code alone is enough to spot the fallback in the field.
+    unawaited(diagnostics?.warn(
+        'storage.fallback_root', 'support directory unusable; used a fallback'));
+    return dir;
+  }
+
+  /// Whether [dir] can be created and written to. A support directory that
+  /// exists but is read-only is as unusable as one that cannot be resolved.
+  Future<bool> _isWritable(Directory dir) async {
+    try {
+      if (!await dir.exists()) await dir.create(recursive: true);
+      // A unique name, so two instances starting at once do not delete each
+      // other's probe and read the directory as unwritable.
+      final stamp = DateTime.now().microsecondsSinceEpoch;
+      final probe = File('${dir.path}${Platform.pathSeparator}.turbo_probe_$stamp');
+      await probe.writeAsString('ok', flush: true);
+      await probe.delete();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// A last-resort scratch directory when the OS support directory is
+  /// unavailable. Each OS gets the same app folder it would have used, derived
+  /// from the environment so no plugin is needed; if even that cannot be
+  /// created, the provider's temp directory and then the system temp directory
+  /// are used, both of which are effectively always writable.
+  Future<Directory> _fallbackRoot() async {
+    final candidates = <String?>[_envRootPath()];
+    try {
+      final temp = await (tempDirOverride ?? getTemporaryDirectory)();
+      candidates.add(temp.path);
+    } catch (_) {
+      // The provider is what just failed; skip its temp directory too.
+    }
+    candidates
+        .add('${Directory.systemTemp.path}${Platform.pathSeparator}turbo_downloader');
+
+    for (final candidate in candidates) {
+      if (candidate == null) continue;
+      try {
+        final dir = Directory(candidate);
+        if (!await dir.exists()) await dir.create(recursive: true);
+        return dir;
+      } catch (_) {
+        // Try the next candidate.
+      }
+    }
+    // Every candidate failed; report it rather than returning a directory the
+    // caller cannot use.
+    throw DownloadErrors.storageUnavailable;
+  }
+
+  /// Overridden in tests so the environment-derived fallback path and the
+  /// provider's temp directory are deterministic.
+  @visibleForTesting
+  String? Function()? envRootPathOverride;
+
+  @visibleForTesting
+  Future<Directory> Function()? tempDirOverride;
+
+  /// The OS data directory the app would use, derived from the environment so
+  /// the fallback needs no plugin. Null when the environment is too sparse to
+  /// derive one.
+  String? _envRootPath() => envRootPathOverride?.call() ?? _deriveEnvRootPath();
+
+  String? _deriveEnvRootPath() {
+    final env = Platform.environment;
+    final home = env['HOME'] ?? env['USERPROFILE'];
+    if (Platform.isWindows) {
+      final base = env['LOCALAPPDATA'] ??
+          (home == null ? null : '$home\\AppData\\Local');
+      return base == null ? null : '$base\\turbo_downloader';
+    }
+    if (Platform.isMacOS) {
+      return home == null
+          ? null
+          : '$home/Library/Application Support/turbo_downloader';
+    }
+    final base =
+        env['XDG_DATA_HOME'] ?? (home == null ? null : '$home/.local/share');
+    return base == null ? null : '$base/turbo_downloader';
   }
 
   /// Loads the per-host proven widths, if the file exists. A corrupt or

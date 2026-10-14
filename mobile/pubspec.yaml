@@ -42,6 +42,8 @@ dev_dependencies:
   http_parser: ^4.0.0
   # Lets session_test.dart point path_provider at a temp directory.
   path_provider_platform_interface: ^2.1.0
+  # Lets state_test.dart simulate an unavailable preferences store.
+  shared_preferences_platform_interface: ^2.4.0
 
 flutter:
   uses-material-design: true

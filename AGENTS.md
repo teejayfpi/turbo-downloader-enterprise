@@ -487,4 +487,18 @@ Changing one without the others silently caps speed.
   future so several segments cannot race the bucket. A yt-dlp transfer receives
   the same number as `--limit-rate <n>B` so both engines honour one figure.
   Setting the cap to 0 removes the gate and releases anything waiting.
+- Mobile storage-root resilience (`LocalDownloadManager._resolveRoot`): the
+  scratch root (queue file, `parts/`, host memory) comes from
+  `getApplicationSupportDirectory()`. That call can throw *or* hand back an
+  unwritable directory on a restricted install, and if it is lost the whole
+  startup is lost with it — `init()` never sets `_root`, the queue is never
+  recovered, and every download fails with "Turbo could not reach its storage
+  folder." `_resolveRoot` probes the support directory for writability and falls
+  back, in order, to the OS data dir derived from the environment
+  (`_deriveEnvRootPath`), the provider temp dir, then `Directory.systemTemp`.
+  The root is scratch space only; the user's finished files go through
+  `FileStore`. `TurboState.init` isolates each startup stage (preferences,
+  history, diagnostics, notifications) in its own try so a failure in one cannot
+  skip the queue recovery that gives the worker its root; `init()` is
+  reentrant-safe via `_initFuture` because the startup timeout can abandon it.
 
