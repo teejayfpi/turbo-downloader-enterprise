@@ -17,10 +17,13 @@ class _UnavailablePathProvider extends PathProviderPlatform {
       throw Exception('temp directory unavailable');
 }
 
-/// A provider whose support directory exists but cannot be written to, as on
-/// a restricted install.
-class _ReadOnlyPathProvider extends PathProviderPlatform {
-  _ReadOnlyPathProvider(this.path);
+/// A provider whose support directory cannot be written to, as on a restricted
+/// install. The path is deliberately one the app cannot turn into a writable
+/// directory, so it exercises the same `_isWritable` failure the OS would
+/// produce — without `chmod`, which is a no-op on Windows and would otherwise
+/// leave a read-only directory that blocks the test's own cleanup.
+class _UnwritablePathProvider extends PathProviderPlatform {
+  _UnwritablePathProvider(this.path);
 
   final String path;
 
@@ -102,17 +105,20 @@ void main() {
     manager.dispose();
   });
 
-  test('a read-only support directory falls back to a writable root',
+  test('an unwritable support directory falls back to a writable root',
       () async {
     final scratch = await Directory.systemTemp.createTemp('turbo_readonly');
-    addTearDown(() => scratch.delete(recursive: true));
+    addTearDown(() async {
+      if (await scratch.exists()) await scratch.delete(recursive: true);
+    });
 
-    final locked = Directory('${scratch.path}/support');
-    await locked.create();
-    // Best effort: as root this still writes, but the test still holds because
-    // the download completes either way.
-    await Process.run('chmod', ['555', locked.path]);
-    PathProviderPlatform.instance = _ReadOnlyPathProvider(locked.path);
+    // A support path the app cannot turn into a writable directory: its parent
+    // is a regular file, so both the write probe and any later use fail, which
+    // is the same signal a read-only install gives.
+    final blocker = File('${scratch.path}/not_a_dir');
+    await blocker.writeAsString('x');
+    PathProviderPlatform.instance =
+        _UnwritablePathProvider('${blocker.path}/support');
 
     final server = await _origin();
     addTearDown(() => server.close(force: true));
@@ -129,6 +135,8 @@ void main() {
     await manager.init();
     expect(manager.isInitialized, isTrue);
     expect(manager.partsRoot, isNotNull);
+    expect(manager.partsRoot!.path, contains('fallback'),
+        reason: 'the unwritable support directory must be rejected');
 
     final task = manager.add('http://127.0.0.1:${server.port}/x.bin',
         filename: 'x.bin');
