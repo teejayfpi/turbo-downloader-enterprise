@@ -1,7 +1,7 @@
 name: turbo_downloader
 description: "Turbo — offline-first download manager for Android and desktop."
 publish_to: 'none'
-version: 2.4.1+10
+version: 2.4.2+11
 
 environment:
   sdk: ^3.5.4
@@ -23,6 +23,10 @@ dependencies:
   # expose.
   app_links: ">=6.3.0 <6.4.0"
   receive_sharing_intent: ^1.8.1
+  # Embedded login for YouTube on mobile: the OS sandbox hides other apps'
+  # cookies, so the user signs in here and we read the jar from the platform
+  # cookie store.
+  flutter_inappwebview: ^6.1.5
   desktop_drop: ^0.5.0
   # Opens external links from the app, e.g. the designer's WhatsApp chat.
   url_launcher: ^6.3.0

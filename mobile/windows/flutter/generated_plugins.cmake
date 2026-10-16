@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   app_links
   desktop_drop
   ffmpeg_kit_flutter_new_min
+  flutter_inappwebview_windows
   url_launcher_windows
 )
 

@@ -272,4 +272,30 @@ void main() {
     );
     expect(uncapped, isNot(contains('--limit-rate')));
   });
+
+  group('friendlyMessage', () {
+    test('a YouTube 403 points at the sign-in flow, not a retry', () {
+      const stderr =
+          'ERROR: unable to download video data: HTTP Error 403: Forbidden';
+      final message = YtdlpEngine.friendlyMessage(stderr, youtube: true);
+      expect(message.toLowerCase(), contains('bot check'));
+      expect(message, contains('Sign-in & cookies'));
+      // The generic advice would tell the user to just retry, which loops.
+      expect(message, isNot(contains('usually temporary')));
+    });
+
+    test('a non-YouTube 403 keeps the generic transient wording', () {
+      const stderr = 'ERROR: unable to download video data: HTTP Error 403';
+      final message = YtdlpEngine.friendlyMessage(stderr);
+      expect(message, contains('often temporary'));
+      expect(message, isNot(contains('bot check')));
+    });
+
+    test('isYouTube recognises the common YouTube hosts', () {
+      expect(YtdlpEngine.isYouTube('https://www.youtube.com/watch?v=x'), isTrue);
+      expect(YtdlpEngine.isYouTube('https://youtu.be/x'), isTrue);
+      expect(YtdlpEngine.isYouTube('https://m.youtube.com/watch?v=x'), isTrue);
+      expect(YtdlpEngine.isYouTube('https://example.com/v.mp4'), isFalse);
+    });
+  });
 }

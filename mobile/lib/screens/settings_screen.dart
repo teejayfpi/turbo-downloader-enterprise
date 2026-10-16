@@ -17,6 +17,7 @@ import '../widgets.dart';
 import 'credentials_screen.dart';
 import 'diagnostics_screen.dart';
 import 'storage_screen.dart';
+import 'youtube_login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -860,6 +861,21 @@ class _SessionSection extends StatelessWidget {
     ));
   }
 
+  /// Android only: the OS sandbox hides other apps' cookie stores, so a
+  /// WebView is the only way to sign in on a phone. Desktop uses the browser
+  /// profile instead, which is simpler and needs no login screen.
+  Future<void> _signInMobile(BuildContext context) async {
+    final jar = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const YouTubeLoginScreen()),
+    );
+    if (jar == null) return;
+    await state.setSessionCookies(jar);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Session saved (${state.sessionCookieCount} cookies).'),
+    ));
+  }
+
   Future<void> _chooseBrowser(BuildContext context) async {
     final choice = await showModalBottomSheet<String>(
       context: context,
@@ -927,6 +943,17 @@ class _SessionSection extends StatelessWidget {
           outline: true,
           onPressed: () => _chooseBrowser(context),
         ),
+        // Linux has no embedded web view, so sign-in there stays file/browser
+        // based. Everywhere else the in-app login is the easy path.
+        if (!Platform.isLinux) ...[
+          const SizedBox(height: 8),
+          TurboButton(
+            label: 'Sign in with YouTube',
+            icon: Icons.login_rounded,
+            outline: true,
+            onPressed: () => _signInMobile(context),
+          ),
+        ],
         if (configured) ...[
           const SizedBox(height: 8),
           TurboButton(

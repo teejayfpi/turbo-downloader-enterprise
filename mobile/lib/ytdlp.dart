@@ -263,7 +263,7 @@ class YtdlpEngine {
     if (result.exitCode != 0) {
       final raw = result.stderr?.toString() ?? '';
       throw YtdlpException(
-        _friendly(raw),
+        _friendly(raw, youtube: isYouTube(url)),
         detail: raw.trim().isEmpty ? null : raw.trim(),
       );
     }
@@ -361,7 +361,7 @@ class YtdlpEngine {
     if (code != 0) {
       final raw = stderrBuf.toString();
       throw YtdlpException(
-        _friendly(raw),
+        _friendly(raw, youtube: isYouTube(url)),
         detail: raw.trim().isEmpty ? null : raw.trim(),
       );
     }
@@ -590,8 +590,20 @@ class YtdlpEngine {
     }
   }
 
+  /// True when [url] is a YouTube watch/page link. Used to give a 403 a more
+  /// accurate cause: on YouTube that status is the signed-in bot check, not a
+  /// transient CDN refusal.
+  static bool isYouTube(String url) {
+    final host = Uri.tryParse(url)?.host.toLowerCase() ?? '';
+    return host == 'youtu.be' ||
+        host == 'youtube.com' ||
+        host == 'www.youtube.com' ||
+        host == 'm.youtube.com' ||
+        host.endsWith('.youtube.com');
+  }
+
   /// Turns yt-dlp's stderr into a short, human message.
-  static String _friendly(String stderr) {
+  static String _friendly(String stderr, {bool youtube = false}) {
     final trimmed = stderr.trim();
     if (trimmed.isEmpty) return 'The download engine failed.';
     final lines = trimmed
@@ -617,7 +629,14 @@ class YtdlpEngine {
       return 'The connection to the media server failed partway through. This '
           'is usually temporary — retry in a moment.';
     }
+    // On YouTube a 403 is the bot wall, not an intermittent CDN refusal, so
+    // the generic "retry in a moment" advice would send the user in circles.
     if (looksLikeAccessDenied(text)) {
+      if (youtube) {
+        return 'YouTube refused to serve this download (HTTP 403). This is its '
+            'bot check: sign in with the in-app YouTube login, or add cookies '
+            'in Settings → Sign-in & cookies, then retry.';
+      }
       return 'The site refused to serve this download (HTTP 403). The media '
           'server can reject a link even when the page loaded, and the block is '
           'often temporary. Retry in a moment; if it keeps failing, add cookies '
@@ -693,6 +712,10 @@ class YtdlpEngine {
         m.contains('this video is private') ||
         m.contains('account authentication');
   }
+
+  @visibleForTesting
+  static String friendlyMessage(String stderr, {bool youtube = false}) =>
+      _friendly(stderr, youtube: youtube);
 
   @visibleForTesting
   void setBinaryForTest(String? path) {
