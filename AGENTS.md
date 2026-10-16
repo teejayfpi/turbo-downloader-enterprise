@@ -508,10 +508,23 @@ Changing one without the others silently caps speed.
   cookie store via `CookieManager` (JavaScript cannot see the HttpOnly session
   cookies, so a JS read always comes back empty) and converted to the Netscape
   `cookies.txt` yt-dlp reads. HttpOnly entries must carry the `#HttpOnly_`
-  domain prefix or yt-dlp silently drops the line. All of this is Android-only;
-  the sign-in button is hidden on Linux (no supported web view), and desktop
-  keeps the file/browser path. A YouTube 403 is routed to this flow rather than
-  the generic "retry in a moment" wording.
+  domain prefix or yt-dlp silently drops the line. The embedded sign-in is
+  offered wherever a web view exists — Android, iOS, macOS, and Windows
+  (`services/sign_in_support.dart`); Linux has no supported web view and keeps
+  the file/browser path, so the button is hidden there. A YouTube 403 is routed
+  to this flow rather than the generic "retry in a moment" wording.
+- First-run sign-in gate: after the tour, a capable platform shows
+  `YouTubeLoginScreen(required: true)` as the root route (it has nothing to pop
+  to, so saving replaces itself with the shell). It is "mandatory" in the sense
+  that Back is intercepted (`PopScope`) and there is no skip on the page, but a
+  "Not now" action confirms once and persists so a locked-out network never
+  traps the user. `TurboState.needsFirstRunSignIn` is
+  `platform-capable && !signInPromptDone && !sessionConfigured`; the prompt flag
+  is a separate preference (`turbo.signInPromptDone`) so a declined prompt is not
+  shown again while a later-cleared session does not re-trigger it. `init()`
+  awaits `refreshSession()` before the splash hands off, so a returning user with
+  an existing session is not gated. `signInSupported` overrides the platform
+  check in tests (the harness has no web view).
 - Desktop CI watch-out: `flutter_inappwebview_macos` declares an OS floor of
   10.14 but uses `ASWebAuthenticationPresentationContextProviding` (10.15+), and
   `flutter_additional_macos_build_settings` lowers the pod to its declared floor,

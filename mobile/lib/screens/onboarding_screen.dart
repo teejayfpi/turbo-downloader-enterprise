@@ -7,6 +7,7 @@ import '../credits.dart';
 import '../state.dart';
 import '../theme.dart';
 import 'home_shell.dart';
+import 'youtube_login_screen.dart';
 
 /// A short first-run tour. It explains the local-first model, points out the
 /// optional yt-dlp engine, and confirms where files are saved. Nothing here is
@@ -27,7 +28,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       icon: Icons.bolt_rounded,
       title: 'Welcome to Turbo',
       body: 'An enterprise-grade download manager that runs entirely on your '
-          'device. No server, no account, no key — open it and download.',
+          'device. No server and no account — open it and download.',
     ),
     _OnboardPage(
       icon: Icons.shield_rounded,
@@ -62,9 +63,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final state = context.read<TurboState>();
     unawaited(state.completeOnboarding());
     if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute<void>(builder: (_) => const HomeShell()),
-    );
+    // On first run the tour is followed by the YouTube sign-in gate, so the
+    // session is in place before the user reaches the shell.
+    final route = state.needsFirstRunSignIn
+        ? MaterialPageRoute<void>(
+            builder: (_) => const YouTubeLoginScreen(required: true),
+          )
+        : MaterialPageRoute<void>(builder: (_) => const HomeShell());
+    Navigator.of(context).pushReplacement(route);
   }
 
   void _next() {

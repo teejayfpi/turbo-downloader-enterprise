@@ -10,6 +10,7 @@ import '../format.dart';
 import '../l10n/strings.dart';
 import '../services/notifications.dart';
 import '../services/session_store.dart';
+import '../services/sign_in_support.dart';
 import '../services/update_checker.dart';
 import '../state.dart';
 import '../theme.dart';
@@ -861,15 +862,17 @@ class _SessionSection extends StatelessWidget {
     ));
   }
 
-  /// Android only: the OS sandbox hides other apps' cookie stores, so a
-  /// WebView is the only way to sign in on a phone. Desktop uses the browser
-  /// profile instead, which is simpler and needs no login screen.
+  /// Opens the embedded YouTube sign-in. On phones the OS sandbox hides other
+  /// apps' cookie stores, so a WebView is the only way to sign in; on desktop
+  /// it is the easy alternative to picking a browser profile. Linux has no
+  /// embedded web view, so the button is hidden there.
   Future<void> _signInMobile(BuildContext context) async {
+    // The login screen persists the captured session itself, so there is
+    // nothing to apply here; it pops the jar only to signal success.
     final jar = await Navigator.of(context).push<String>(
       MaterialPageRoute(builder: (_) => const YouTubeLoginScreen()),
     );
     if (jar == null) return;
-    await state.setSessionCookies(jar);
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('Session saved (${state.sessionCookieCount} cookies).'),
@@ -945,7 +948,7 @@ class _SessionSection extends StatelessWidget {
         ),
         // Linux has no embedded web view, so sign-in there stays file/browser
         // based. Everywhere else the in-app login is the easy path.
-        if (!Platform.isLinux) ...[
+        if (supportsInAppYouTubeSignIn) ...[
           const SizedBox(height: 8),
           TurboButton(
             label: 'Sign in with YouTube',

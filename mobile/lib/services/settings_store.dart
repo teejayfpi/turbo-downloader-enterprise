@@ -16,6 +16,7 @@ class SettingsStore {
   static const kThemeMode = 'turbo.themeMode';
   static const kLocale = 'turbo.locale';
   static const kOnboardingDone = 'turbo.onboardingDone';
+  static const kSignInPromptDone = 'turbo.signInPromptDone';
   static const kMaxConcurrent = 'turbo.maxConcurrent';
   static const kWifiOnly = 'turbo.wifiOnly';
   static const kBatteryAware = 'turbo.batteryAware';

@@ -8,6 +8,7 @@ import '../state.dart';
 import '../theme.dart';
 import 'home_shell.dart';
 import 'onboarding_screen.dart';
+import 'youtube_login_screen.dart';
 
 /// The launch experience shown while the local engine starts.
 ///
@@ -62,9 +63,15 @@ class _SplashScreenState extends State<SplashScreen>
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 320),
-        pageBuilder: (_, __, ___) => state.onboardingDone
-            ? const HomeShell()
-            : const OnboardingScreen(),
+        pageBuilder: (_, __, ___) {
+          // Order on first run: tour, then the YouTube sign-in gate, then the
+          // shell. A returning user who already resolved the gate skips both.
+          if (!state.onboardingDone) return const OnboardingScreen();
+          if (state.needsFirstRunSignIn) {
+            return const YouTubeLoginScreen(required: true);
+          }
+          return const HomeShell();
+        },
         transitionsBuilder: (_, animation, __, child) =>
             FadeTransition(opacity: animation, child: child),
       ),

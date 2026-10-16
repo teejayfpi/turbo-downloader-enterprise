@@ -14,6 +14,7 @@ import 'services/retry_policy.dart';
 import 'services/secure_store.dart';
 import 'services/session_store.dart';
 import 'services/settings_store.dart';
+import 'services/sign_in_support.dart';
 import 'services/storage_stats.dart';
 import 'services/update_checker.dart';
 import 'services/url_validator.dart';
@@ -260,6 +261,25 @@ class TurboState extends ChangeNotifier {
   bool sessionConfigured = false;
   int sessionCookieCount = 0;
 
+  /// True once the first-run YouTube sign-in prompt has been resolved (signed
+  /// in, or explicitly declined). Kept separate from [sessionConfigured] so a
+  /// user who declines is not asked again, while a stale session that gets
+  /// cleared does not re-trigger the gate.
+  bool signInPromptDone = false;
+
+  /// Overrides the platform sign-in capability in tests, where no web view is
+  /// available. Null means detect from the platform.
+  @visibleForTesting
+  bool? signInSupported;
+
+  /// True when the app should show the mandatory first-run YouTube sign-in:
+  /// it can host the web view, the prompt has never been resolved, and there is
+  /// no session yet (a returning user who signed in before the flag existed).
+  bool get needsFirstRunSignIn =>
+      (signInSupported ?? supportsInAppYouTubeSignIn) &&
+      !signInPromptDone &&
+      !sessionConfigured;
+
   /// The browser profile yt-dlp should read, when the user chose that route.
   String? sessionBrowser;
 
@@ -326,6 +346,16 @@ class TurboState extends ChangeNotifier {
       await _reportStartupFailure(stage, error);
     }
 
+    // Read the stored session before the splash hands off, so a returning user
+    // who already signed in is not shown the first-run sign-in gate just because
+    // the background refresh had not finished yet.
+    stage = 'session';
+    try {
+      await refreshSession().timeout(_startupTimeout);
+    } catch (error) {
+      await _reportStartupFailure(stage, error);
+    }
+
     _startBackgroundServices();
 
     // This is the critical handoff. Previously, any exception or hung plugin
@@ -367,6 +397,8 @@ class TurboState extends ChangeNotifier {
     notifyProgress = prefs.getBool(SettingsStore.kNotifyProgress) ?? false;
     checkUpdates = prefs.getBool(SettingsStore.kCheckUpdates) ?? true;
     onboardingDone = prefs.getBool(SettingsStore.kOnboardingDone) ?? false;
+    signInPromptDone =
+        prefs.getBool(SettingsStore.kSignInPromptDone) ?? false;
     updateChannel = _channelFrom(prefs.getString(SettingsStore.kUpdateChannel));
     notifyStyle =
         _notifyStyleFrom(prefs.getString(SettingsStore.kNotifyComplete));
@@ -674,6 +706,16 @@ class TurboState extends ChangeNotifier {
     // tour is shown once more on the next launch.
     try {
       await settings.setBool(SettingsStore.kOnboardingDone, true);
+    } catch (_) {}
+  }
+
+  /// Marks the first-run YouTube sign-in prompt as resolved, so the gate is not
+  /// shown again whether the user signed in or chose to continue without one.
+  Future<void> completeSignInPrompt() async {
+    signInPromptDone = true;
+    _safeNotify();
+    try {
+      await settings.setBool(SettingsStore.kSignInPromptDone, true);
     } catch (_) {}
   }
 

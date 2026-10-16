@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:turbo_downloader/screens/home_shell.dart';
 import 'package:turbo_downloader/screens/onboarding_screen.dart';
 import 'package:turbo_downloader/screens/splash_screen.dart';
+import 'package:turbo_downloader/screens/youtube_login_screen.dart';
 import 'package:turbo_downloader/services/settings_store.dart';
 import 'package:turbo_downloader/state.dart';
 import 'package:turbo_downloader/theme.dart';
@@ -128,6 +129,76 @@ void main() {
       await second.init();
       expect(second.onboardingDone, isTrue,
           reason: 'the tour must be shown only once');
+    });
+
+    test('the first-run sign-in gate needs a capable platform and no session',
+        () async {
+      SharedPreferences.setMockInitialValues({});
+      final state = TurboState()..signInSupported = true;
+      addTearDown(state.dispose);
+
+      // First launch: no prompt resolved, no session -> gate is shown.
+      expect(state.needsFirstRunSignIn, isTrue);
+
+      // A signed-in session satisfies the gate without any prompt flag.
+      state.sessionConfigured = true;
+      expect(state.needsFirstRunSignIn, isFalse);
+
+      // Declining also satisfies it, even with no session.
+      state.sessionConfigured = false;
+      await state.completeSignInPrompt();
+      expect(state.needsFirstRunSignIn, isFalse);
+    });
+
+    test('the gate never appears where there is no in-app sign-in', () {
+      SharedPreferences.setMockInitialValues({});
+      final state = TurboState()..signInSupported = false;
+      addTearDown(state.dispose);
+      expect(state.needsFirstRunSignIn, isFalse,
+          reason: 'Linux has no embedded web view to host the gate');
+    });
+
+    test('completeSignInPrompt persists across a restart', () async {
+      SharedPreferences.setMockInitialValues({});
+      final first = TurboState();
+      addTearDown(first.dispose);
+      await first.init();
+      await first.completeSignInPrompt();
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(SettingsStore.kSignInPromptDone), isTrue);
+
+      final second = TurboState()..signInSupported = true;
+      addTearDown(second.dispose);
+      await second.init();
+      expect(second.signInPromptDone, isTrue);
+      expect(second.needsFirstRunSignIn, isFalse,
+          reason: 'a resolved prompt must not be shown again');
+    });
+
+    testWidgets('the tour hands off to the sign-in gate when a session is due',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final state = TurboState()..signInSupported = true;
+      addTearDown(state.dispose);
+      await tester.pumpWidget(
+        ChangeNotifierProvider<TurboState>.value(
+          value: state,
+          child: MaterialApp(
+            theme: buildTurboTheme(TurboAccents.of('cyan')),
+            home: const OnboardingScreen(),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('SKIP'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(YouTubeLoginScreen), findsOneWidget);
+      expect(find.byType(HomeShell), findsNothing);
+      expect(state.onboardingDone, isTrue);
     });
 
     testWidgets('first run goes splash -> onboarding -> home, then the next '
