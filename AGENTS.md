@@ -501,4 +501,25 @@ Changing one without the others silently caps speed.
   history, diagnostics, notifications) in its own try so a failure in one cannot
   skip the queue recovery that gives the worker its root; `init()` is
   reentrant-safe via `_initFuture` because the startup timeout can abandon it.
+- In-app YouTube sign-in (`services/cookie_jar.dart`, `screens/youtube_login_screen.dart`):
+  YouTube 403s the media bytes ("confirm you're not a bot") even when the page
+  loads, and the Android sandbox hides other apps' cookie stores, so the app
+  embeds a WebView for the user to sign in. The jar is read from the *platform*
+  cookie store via `CookieManager` (JavaScript cannot see the HttpOnly session
+  cookies, so a JS read always comes back empty) and converted to the Netscape
+  `cookies.txt` yt-dlp reads. HttpOnly entries must carry the `#HttpOnly_`
+  domain prefix or yt-dlp silently drops the line. All of this is Android-only;
+  the sign-in button is hidden on Linux (no supported web view), and desktop
+  keeps the file/browser path. A YouTube 403 is routed to this flow rather than
+  the generic "retry in a moment" wording.
+- Desktop CI watch-out: `flutter_inappwebview_macos` declares an OS floor of
+  10.14 but uses `ASWebAuthenticationPresentationContextProviding` (10.15+), and
+  `flutter_additional_macos_build_settings` lowers the pod to its declared floor,
+  so `macos/Podfile`'s `post_install` re-pins every pod target to 10.15.
+- Test harness: `FfmpegMuxer.isAvailable()` returns false when
+  `Platform.environment['FLUTTER_TEST']` is set. Probing the plugin
+  (`FFmpegKitConfig.init()`) starts its native event channel, which the
+  widget-test harness has no handler for — the stray `MissingPluginException`
+  fails any test that boots the app (e.g. onboarding persistence). On Windows CI
+  the ffmpeg plugin does not register that channel, exposing the same throw.
 
