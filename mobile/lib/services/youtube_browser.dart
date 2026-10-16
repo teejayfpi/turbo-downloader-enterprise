@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 
+import 'youtube_limits.dart';
+
 /// A YouTube video surfaced in the Browse tab: enough metadata to render a
 /// card and to hand the watch URL to the normal download flow.
 class BrowseVideo {
@@ -118,6 +120,17 @@ class BrowseException implements Exception {
 
   @override
   String toString() => message;
+
+  /// Turns a caught error into a [BrowseException], swapping YouTube's raw
+  /// rate-limit dump for the app's own wording. [context] is the leading
+  /// phrase, e.g. "Could not search YouTube".
+  factory BrowseException.from(Object error, String context) {
+    final detail = error.toString();
+    if (isYouTubeRateLimit(detail)) {
+      return const BrowseException(youTubeRateLimitMessage);
+    }
+    return BrowseException('$context: $detail');
+  }
 }
 
 /// Read-only YouTube browsing: search, channel uploads, and playlists.
@@ -150,7 +163,7 @@ class YoutubeBrowser {
       );
       return _pageFromVideos(list);
     } catch (e) {
-      throw BrowseException('Could not search YouTube: $e');
+      throw BrowseException.from(e, 'Could not search YouTube');
     }
   }
 
@@ -180,7 +193,7 @@ class YoutubeBrowser {
         nextPage: list.isEmpty ? null : BrowsePageCursor(list),
       );
     } catch (e) {
-      throw BrowseException('Could not search YouTube: $e');
+      throw BrowseException.from(e, 'Could not search YouTube');
     }
   }
 
@@ -209,7 +222,7 @@ class YoutubeBrowser {
         nextPage: next.isEmpty ? null : BrowsePageCursor(next),
       );
     } catch (e) {
-      throw BrowseException('Could not load more results: $e');
+      throw BrowseException.from(e, 'Could not load more results');
     }
   }
 
@@ -239,7 +252,7 @@ class YoutubeBrowser {
       );
       return _pageFromUploads(list);
     } catch (e) {
-      throw BrowseException('Could not open this channel: $e');
+      throw BrowseException.from(e, 'Could not open this channel');
     }
   }
 
@@ -268,7 +281,7 @@ class YoutubeBrowser {
       }
       return BrowsePage(videos: videos, nextPage: BrowsePageCursor(state));
     } catch (e) {
-      throw BrowseException('Could not open this playlist: $e');
+      throw BrowseException.from(e, 'Could not open this playlist');
     }
   }
 
@@ -298,7 +311,7 @@ class YoutubeBrowser {
         list = next;
       }
     } catch (e) {
-      throw BrowseException('Could not list this channel: $e');
+      throw BrowseException.from(e, 'Could not list this channel');
     }
   }
 
@@ -315,7 +328,7 @@ class YoutubeBrowser {
       }
       return videos;
     } catch (e) {
-      throw BrowseException('Could not list this playlist: $e');
+      throw BrowseException.from(e, 'Could not list this playlist');
     }
   }
 

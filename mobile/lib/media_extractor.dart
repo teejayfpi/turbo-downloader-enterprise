@@ -1,5 +1,7 @@
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 
+import 'services/youtube_limits.dart';
+
 /// A media page that has been inspected, without downloading anything.
 ///
 /// Produced by [MediaExtractor.describe] so the UI can show the title,
@@ -253,10 +255,16 @@ class MediaExtractor {
         'HD/merged engine can then sign in.',
       );
     } on yt.YoutubeExplodeException catch (e) {
+      if (isYouTubeRateLimit(e.message)) {
+        throw const MediaResolveException(youTubeRateLimitMessage);
+      }
       throw MediaResolveException('Could not read this page: ${e.message}');
     } on MediaResolveException {
       rethrow;
     } catch (e) {
+      if (isYouTubeRateLimit('$e')) {
+        throw const MediaResolveException(youTubeRateLimitMessage);
+      }
       throw MediaResolveException('Could not read this page: $e');
     } finally {
       client.close();
@@ -319,10 +327,16 @@ class MediaExtractor {
         'HD/merged engine can then sign in.',
       );
     } on yt.YoutubeExplodeException catch (e) {
+      if (isYouTubeRateLimit(e.message)) {
+        throw const MediaResolveException(youTubeRateLimitMessage);
+      }
       throw MediaResolveException('Could not read this page: ${e.message}');
     } on MediaResolveException {
       rethrow;
     } catch (e) {
+      if (isYouTubeRateLimit('$e')) {
+        throw const MediaResolveException(youTubeRateLimitMessage);
+      }
       throw MediaResolveException('Could not resolve this page: $e');
     } finally {
       client.close();
