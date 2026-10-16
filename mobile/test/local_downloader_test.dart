@@ -264,6 +264,34 @@ void main() {
     expect(await File(task.filePath!).readAsBytes(), equals(data));
   });
 
+  test('Turbo reaches its full width within the ramp budget', () async {
+    // A regression guard: one connection per window under a small step cap
+    // meant a fresh Turbo download topped out around ten connections no
+    // matter how fast the host was. Batching the adds must let it reach 32.
+    final data = _blob(40 * 1024 * 1024);
+    final origin = _Origin(data, throttle: 2)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    manager.adaptiveConnections = true;
+    manager.initialSegments = 2;
+    manager.rampWindow = const Duration(milliseconds: 60);
+    manager.rampMinBytesPerSecond = 32 * 1024;
+    // What state.dart applies for Turbo.
+    manager.maxConnections = 32;
+    manager.rampStepConnections = 2;
+    manager.maxRampSteps = 16;
+
+    final task = manager.add(origin.url, filename: 'turbo.bin', connections: 32);
+    final reached = await _waitFor(() => task.segmentStart.length >= 32,
+        timeout: const Duration(seconds: 10));
+
+    expect(reached, isTrue,
+        reason: 'Turbo only reached ${task.segmentStart.length} connections');
+    await manager.remove(task.id);
+  });
+
   test('resumes a partially ramped download without duplicating bytes',
       () async {
     // Ramp-up appends split segments out of array order; a pause and resume in
@@ -787,6 +815,44 @@ void main() {
     expect(seenSelector, 'bestvideo+bestaudio');
     expect(task.filename, 'My Clip.mkv');
     expect(await File(task.filePath!).readAsBytes(), equals(bytes));
+  });
+
+  test('the speed mode width reaches yt-dlp as concurrent fragments',
+      () async {
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    int? seenFragments;
+    final bytes = _blob(256 * 1024);
+    manager.ytdlpOverride = ({
+      required String url,
+      required String selector,
+      required Directory dir,
+      required String stem,
+      void Function(int, int, int)? onProgress,
+      bool Function()? isCancelled,
+      int limitBps = 0,
+      int concurrentFragments = 1,
+    }) async {
+      seenFragments = concurrentFragments;
+      final f = File('${dir.path}/$stem.mp4');
+      await f.writeAsBytes(bytes);
+      return f;
+    };
+
+    manager.maxConnections = 32;
+    final turbo = manager.add('https://youtu.be/abc',
+        kind: 'media', engine: 'ytdlp', formatSelector: 'best');
+    await _waitFor(() => turbo.isCompleted || turbo.isFailed);
+    expect(turbo.isCompleted, isTrue, reason: turbo.error ?? '');
+    expect(seenFragments, 32);
+
+    manager.maxConnections = 16;
+    final balanced = manager.add('https://youtu.be/def',
+        kind: 'media', engine: 'ytdlp', formatSelector: 'best');
+    await _waitFor(() => balanced.isCompleted || balanced.isFailed);
+    expect(balanced.isCompleted, isTrue, reason: balanced.error ?? '');
+    expect(seenFragments, 16);
   });
 
   test('progress-only yt-dlp failures surface as a friendly task error',

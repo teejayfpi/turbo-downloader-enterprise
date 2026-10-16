@@ -34,6 +34,20 @@ enum SpeedMode {
         SpeedMode.turbo => 32,
       };
 
+  /// Connections added per ramp window. Turbo climbs faster so a fast host
+  /// reaches its full width in a few windows instead of one per window.
+  int get rampStep => switch (this) {
+        SpeedMode.balanced => 1,
+        SpeedMode.turbo => 2,
+      };
+
+  /// Ramp evaluations allowed per transfer. Turbo needs enough steps to reach
+  /// its 32 connections at [rampStep] per window.
+  int get rampSteps => switch (this) {
+        SpeedMode.balanced => 8,
+        SpeedMode.turbo => 16,
+      };
+
   String get label => switch (this) {
         SpeedMode.balanced => 'Balanced',
         SpeedMode.turbo => 'Turbo',
@@ -410,7 +424,7 @@ class TurboState extends ChangeNotifier {
         _notifyStyleFrom(prefs.getString(SettingsStore.kNotifyComplete));
     clipboardMonitor = prefs.getBool(SettingsStore.kClipboardMonitor) ?? false;
 
-    local.maxConnections = speedMode.connections(defaultConnections);
+    _applySpeedMode();
     local.adaptiveConnections = adaptiveConnections;
     local.rememberHostSpeed = rememberHostSpeed;
     local.setOffPeakSchedule(
@@ -569,9 +583,17 @@ class TurboState extends ChangeNotifier {
     _safeNotify();
   }
 
+  /// Pushes the active speed mode onto the engine: the connection ceiling
+  /// and the ramp shape that reaches it.
+  void _applySpeedMode() {
+    local.maxConnections = speedMode.connections(defaultConnections);
+    local.rampStepConnections = speedMode.rampStep;
+    local.maxRampSteps = speedMode.rampSteps;
+  }
+
   Future<void> setDefaultConnections(int value) async {
     defaultConnections = value.clamp(1, 32);
-    local.maxConnections = speedMode.connections(defaultConnections);
+    _applySpeedMode();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('turbo.connections', defaultConnections);
     _safeNotify();
@@ -579,7 +601,7 @@ class TurboState extends ChangeNotifier {
 
   Future<void> setSpeedMode(SpeedMode mode) async {
     speedMode = mode;
-    local.maxConnections = mode.connections(defaultConnections);
+    _applySpeedMode();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
         'turbo.speedMode', mode == SpeedMode.turbo ? 'turbo' : 'balanced');

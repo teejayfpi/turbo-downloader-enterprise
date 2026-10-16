@@ -447,8 +447,13 @@ Changing one without the others silently caps speed.
   Turbo mode.
 - Mobile adaptive acceleration (`LocalDownloader.adaptiveConnections`) starts a
   ranged transfer at `initialSegments` and ramps toward `task.connections`,
-  splitting the segment with the most bytes *remaining*. A split appends the
-  tail index, so `segmentStart`/`segmentEnd` are **not** byte-ascending and
+  splitting the segment with the most bytes *remaining*. The ramp adds
+  `rampStepConnections` per window for at most `maxRampSteps` windows, so the
+  reachable width is `initialSegments + rampStepConnections * maxRampSteps`;
+  `state.dart` sizes both from the speed mode (`SpeedMode.rampStep`/`rampSteps`)
+  or Turbo would top out far below its own 32-connection ceiling. A split
+  appends the tail index, so `segmentStart`/`segmentEnd` are **not**
+  byte-ascending and
   `segmentStart[i]` is not necessarily below the segment before it in the array.
   Two rules keep that safe: the partition checker (`_planIsValidFor`) validates
   by byte order and contiguity, never by array order, and `_merge` reassembles
@@ -542,6 +547,10 @@ Changing one without the others silently caps speed.
   HSID, …) are exactly those, so a parser that treats `#HttpOnly_` as a comment
   silently drops the whole login. `countCookies` and `cookieHeaderFromJar`
   both special-case it.
+- YouTube fragmented (HLS/DASH) sources are fetched over many connections via
+  yt-dlp `-N` (`concurrentFragments`), sized by the same `SpeedMode` width as
+  the built-in engine. Without it yt-dlp pulls one fragment at a time, which
+  measured 14 s versus 1 s for a 1.25 MiB clip, so it is not optional for speed.
 - yt-dlp also needs a JavaScript runtime (deno/node/…) for YouTube's signature
   challenge; without one it sees only storyboard images. `jsRuntimeAvailable`
   is detected at startup and Settings warns when it is missing, so the failure

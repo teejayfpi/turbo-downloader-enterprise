@@ -495,6 +495,11 @@ class LocalDownloadManager extends ChangeNotifier {
   /// benefited are recorded; a slow host never lowers the starting width.
   bool rememberHostSpeed = true;
 
+  /// Connections added per ramp evaluation. Turbo adds more at a time so a
+  /// fast host reaches its full width in a couple of windows instead of
+  /// climbing one connection per window.
+  int rampStepConnections = 1;
+
   /// Proven segment width per host, loaded from `host_speed.json`. A hit seeds
   /// a fresh transfer's starting width; the ramp still adapts from there.
   final Map<String, int> _hostWidth = {};
@@ -507,8 +512,9 @@ class LocalDownloadManager extends ChangeNotifier {
   Timer? _hostWriteTimer;
 
   /// Ceiling on ramp-up evaluations per transfer, a backstop against a host
-  /// whose throughput looks high but never lets a segment finish.
-  static const int _kMaxRampSteps = 8;
+  /// whose throughput looks high but never lets a segment finish. Turbo
+  /// allows more steps so a fast host can actually reach its 32 connections.
+  int maxRampSteps = 8;
 
   static Future<ResolvedMedia> _defaultResolve(
     String pageUrl, {
@@ -1906,7 +1912,7 @@ class LocalDownloadManager extends ChangeNotifier {
     // penalty of opening the whole fan-out before any byte arrives.
     if (adaptiveConnections && rampTarget > task.segmentStart.length) {
       for (var step = 0;
-          step < _kMaxRampSteps &&
+          step < maxRampSteps &&
               !run.cancelled &&
               inFlight.isNotEmpty &&
               task.segmentStart.length < rampTarget;
@@ -1926,11 +1932,20 @@ class LocalDownloadManager extends ChangeNotifier {
         final perConn = open == 0 ? 0 : rate ~/ open;
         if (perConn < rampMinBytesPerSecond) continue;
 
-        final tail = _splitLargestRemaining(task);
-        if (tail < 0) break;
-        spawn(tail);
-        // The host earned another connection; remember how wide it got so a
-        // repeat download here can skip re-ramping from scratch.
+        // The host earned more connections; add them in a batch. Split from
+        // the largest remaining segments, and stop early when no segment can
+        // be split any further (a small file or a host that already drained).
+        var added = 0;
+        for (var i = 0; i < rampStepConnections; i++) {
+          if (task.segmentStart.length >= rampTarget) break;
+          final tail = _splitLargestRemaining(task);
+          if (tail < 0) break;
+          spawn(tail);
+          added++;
+        }
+        if (added == 0) break;
+        // Remember how wide it got so a repeat download here can skip
+        // re-ramping from scratch.
         noteHostWidth(task.fetchUrl, task.segmentStart.length);
       }
     }
