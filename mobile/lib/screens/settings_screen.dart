@@ -736,16 +736,19 @@ class _EngineSection extends StatelessWidget {
         if (available)
           _InfoRow(
             label: 'JavaScript runtime',
-            value: state.jsRuntimeAvailable ? 'Available' : 'Not installed',
+            value: state.jsRuntimeAvailable
+                ? 'Available'
+                : 'Auto-fetched solver',
           ),
         if (available && !state.jsRuntimeAvailable) ...[
           const SizedBox(height: 10),
           Notice(
-            icon: Icons.warning_amber_rounded,
-            color: p.warning,
-            text: 'yt-dlp needs a JavaScript runtime (deno or node) to unlock '
-                'YouTube formats. Without one, many videos show only '
-                'storyboard images.',
+            icon: Icons.info_outline_rounded,
+            color: p.accent,
+            text: 'No JavaScript runtime (deno or node) found, so Turbo fetches '
+                'YouTube\'s signature solver automatically — it needs a network '
+                'connection on the first run. Installing deno or node makes it '
+                'faster and fully offline.',
           ),
         ],
         const SizedBox(height: 10),

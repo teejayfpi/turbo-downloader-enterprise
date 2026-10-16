@@ -551,10 +551,16 @@ Changing one without the others silently caps speed.
   yt-dlp `-N` (`concurrentFragments`), sized by the same `SpeedMode` width as
   the built-in engine. Without it yt-dlp pulls one fragment at a time, which
   measured 14 s versus 1 s for a 1.25 MiB clip, so it is not optional for speed.
-- yt-dlp also needs a JavaScript runtime (deno/node/…) for YouTube's signature
-  challenge; without one it sees only storyboard images. `jsRuntimeAvailable`
-  is detected at startup and Settings warns when it is missing, so the failure
-  is not silently misread as "no formats".
+- yt-dlp needs a solver for YouTube's signature challenge. The app prefers a
+  local JavaScript runtime (`deno`/`node`, `--js-runtimes`) but does **not**
+  require one: with no runtime on PATH it passes `--remote-components
+  ejs:github` so yt-dlp fetches the EJS challenge solver itself. Verified: the
+  same video that exposes only storyboard images with neither flag probes 22
+  formats and downloads when the remote component is requested. The flag is
+  gated on `--remote-components` appearing in `yt-dlp --help` (cached per
+  binary), so an older yt-dlp is never handed an unrecognised argument; the
+  two solvers are mutually exclusive. `jsRuntimeAvailable` still drives the
+  Settings row, which now says "Auto-fetched solver" rather than warning.
 - Live YouTube checks are opt-in and never run in CI. `TURBO_LIVE=1` runs
   `test/live_media_test.dart` (built-in extractor) and
   `test/live_ytdlp_test.dart` (yt-dlp engine, end-to-end download). Both skip —

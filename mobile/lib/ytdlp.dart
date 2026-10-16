@@ -93,6 +93,11 @@ class YtdlpEngine {
   static String? _cachedJsRuntime;
   static bool _searchedJs = false;
 
+  /// Whether the located yt-dlp understands `--remote-components` (added in the
+  /// 2025.11 series). Cached per binary path so the probe runs at most once.
+  String? _remoteComponentsProbedFor;
+  bool? _supportsRemoteComponents;
+
   /// The cookie flags every yt-dlp invocation should carry. A browser profile
   /// wins over an imported file when both are set, because it stays current.
   List<String> _cookieArgs() {
@@ -124,10 +129,42 @@ class YtdlpEngine {
     return null;
   }
 
-  /// The `--js-runtimes` flag, when a runtime is present on this machine.
-  Future<List<String>> _jsArgs() async {
+  /// The flags that let yt-dlp solve YouTube's signature ("n") challenge. A
+  /// local JS runtime is the fast path. Without one, yt-dlp ships no solver and
+  /// exposes only storyboard images, so fall back to fetching the EJS challenge
+  /// solver as a yt-dlp component (`--remote-components ejs:github`) — a
+  /// one-time download that needs network but no runtime install. Gated on the
+  /// flag being supported so an older yt-dlp build is never handed an
+  /// unrecognised argument and turned into a hard failure.
+  Future<List<String>> _solverArgs() async {
     final runtime = await jsRuntime();
-    return runtime == null ? const [] : ['--js-runtimes', runtime];
+    if (runtime != null) return ['--js-runtimes', runtime];
+    if (await _supportsRemoteComponentsFlag()) {
+      return const ['--remote-components', 'ejs:github'];
+    }
+    return const [];
+  }
+
+  /// True when the located yt-dlp advertises `--remote-components` in `--help`.
+  /// Probed once per binary; a failure to probe is treated as "unsupported",
+  /// which keeps the argument vector valid.
+  Future<bool> _supportsRemoteComponentsFlag() async {
+    final bin = await locate();
+    if (bin == null) return false;
+    if (_remoteComponentsProbedFor == bin && _supportsRemoteComponents != null) {
+      return _supportsRemoteComponents!;
+    }
+    var supported = false;
+    try {
+      final r = await Process.run(bin, ['--help']);
+      supported = r.exitCode == 0 &&
+          '${r.stdout}\n${r.stderr}'.contains('--remote-components');
+    } catch (_) {
+      supported = false;
+    }
+    _remoteComponentsProbedFor = bin;
+    _supportsRemoteComponents = supported;
+    return supported;
   }
 
   /// The full argument vector for a `-J` probe. Built here (not inline) so the
@@ -139,7 +176,7 @@ class YtdlpEngine {
         '-J',
         '--no-warnings',
         '--no-playlist',
-        ...await _jsArgs(),
+        ...await _solverArgs(),
         ..._cookieArgs(),
         url,
       ];
@@ -165,7 +202,7 @@ class YtdlpEngine {
         '--newline',
         if (concurrentFragments > 1) ...['-N', '$concurrentFragments'],
         if (limitBps > 0) ...['--limit-rate', '${limitBps}B'],
-        ...await _jsArgs(),
+        ...await _solverArgs(),
         ..._cookieArgs(),
         '-P', dir.path,
         '-o', '$stem.%(ext)s',
@@ -503,11 +540,15 @@ class YtdlpEngine {
 
     if (formats.isEmpty) {
       // YouTube serves only storyboard images when it cannot solve the
-      // signature challenge, which looks like "no formats" to the user.
+      // signature challenge, which looks like "no formats" to the user. The
+      // app now fetches the EJS solver itself, so reaching here usually means
+      // the fetch was blocked (offline, or a yt-dlp too old to support it).
       throw const YtdlpException(
-        'No downloadable video was found. YouTube needs a JavaScript runtime '
-        '(deno or node) to unlock its formats. Install one, or import fresh '
-        'cookies in Settings → Sign-in & cookies, then retry.',
+        'No downloadable video was found. YouTube needs its signature solver, '
+        'which Turbo fetches automatically — check your connection and retry. '
+        'If it keeps failing, update yt-dlp, install a JavaScript runtime '
+        '(deno or node), or import fresh cookies in Settings → Sign-in & '
+        'cookies.',
       );
     }
 

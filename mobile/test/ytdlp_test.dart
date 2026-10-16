@@ -246,6 +246,14 @@ void main() {
       expect(args, isNot(contains('--no-check-certificates')));
       expect(args, contains('--no-warnings'));
       expect(args, contains('--no-playlist'));
+      // The solver is either a local runtime or the fetched EJS component,
+      // never both: --js-runtimes alone is ignored without a runtime present.
+      expect(args.contains('--js-runtimes') && args.contains('--remote-components'),
+          isFalse,
+          reason: 'only one signature solver should be requested');
+      if (args.contains('--remote-components')) {
+        expect(args[args.indexOf('--remote-components') + 1], 'ejs:github');
+      }
     }
   });
 
