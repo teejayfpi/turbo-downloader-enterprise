@@ -763,6 +763,7 @@ void main() {
       void Function(int, int, int)? onProgress,
       bool Function()? isCancelled,
       int limitBps = 0,
+      int concurrentFragments = 1,
     }) async {
       seenUrl = url;
       seenSelector = selector;
@@ -801,6 +802,7 @@ void main() {
       void Function(int, int, int)? onProgress,
       bool Function()? isCancelled,
       int limitBps = 0,
+      int concurrentFragments = 1,
     }) async =>
         throw const YtdlpException('Video unavailable');
 
@@ -832,6 +834,7 @@ void main() {
       void Function(int, int, int)? onProgress,
       bool Function()? isCancelled,
       int limitBps = 0,
+      int concurrentFragments = 1,
     }) async {
       calls += 1;
       throw const YtdlpException(
@@ -874,6 +877,7 @@ void main() {
       void Function(int, int, int)? onProgress,
       bool Function()? isCancelled,
       int limitBps = 0,
+      int concurrentFragments = 1,
     }) async =>
         throw const YtdlpException('HTTP Error 403: Forbidden');
 
@@ -911,6 +915,7 @@ void main() {
       void Function(int, int, int)? onProgress,
       bool Function()? isCancelled,
       int limitBps = 0,
+      int concurrentFragments = 1,
     }) async =>
         throw const YtdlpException(
           'Requested format is not available. Use --list-formats for a list '
@@ -953,6 +958,7 @@ void main() {
       void Function(int, int, int)? onProgress,
       bool Function()? isCancelled,
       int limitBps = 0,
+      int concurrentFragments = 1,
     }) async {
       final f = File('${dir.path}/$stem.mp4');
       await f.writeAsBytes(bytes);

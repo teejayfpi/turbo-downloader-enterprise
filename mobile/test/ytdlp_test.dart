@@ -273,6 +273,31 @@ void main() {
     expect(uncapped, isNot(contains('--limit-rate')));
   });
 
+  test('concurrent fragments are passed as -N, and omitted at 1', () async {
+    final dir = Directory.systemTemp.createTempSync('ytdlp-frag');
+    final engine = YtdlpEngine();
+
+    final parallel = await engine.downloadArgs(
+      url: 'https://example.com/watch',
+      selector: 'best',
+      dir: dir,
+      stem: 'clip',
+      concurrentFragments: 16,
+    );
+    expect(parallel, contains('-N'));
+    expect(parallel[parallel.indexOf('-N') + 1], '16');
+
+    // The default must not add the flag: -N 1 is a needless arg, and a
+    // fragmented source without it is fetched serially.
+    final serial = await engine.downloadArgs(
+      url: 'https://example.com/watch',
+      selector: 'best',
+      dir: dir,
+      stem: 'clip',
+    );
+    expect(serial, isNot(contains('-N')));
+  });
+
   group('friendlyMessage', () {
     test('a YouTube 403 points at the sign-in flow, not a retry', () {
       const stderr =

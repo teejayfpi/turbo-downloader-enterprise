@@ -53,6 +53,7 @@ typedef YtdlpDownloadFn = Future<File?> Function({
   void Function(int downloaded, int total, int speed)? onProgress,
   bool Function()? isCancelled,
   int limitBps,
+  int concurrentFragments,
 });
 
 /// Merges a downloaded video-only stream with its audio track. Tests
@@ -525,6 +526,7 @@ class LocalDownloadManager extends ChangeNotifier {
     void Function(int downloaded, int total, int speed)? onProgress,
     bool Function()? isCancelled,
     int limitBps = 0,
+    int concurrentFragments = 1,
   }) =>
       ytdlp.download(
         url: url,
@@ -534,6 +536,7 @@ class LocalDownloadManager extends ChangeNotifier {
         onProgress: onProgress,
         isCancelled: isCancelled,
         limitBps: limitBps,
+        concurrentFragments: concurrentFragments,
       );
 
   List<LocalTask> get tasks =>
@@ -1586,6 +1589,7 @@ class LocalDownloadManager extends ChangeNotifier {
       dir: dir,
       stem: stem,
       limitBps: speedLimitBps,
+      concurrentFragments: maxConnections,
       isCancelled: () => run.cancelled,
       onProgress: (downloaded, total, speed) {
         task.downloaded = downloaded;

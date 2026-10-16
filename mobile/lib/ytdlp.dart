@@ -146,13 +146,16 @@ class YtdlpEngine {
 
   /// The full argument vector for a download. See [probeArgs] for the TLS note.
   /// [limitBps] adds `--limit-rate` so a capped transfer honours the global
-  /// speed ceiling too.
+  /// speed ceiling too. [concurrentFragments] adds `-N` so a fragmented
+  /// (HLS/DASH) source is fetched over many connections at once; without it
+  /// yt-dlp pulls fragments one at a time and a short clip can take minutes.
   Future<List<String>> downloadArgs({
     required String url,
     required String selector,
     required Directory dir,
     required String stem,
     int limitBps = 0,
+    int concurrentFragments = 1,
   }) async =>
       [
         url,
@@ -160,6 +163,7 @@ class YtdlpEngine {
         '--no-playlist',
         '--no-warnings',
         '--newline',
+        if (concurrentFragments > 1) ...['-N', '$concurrentFragments'],
         if (limitBps > 0) ...['--limit-rate', '${limitBps}B'],
         ...await _jsArgs(),
         ..._cookieArgs(),
@@ -294,6 +298,7 @@ class YtdlpEngine {
     void Function(int downloaded, int total, int speed)? onProgress,
     bool Function()? isCancelled,
     int limitBps = 0,
+    int concurrentFragments = 1,
   }) async {
     final bin = await locate();
     if (bin == null) {
@@ -309,6 +314,7 @@ class YtdlpEngine {
       dir: dir,
       stem: stem,
       limitBps: limitBps,
+      concurrentFragments: concurrentFragments,
     );
 
     final process = await Process.start(bin, args);

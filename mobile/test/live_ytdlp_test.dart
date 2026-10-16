@@ -61,17 +61,21 @@ void main() {
 
     final dir = Directory.systemTemp.createTempSync('turbo_live_ytdlp');
     try {
+      final started = DateTime.now();
       final file = await engine.download(
         url: target,
         selector: selector,
         dir: dir,
         stem: 'probe',
+        concurrentFragments: 16,
       );
+      final elapsed = DateTime.now().difference(started);
       expect(file, isNotNull);
       expect(file!.existsSync(), isTrue);
       final size = file.lengthSync();
       // ignore: avoid_print
-      print('DOWNLOADED: ${file.path} ($size bytes) via "$selector"');
+      print('DOWNLOADED: ${file.path} ($size bytes) via "$selector" '
+          'in ${elapsed.inMilliseconds}ms');
       expect(size, greaterThan(100000));
     } finally {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
