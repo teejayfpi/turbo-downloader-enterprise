@@ -19,6 +19,7 @@ import 'services/storage_stats.dart';
 import 'services/update_checker.dart';
 import 'services/url_validator.dart';
 import 'services/youtube_browser.dart';
+import 'services/youtube_session.dart';
 
 /// How aggressively the built-in engine splits a download.
 enum SpeedMode {
@@ -256,6 +257,11 @@ class TurboState extends ChangeNotifier {
   bool ytdlpAvailable = false;
   bool ytdlpHasFfmpeg = false;
 
+  /// True when a JavaScript runtime (deno/node/…) is on the machine. yt-dlp
+  /// needs one to solve YouTube's signature challenge; without it many videos
+  /// resolve to storyboard images only, so Settings warns when it is missing.
+  bool jsRuntimeAvailable = false;
+
   /// True when a signed-in session (cookie jar or browser profile) is set, and
   /// how many cookies it holds. Shown in Settings; the values stay in the vault.
   bool sessionConfigured = false;
@@ -470,6 +476,7 @@ class TurboState extends ChangeNotifier {
     final bin = await local.ytdlp.refresh();
     ytdlpAvailable = bin != null;
     ytdlpHasFfmpeg = ytdlpAvailable && await local.ytdlp.hasFfmpeg();
+    jsRuntimeAvailable = await local.ytdlp.hasJsRuntime();
     ffmpegAvailable = await local.muxer.isAvailable();
     await refreshSession();
     _safeNotify();
@@ -482,6 +489,9 @@ class TurboState extends ChangeNotifier {
     sessionBrowser = browser;
     sessionCookieCount = jar == null ? 0 : SessionStore.countCookies(jar);
     sessionConfigured = browser != null || sessionCookieCount > 0;
+    // The built-in extractor cannot read a browser profile, only an explicit
+    // jar, so only the jar reaches it. yt-dlp is given both.
+    YouTubeSession.setFromJar(jar);
     await session.applyTo(local.ytdlp);
     _safeNotify();
   }

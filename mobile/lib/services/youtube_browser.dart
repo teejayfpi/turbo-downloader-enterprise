@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 
 import 'youtube_limits.dart';
+import 'youtube_session.dart';
 
 /// A YouTube video surfaced in the Browse tab: enough metadata to render a
 /// card and to hand the watch URL to the normal download flow.
@@ -142,9 +143,24 @@ class BrowseException implements Exception {
 class YoutubeBrowser {
   /// [client] is injectable so tests can supply a stub without the network.
   YoutubeBrowser({yt.YoutubeExplode? client})
-      : _client = client ?? yt.YoutubeExplode();
+      : _client = client ?? YouTubeSession.client() ?? yt.YoutubeExplode();
 
-  final yt.YoutubeExplode _client;
+  yt.YoutubeExplode _client;
+
+  int _sessionRevision = YouTubeSession.revision;
+
+  /// Rebuilds the client when the signed-in session changed since it was built,
+  /// so a sign-in performed after this browser was created takes effect.
+  yt.YoutubeExplode _active() {
+    if (YouTubeSession.revision == _sessionRevision) return _client;
+    final fresh = YouTubeSession.client();
+    if (fresh != null) {
+      _client.close();
+      _client = fresh;
+    }
+    _sessionRevision = YouTubeSession.revision;
+    return _client;
+  }
 
   void dispose() => _client.close();
 
@@ -157,7 +173,7 @@ class YoutubeBrowser {
       return const BrowsePage(videos: []);
     }
     try {
-      final list = await _client.search.search(
+      final list = await _active().search.search(
         trimmed,
         filter: yt.TypeFilters.video,
       );
@@ -173,7 +189,7 @@ class YoutubeBrowser {
     final trimmed = query.trim();
     if (trimmed.isEmpty) return const BrowseSearchResults();
     try {
-      final list = await _client.search.searchContent(trimmed);
+      final list = await _active().search.searchContent(trimmed);
       final videos = <BrowseVideo>[];
       final channels = <BrowseChannel>[];
       final playlists = <BrowsePlaylist>[];
@@ -245,7 +261,7 @@ class YoutubeBrowser {
         if (next == null) return const BrowsePage(videos: []);
         return _pageFromUploads(next);
       }
-      final list = await _client.channels.getUploadsFromPage(
+      final list = await _active().channels.getUploadsFromPage(
         channelId,
         videoSorting: yt.VideoSorting.newest,
         videoType: _videoType(tab),
@@ -269,7 +285,7 @@ class YoutubeBrowser {
     try {
       final state = cursor?.playlistCursor() ??
           _PlaylistCursor(
-            StreamIterator(_client.playlists.getVideos(playlistId)),
+            StreamIterator(_active().playlists.getVideos(playlistId)),
           );
       final videos = <BrowseVideo>[];
       // A bounded batch keeps the first screen responsive; the stream yields
@@ -296,7 +312,7 @@ class YoutubeBrowser {
   }) async {
     final videos = <BrowseVideo>[];
     try {
-      var list = await _client.channels.getUploadsFromPage(
+      var list = await _active().channels.getUploadsFromPage(
         channelId,
         videoSorting: yt.VideoSorting.newest,
         videoType: _videoType(tab),
@@ -322,7 +338,7 @@ class YoutubeBrowser {
   }) async {
     final videos = <BrowseVideo>[];
     try {
-      await for (final v in _client.playlists.getVideos(playlistId)) {
+      await for (final v in _active().playlists.getVideos(playlistId)) {
         videos.add(_videoFrom(v));
         if (videos.length >= limit) break;
       }

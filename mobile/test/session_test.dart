@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:turbo_downloader/services/session_store.dart';
 import 'package:turbo_downloader/services/secure_store.dart';
 import 'package:turbo_downloader/services/update_checker.dart';
+import 'package:turbo_downloader/services/youtube_session.dart';
 import 'package:turbo_downloader/ytdlp.dart';
 
 void main() {
@@ -112,6 +113,61 @@ void main() {
           '# a comment\n'
           '.youtube.com\tTRUE\t/\tTRUE\t0\tB\t2\n';
       expect(SessionStore.countCookies(jar), 2);
+    });
+
+    test('counts #HttpOnly_ cookies, which are the signed-in ones', () {
+      const jar = '# Netscape HTTP Cookie File\n'
+          '#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tabc\n'
+          '.youtube.com\tTRUE\t/\tTRUE\t0\tPREF\txyz\n';
+      expect(SessionStore.countCookies(jar), 2);
+    });
+  });
+
+  group('SessionStore cookie header', () {
+    test('is null for an empty or absent jar', () {
+      expect(SessionStore.cookieHeaderFromJar(null), isNull);
+      expect(SessionStore.cookieHeaderFromJar(''), isNull);
+      expect(SessionStore.cookieHeaderFromJar('# Netscape HTTP Cookie File'),
+          isNull);
+    });
+
+    test('joins name=value pairs and skips comments and blanks', () {
+      const jar = '# Netscape HTTP Cookie File\n'
+          '\n'
+          '.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tabc\n'
+          '# a comment\n'
+          '.youtube.com\tTRUE\t/\tTRUE\t0\tHSID\tdef\n';
+      expect(SessionStore.cookieHeaderFromJar(jar), 'SID=abc; HSID=def');
+    });
+
+    test('reads the name past an #HttpOnly_ domain prefix', () {
+      const jar = '#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tabc\n';
+      expect(SessionStore.cookieHeaderFromJar(jar), 'SID=abc');
+    });
+  });
+
+  group('YouTubeSession bridge', () {
+    test('clears the header when no jar is set', () {
+      YouTubeSession.setFromJar(null);
+      expect(YouTubeSession.header, isNull);
+      expect(YouTubeSession.client(), isNull);
+    });
+
+    test('exposes a cookie header and a client once a jar is set', () {
+      YouTubeSession.setFromJar(
+        '# Netscape HTTP Cookie File\n'
+        '.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tabc\n',
+      );
+      expect(YouTubeSession.header, 'SID=abc');
+      final client = YouTubeSession.client();
+      expect(client, isNotNull);
+      client!.close();
+    });
+
+    test('bumps the revision on every change so cached clients rebuild', () {
+      final before = YouTubeSession.revision;
+      YouTubeSession.setFromJar(null);
+      expect(YouTubeSession.revision, before + 1);
     });
   });
 

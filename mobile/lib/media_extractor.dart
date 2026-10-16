@@ -1,6 +1,7 @@
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 
 import 'services/youtube_limits.dart';
+import 'services/youtube_session.dart';
 
 /// A media page that has been inspected, without downloading anything.
 ///
@@ -169,7 +170,7 @@ class MediaExtractor {
     yt.Video? videoOverride,
     yt.StreamManifest? manifestOverride,
   }) async {
-    final client = yt.YoutubeExplode();
+    final client = YouTubeSession.client() ?? yt.YoutubeExplode();
     try {
       final video = videoOverride ?? await client.videos.get(pageUrl);
       final manifest = manifestOverride ??
@@ -287,7 +288,7 @@ class MediaExtractor {
     yt.Video? videoOverride,
     yt.StreamManifest? manifestOverride,
   }) async {
-    final client = yt.YoutubeExplode();
+    final client = YouTubeSession.client() ?? yt.YoutubeExplode();
     try {
       final video = videoOverride ?? await client.videos.get(pageUrl);
       final manifest = manifestOverride ??

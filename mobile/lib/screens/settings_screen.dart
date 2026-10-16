@@ -733,6 +733,21 @@ class _EngineSection extends StatelessWidget {
             label: 'ffmpeg (HD merge)',
             value: state.ytdlpHasFfmpeg ? 'Available' : 'Not installed',
           ),
+        if (available)
+          _InfoRow(
+            label: 'JavaScript runtime',
+            value: state.jsRuntimeAvailable ? 'Available' : 'Not installed',
+          ),
+        if (available && !state.jsRuntimeAvailable) ...[
+          const SizedBox(height: 10),
+          Notice(
+            icon: Icons.warning_amber_rounded,
+            color: p.warning,
+            text: 'yt-dlp needs a JavaScript runtime (deno or node) to unlock '
+                'YouTube formats. Without one, many videos show only '
+                'storyboard images.',
+          ),
+        ],
         const SizedBox(height: 10),
         Notice(
           icon: available ? Icons.verified_rounded : Icons.info_outline_rounded,

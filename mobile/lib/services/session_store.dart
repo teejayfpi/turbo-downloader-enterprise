@@ -90,11 +90,42 @@ class SessionStore {
           : '# Netscape HTTP Cookie File\n$jar';
 
   /// How many cookie lines the jar holds, for a status line. Header and blank
-  /// lines are not counted.
+  /// lines are not counted; `#HttpOnly_` lines are real cookies (the signed-in
+  /// ones), so they are.
   static int countCookies(String jar) => jar
       .split('\n')
-      .where((l) => l.trim().isNotEmpty && !l.trimLeft().startsWith('#'))
+      .where((l) {
+        final t = l.trim();
+        if (t.isEmpty) return false;
+        if (!t.startsWith('#')) return true;
+        return t.startsWith('#HttpOnly_');
+      })
       .length;
+
+  /// The jar as a single HTTP `Cookie:` header value, for the built-in
+  /// extractor. Netscape fields are tab-separated: domain, subdomain flag,
+  /// path, secure, expiry, name, value. Blank lines and `#` comments are
+  /// skipped — except `#HttpOnly_`, which marks a real (HttpOnly) cookie, not a
+  /// comment. The domain field carries that prefix, but the name/value fields
+  /// are unaffected, so the header reads correctly.
+  static String? cookieHeaderFromJar(String? jar) {
+    final text = jar?.trim();
+    if (text == null || text.isEmpty) return null;
+    final pairs = <String>[];
+    for (final raw in text.split('\n')) {
+      final line = raw.trim();
+      if (line.isEmpty) continue;
+      // `#HttpOnly_` is a cookie, not a comment; any other `#` line is not.
+      if (line.startsWith('#') && !line.startsWith('#HttpOnly_')) continue;
+      final f = line.split('\t');
+      if (f.length < 7) continue;
+      final name = f[5].trim();
+      final value = f.sublist(6).join('\t').trim();
+      if (name.isEmpty) continue;
+      pairs.add('$name=$value');
+    }
+    return pairs.isEmpty ? null : pairs.join('; ');
+  }
 
   /// The browsers yt-dlp can read directly from their local profile.
   static const browsers = <String, String>{

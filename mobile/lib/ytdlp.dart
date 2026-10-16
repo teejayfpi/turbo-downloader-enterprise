@@ -246,6 +246,11 @@ class YtdlpEngine {
 
   Future<bool> hasFfmpeg() async => (await _which('ffmpeg')) != null;
 
+  /// True when a JavaScript runtime yt-dlp can drive is installed. It needs one
+  /// for YouTube's signature challenge; without it many videos expose only
+  /// storyboard images.
+  Future<bool> hasJsRuntime() async => (await jsRuntime()) != null;
+
   /// Describes [url]: title, author, duration, thumbnail, and formats.
   Future<YtdlpProbe> probe(String url) async {
     final bin = await locate();

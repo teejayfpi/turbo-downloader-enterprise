@@ -525,6 +525,27 @@ Changing one without the others silently caps speed.
   awaits `refreshSession()` before the splash hands off, so a returning user with
   an existing session is not gated. `signInSupported` overrides the platform
   check in tests (the harness has no web view).
+- The signed-in session reaches **both** engines. yt-dlp gets `--cookies` /
+  `--cookies-from-browser` via `SessionStore.applyTo`. The pure-Dart built-in
+  extractor (`youtube_explode_dart`) reads none of that on its own — it sends
+  only a hardcoded `CONSENT` cookie — so on a phone (where yt-dlp cannot run)
+  the login did nothing until `services/youtube_session.dart` bridged it: it
+  turns the stored Netscape jar into a `Cookie:` header
+  (`SessionStore.cookieHeaderFromJar`) and hands `MediaExtractor`,
+  `YoutubeBrowser`, and the resolver a `YoutubeHttpClient` subclass that adds
+  it. The bridge is process-wide and revision-counted, so a `YoutubeBrowser`
+  built before sign-in rebuilds its client when the session changes. Only the
+  jar reaches the built-in extractor; a browser profile cannot, as it needs a
+  local profile yt-dlp reads.
+- `#HttpOnly_` is a cookie, not a comment. In the Netscape format it prefixes
+  the domain of an HttpOnly cookie — and the signed-in session cookies (SID,
+  HSID, …) are exactly those, so a parser that treats `#HttpOnly_` as a comment
+  silently drops the whole login. `countCookies` and `cookieHeaderFromJar`
+  both special-case it.
+- yt-dlp also needs a JavaScript runtime (deno/node/…) for YouTube's signature
+  challenge; without one it sees only storyboard images. `jsRuntimeAvailable`
+  is detected at startup and Settings warns when it is missing, so the failure
+  is not silently misread as "no formats".
 - Desktop CI watch-out: `flutter_inappwebview_macos` declares an OS floor of
   10.14 but uses `ASWebAuthenticationPresentationContextProviding` (10.15+), and
   `flutter_additional_macos_build_settings` lowers the pod to its declared floor,
