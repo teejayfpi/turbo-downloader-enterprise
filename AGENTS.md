@@ -546,6 +546,16 @@ Changing one without the others silently caps speed.
   challenge; without one it sees only storyboard images. `jsRuntimeAvailable`
   is detected at startup and Settings warns when it is missing, so the failure
   is not silently misread as "no formats".
+- Live YouTube checks are opt-in and never run in CI. `TURBO_LIVE=1` runs
+  `test/live_media_test.dart` (built-in extractor) and
+  `test/live_ytdlp_test.dart` (yt-dlp engine, end-to-end download). Both skip —
+  rather than fail — when YouTube blocks the network, because a datacenter IP
+  gets a bare "unavailable" from the pure-Dart extractor (every player client
+  fails identically) and 403s from yt-dlp; that says nothing about the app.
+  `TURBO_LIVE_URL` overrides the video, as individual videos are bot-checked
+  independently. A verified run downloaded real bytes through the app's own
+  `YtdlpEngine.probe`/`download`; the built-in extractor could not be exercised
+  from CI because the datacenter IP is blocked for it.
 - Desktop CI watch-out: `flutter_inappwebview_macos` declares an OS floor of
   10.14 but uses `ASWebAuthenticationPresentationContextProviding` (10.15+), and
   `flutter_additional_macos_build_settings` lowers the pod to its declared floor,
