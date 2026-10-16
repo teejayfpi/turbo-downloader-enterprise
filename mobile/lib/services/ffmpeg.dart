@@ -26,8 +26,17 @@ class FfmpegMuxer {
   Future<void>? _init;
 
   /// True when the bundled FFmpeg responds. Cached after the first probe.
+  ///
+  /// Probing the plugin starts its native event channel, which the widget-test
+  /// harness has no handler for; `state.init()` calls this at startup, so an
+  /// unguarded probe would make any test that boots the app fail on the stray
+  /// platform exception. The merge path is never exercised under the test
+  /// binary, so report "unavailable" instead of touching the plugin.
   Future<bool> isAvailable() async {
     if (_available != null) return _available!;
+    if (Platform.environment.containsKey('FLUTTER_TEST')) {
+      return _available = false;
+    }
     try {
       _init ??= FFmpegKitConfig.init();
       await _init;

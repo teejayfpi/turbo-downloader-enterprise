@@ -1,6 +1,10 @@
 # 10.15 is the minimum required by the bundled FFmpeg plugin
 # (ffmpeg_kit_flutter_new_min), which also matches the app's
 # MACOSX_DEPLOYMENT_TARGET in Runner.xcodeproj.
+#
+# In-app web view (flutter_inappwebview) needs 10.15 too: its declared floor is
+# 10.14, but `ASWebAuthenticationPresentationContextProviding` is only available
+# from 10.15, so building against 10.14 fails on newer SDKs.
 platform :osx, '10.15'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
@@ -42,6 +46,12 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_macos_build_settings(target)
+    # flutter_additional_macos_build_settings lowers a pod back to its own
+    # declared floor (flutter_inappwebview_macos says 10.14), so pin the whole
+    # pods project to 10.15 to match the app and the code's real minimum.
+    target.build_configurations.each do |config|
+      config.build_settings['MACOSX_DEPLOYMENT_TARGET'] = '10.15'
+    end
   end
 
   # The FFmpeg plugin's setup script unzips prebuilt frameworks with `unzip`,
