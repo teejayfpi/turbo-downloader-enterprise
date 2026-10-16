@@ -27,7 +27,11 @@ void main() {
         message.contains('sign in to confirm') ||
         message.contains('needs to be reloaded') ||
         message.contains('restrictions in place') ||
-        message.contains('prevent watching');
+        message.contains('prevent watching') ||
+        // The app re-wraps the bare "unavailable" as "refused to serve this
+        // video"; both mean the same network block, so both are skips.
+        message.contains('refused to serve this video') ||
+        message.contains('is unavailable');
   }
 
   test('describe returns formats for a real video', () async {
