@@ -20,8 +20,9 @@ is stored anywhere but your device.
 
 - **Detects what a link is** — a file, a YouTube video, or any other supported
   platform — and picks the right engine automatically.
-- **Fast, resumable, multi-connection** downloads with a Turbo mode that splits
-  range-capable transfers across up to 16 parallel segments.
+- **Fast, resumable, multi-connection** downloads: always the fastest the host
+  allows, splitting range-capable transfers across up to 32 parallel segments.
+  No speed or segment settings to tune.
 - **Saves to the device** — Android's Downloads collection via MediaStore,
   or the OS Downloads folder on desktop.
 - **HD downloads on the device** — the built-in engine downloads YouTube's

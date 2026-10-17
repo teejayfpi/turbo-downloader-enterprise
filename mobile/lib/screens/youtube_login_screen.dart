@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../services/cookie_jar.dart';
 import '../state.dart';
+import '../theme.dart';
 import 'home_shell.dart';
 
 /// The widget-test harness has no web-view plugin, so the embedded browser
@@ -25,10 +26,11 @@ bool get _hasWebView => !Platform.environment.containsKey('FLUTTER_TEST');
 ///
 /// Pops the captured Netscape `cookies.txt` text, or null if cancelled.
 ///
-/// On first run the caller pushes this as [required]: the back button is
-/// intercepted so the user cannot slip past it, but "Not now" is still offered
-/// (with a confirmation) so a locked-out network never traps them. A normal
-/// sign-in from Settings leaves [required] false and can be dismissed freely.
+/// On first run the caller pushes this as [required]: sign-in is the only way
+/// forward. The back button is intercepted and there is no skip control, so a
+/// user cannot reach the app without a session — a logged-out client hits
+/// YouTube's bot checks immediately and would look broken. A normal sign-in
+/// from Settings leaves [required] false and can be dismissed freely.
 class YouTubeLoginScreen extends StatefulWidget {
   const YouTubeLoginScreen({super.key, this.required = false});
 
@@ -58,8 +60,8 @@ class _YouTubeLoginScreenState extends State<YouTubeLoginScreen> {
   Future<void> _checkSignedIn() async {
     final cookies = await CookieManager.instance()
         .getCookies(url: WebUri('https://www.youtube.com'));
-    final signedIn =
-        cookies.any((c) => _sessionCookies.contains(c.name) && c.value.isNotEmpty);
+    final signedIn = cookies
+        .any((c) => _sessionCookies.contains(c.name) && c.value.isNotEmpty);
     if (signedIn != _signedIn && mounted) {
       setState(() => _signedIn = signedIn);
     }
@@ -90,7 +92,8 @@ class _YouTubeLoginScreenState extends State<YouTubeLoginScreen> {
       if (!mounted) return;
       if (CookieJar.onlyYouTube(cookies).isEmpty) {
         setState(() => _capturing = false);
-        _snack('No YouTube cookies were captured. Make sure you are signed in.');
+        _snack(
+            'No YouTube cookies were captured. Make sure you are signed in.');
         return;
       }
       await _save(jar);
@@ -109,7 +112,6 @@ class _YouTubeLoginScreenState extends State<YouTubeLoginScreen> {
   Future<void> _save(String jar) async {
     final state = context.read<TurboState>();
     await state.setSessionCookies(jar);
-    await state.completeSignInPrompt();
     if (!mounted) return;
     if (widget.required) {
       Navigator.of(context).pushReplacement(
@@ -125,54 +127,13 @@ class _YouTubeLoginScreenState extends State<YouTubeLoginScreen> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
-  /// First-run gate only: confirm before letting the user continue without a
-  /// session. They can still proceed, so a network YouTube will not talk to
-  /// never traps them on this screen.
-  Future<void> _notNow() async {
-    final go = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Continue without signing in?'),
-        content: const Text(
-          'Turbo works without a YouTube session, but bot-checked, '
-          'age-restricted, private, and members-only videos need one. You can '
-          'sign in any time from Settings → Sign-in & cookies.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Keep signing in'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Continue anyway'),
-          ),
-        ],
-      ),
-    );
-    if (go == true && mounted) {
-      await context.read<TurboState>().completeSignInPrompt();
-      if (!mounted) return;
-      // On the gate this screen is the root route; replace it with the shell.
-      // If it was pushed from Settings, just pop back.
-      if (widget.required) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute<void>(builder: (_) => const HomeShell()),
-        );
-      } else {
-        Navigator.of(context).pop();
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return PopScope(
+      // On the first-run gate the screen is the only route: swallow the back
+      // gesture so the user cannot reach the app without signing in.
       canPop: !widget.required,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        _notNow();
-      },
+      onPopInvokedWithResult: (didPop, _) {},
       child: Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: !widget.required,
@@ -187,17 +148,11 @@ class _YouTubeLoginScreenState extends State<YouTubeLoginScreen> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               )
-            else ...[
+            else
               TextButton(
                 onPressed: _signedIn ? _capture : null,
                 child: const Text('Save'),
               ),
-              if (widget.required)
-                TextButton(
-                  onPressed: _notNow,
-                  child: const Text('Not now'),
-                ),
-            ],
           ],
         ),
         body: Column(
@@ -205,14 +160,31 @@ class _YouTubeLoginScreenState extends State<YouTubeLoginScreen> {
             if (!_signedIn)
               Container(
                 width: double.infinity,
-                color: Colors.amber.shade100,
-                padding: const EdgeInsets.all(10),
-                child: Text(
-                  widget.required
-                      ? 'Sign in to YouTube to finish setup. Turbo keeps you '
-                          'signed in and uses the session wherever a video '
-                          'needs it.'
-                      : 'Sign in below. Once you are back on YouTube, tap Save.',
+                color: context.palette.bgTertiary,
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.lock_outline_rounded,
+                        size: 18, color: context.palette.textSecondary),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        widget.required
+                            ? 'Sign in to YouTube to finish setup. Turbo keeps '
+                                'you signed in and uses the session wherever a '
+                                'video needs it.'
+                            : 'Sign in below. Once you are back on YouTube, tap '
+                                'Save.',
+                        style: TextStyle(
+                          fontFamily: TurboFonts.body,
+                          color: context.palette.textPrimary,
+                          fontSize: 12,
+                          height: 1.45,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             Expanded(

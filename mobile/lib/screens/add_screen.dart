@@ -34,7 +34,6 @@ class _AddScreenState extends State<AddScreen> {
 
   bool _submitting = false;
   bool _probing = false;
-  int _connections = 4;
 
   /// Whether the session-access fields are shown. Collapsed by default so the
   /// common case (a public link) stays a one-field form.
@@ -56,7 +55,6 @@ class _AddScreenState extends State<AddScreen> {
   @override
   void initState() {
     super.initState();
-    _connections = context.read<TurboState>().defaultConnections;
     _controller.addListener(_onUrlChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkClipboard());
   }
@@ -208,7 +206,6 @@ class _AddScreenState extends State<AddScreen> {
     state.addLink(
       url,
       filename: nameField.isEmpty ? null : nameField,
-      connections: _connections,
       engine: engine,
       mediaInfo: probe,
       formatSelector: isYtdlpFormat ? format?.id : null,
@@ -260,7 +257,6 @@ class _AddScreenState extends State<AddScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<TurboState>();
     final isPage = _isPage;
 
     return SingleChildScrollView(
@@ -293,7 +289,9 @@ class _AddScreenState extends State<AddScreen> {
                 hintText: 'Paste a video, audio, or file link',
                 prefixIcon: Icon(
                   isPage ? Icons.auto_awesome_rounded : Icons.link_rounded,
-                  color: isPage ? context.palette.accent : context.palette.textMuted,
+                  color: isPage
+                      ? context.palette.accent
+                      : context.palette.textMuted,
                   size: 20,
                 ),
                 suffixIcon: IconButton(
@@ -373,12 +371,6 @@ class _AddScreenState extends State<AddScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            _SpeedRow(
-              connections: _connections,
-              mode: state.speedMode,
-              onChanged: (v) => setState(() => _connections = v),
-            ),
-            const SizedBox(height: 18),
             _SessionPanel(
               expanded: _showSession,
               onToggle: () => setState(() => _showSession = !_showSession),
@@ -390,9 +382,8 @@ class _AddScreenState extends State<AddScreen> {
             TurboButton(
               busy: _submitting || _probing,
               onPressed: _submit,
-              icon: isPage
-                  ? Icons.auto_awesome_rounded
-                  : Icons.download_rounded,
+              icon:
+                  isPage ? Icons.auto_awesome_rounded : Icons.download_rounded,
               label: _probing
                   ? 'Inspecting'
                   : (isPage && _probe == null
@@ -528,9 +519,7 @@ class _DetectionBanner extends StatelessWidget {
       child: Row(
         children: [
           Icon(
-            inspected
-                ? Icons.check_circle_rounded
-                : Icons.auto_awesome_rounded,
+            inspected ? Icons.check_circle_rounded : Icons.auto_awesome_rounded,
             color: accent,
             size: 18,
           ),
@@ -557,84 +546,6 @@ class _DetectionBanner extends StatelessWidget {
                   : const Icon(Icons.search_rounded, size: 16),
               label: Text(probing ? 'Reading' : 'Choose quality'),
             ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SpeedRow extends StatelessWidget {
-  final int connections;
-  final SpeedMode mode;
-  final ValueChanged<int> onChanged;
-
-  const _SpeedRow({
-    required this.connections,
-    required this.mode,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
-    return TurboPanel(
-      padding: const EdgeInsets.all(14),
-      accentColor: accent,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.speed_rounded,
-                  color: context.palette.textMuted, size: 15),
-              const SizedBox(width: 8),
-              const Kicker('Parallel connections', letterSpacing: 1.6),
-              const Spacer(),
-              Text(
-                '$connections',
-                style: TextStyle(
-                  fontFamily: TurboFonts.mono,
-                  color: accent,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          Slider(
-            value: connections.toDouble().clamp(1, 16),
-            min: 1,
-            max: 16,
-            divisions: 15,
-            label: '$connections',
-            onChanged: (v) => onChanged(v.round()),
-          ),
-          Row(
-            children: [
-              Icon(Icons.bolt_rounded, size: 12, color: context.palette.textMuted),
-              const SizedBox(width: 5),
-              Text(
-                'Speed mode: ${mode.label}',
-                style: TextStyle(
-                  fontFamily: TurboFonts.mono,
-                  color: context.palette.textMuted,
-                  fontSize: 9.5,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'More connections can be faster, but some hosts limit them. Add '
-            'blocks get up to 16 parallel segments, so multi-file downloads run '
-            'wide at the same time.',
-            style: TextStyle(
-              fontFamily: TurboFonts.body,
-              color: context.palette.textMuted,
-              fontSize: 10,
-              height: 1.45,
-            ),
-          ),
         ],
       ),
     );
@@ -700,8 +611,8 @@ class _SessionPanel extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            _field(context, cookieController, 'Cookie',
-                'name=value; other=value'),
+            _field(
+                context, cookieController, 'Cookie', 'name=value; other=value'),
             const SizedBox(height: 10),
             _field(context, authController, 'Authorization', 'Bearer …'),
             const SizedBox(height: 10),
@@ -735,4 +646,3 @@ class _SessionPanel extends StatelessWidget {
     );
   }
 }
-

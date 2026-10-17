@@ -43,13 +43,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.speed_rounded,
+                Icon(Icons.bolt_rounded,
                     color: context.palette.textMuted, size: 15),
                 const SizedBox(width: 8),
-                const Kicker('Default connections', letterSpacing: 1.6),
+                const Kicker('Download speed', letterSpacing: 1.6),
                 const Spacer(),
                 Text(
-                  '${state.defaultConnections}',
+                  DownloadSpeed.label,
                   style: TextStyle(
                     fontFamily: TurboFonts.mono,
                     color: accent,
@@ -59,36 +59,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
-            Slider(
-              value: state.defaultConnections.toDouble(),
-              min: 1,
-              max: 32,
-              divisions: 31,
-              label: '${state.defaultConnections}',
-              onChanged: (v) => state.setDefaultConnections(v.round()),
-            ),
-            const _Hint(
-              'Segments used for new downloads. Range-capable hosts split the '
-              'transfer across these; others fall back to one.',
-            ),
-            const SizedBox(height: 14),
-            const Kicker('Speed mode', letterSpacing: 1.6),
-            const SizedBox(height: 8),
-            ModeSegment(
-              value: state.speedMode == SpeedMode.turbo ? 'turbo' : 'balanced',
-              onChanged: (v) => state.setSpeedMode(
-                  v == 'turbo' ? SpeedMode.turbo : SpeedMode.balanced),
-              options: const [
-                ModeSegmentOption(
-                    'balanced', Icons.shield_moon_rounded, 'Balanced'),
-                ModeSegmentOption('turbo', Icons.bolt_rounded, 'Turbo'),
-              ],
-            ),
             const SizedBox(height: 6),
-            _Hint(state.speedMode == SpeedMode.turbo
-                ? 'Turbo splits range-capable downloads across up to 16 '
-                    'segments for maximum speed.'
-                : 'Balanced uses fewer segments to stay gentle on hosts.'),
+            const _Hint(
+              'Turbo always downloads as fast as the host allows — up to 32 '
+              'parallel segments for a single file. It adds connections only '
+              'while the host keeps up, so there is nothing to tune.',
+            ),
             const SizedBox(height: 14),
             Row(
               children: [
@@ -116,27 +92,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               label: '${state.maxConcurrent}',
               onChanged: (v) => state.setMaxConcurrent(v.round()),
             ),
-            const _Hint('How many downloads run at the same time. Extra jobs wait in '
+            const _Hint(
+                'How many downloads run at the same time. Extra jobs wait in '
                 'the queue.'),
-            const SizedBox(height: 14),
-            const Kicker('Speed limit', letterSpacing: 1.6),
-            const SizedBox(height: 6),
-            ModeSegment(
-              value: '${state.speedLimitBps}',
-              onChanged: (v) => state.setSpeedLimit(int.parse(v)),
-              options: const [
-                ModeSegmentOption('0', Icons.all_inclusive_rounded, 'No cap'),
-                ModeSegmentOption('1048576', Icons.speed_rounded, '1 MB'),
-                ModeSegmentOption('5242880', Icons.speed_rounded, '5 MB'),
-                ModeSegmentOption('10485760', Icons.speed_rounded, '10 MB'),
-              ],
-            ),
-            const SizedBox(height: 6),
-            _Hint(state.speedLimitBps > 0
-                ? 'Total download speed is capped at '
-                    '${formatBytes(state.speedLimitBps)}/s across every running '
-                    'download.'
-                : 'No cap: downloads use all the bandwidth they can.'),
           ],
         ),
         const SizedBox(height: 16),
@@ -196,7 +154,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            if (!state.deviceState.charging || state.deviceState.batteryLevel >= 0)
+            if (!state.deviceState.charging ||
+                state.deviceState.batteryLevel >= 0)
               _InfoRow(
                 label: 'Device',
                 value: state.deviceState.batteryLevel >= 0
@@ -228,7 +187,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _ => ThemeMode.dark,
               }),
               options: const [
-                ModeSegmentOption('system', Icons.brightness_auto_rounded, 'System'),
+                ModeSegmentOption(
+                    'system', Icons.brightness_auto_rounded, 'System'),
                 ModeSegmentOption('light', Icons.light_mode_rounded, 'Light'),
                 ModeSegmentOption('dark', Icons.dark_mode_rounded, 'Dark'),
               ],
@@ -240,10 +200,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               value: state.localeCode ?? 'system',
               onChanged: (v) => state.setLocale(v == 'system' ? null : v),
               options: [
-                const ModeSegmentOption('system', Icons.translate_rounded, 'Auto'),
+                const ModeSegmentOption(
+                    'system', Icons.translate_rounded, 'Auto'),
                 for (final entry in TurboStrings.localeNames.entries)
-                  ModeSegmentOption(entry.key, Icons.language_rounded,
-                      entry.value),
+                  ModeSegmentOption(
+                      entry.key, Icons.language_rounded, entry.value),
               ],
             ),
             const SizedBox(height: 14),
@@ -456,9 +417,7 @@ class _StorageSection extends StatelessWidget {
         _StorageRow(
           icon: Icons.sd_storage_rounded,
           label: 'Available',
-          value: stats.freeBytes < 0
-              ? 'Unknown'
-              : formatBytes(stats.freeBytes),
+          value: stats.freeBytes < 0 ? 'Unknown' : formatBytes(stats.freeBytes),
           warn: stats.isLow || stats.isCritical,
         ),
         _StorageRow(
@@ -495,7 +454,8 @@ class _StorageSection extends StatelessWidget {
                 icon: Icons.folder_open_rounded,
                 outline: true,
                 onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const StorageScreen()),
+                  MaterialPageRoute<void>(
+                      builder: (_) => const StorageScreen()),
                 ),
               ),
             ),
@@ -646,7 +606,8 @@ class _UpdatesSectionState extends State<_UpdatesSection> {
             const SizedBox(height: 8),
           ],
           TurboButton(
-            label: state.updateInstalling ? 'Downloading…' : 'Download & install',
+            label:
+                state.updateInstalling ? 'Downloading…' : 'Download & install',
             icon: Icons.download_rounded,
             onPressed: state.updateInstalling ? null : _install,
           ),
@@ -736,16 +697,16 @@ class _EngineSection extends StatelessWidget {
         if (available)
           _InfoRow(
             label: 'JavaScript runtime',
-            value: state.jsRuntimeAvailable
-                ? 'Available'
-                : 'Auto-fetched solver',
+            value:
+                state.jsRuntimeAvailable ? 'Available' : 'Auto-fetched solver',
           ),
         if (available && !state.jsRuntimeAvailable) ...[
           const SizedBox(height: 10),
           Notice(
             icon: Icons.info_outline_rounded,
             color: p.accent,
-            text: 'No JavaScript runtime (deno or node) found, so Turbo fetches '
+            text:
+                'No JavaScript runtime (deno or node) found, so Turbo fetches '
                 'YouTube\'s signature solver automatically — it needs a network '
                 'connection on the first run. Installing deno or node makes it '
                 'faster and fully offline.',
@@ -780,43 +741,6 @@ class _EngineSection extends StatelessWidget {
                 fontSize: 10.5),
           ),
         ),
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          value: state.adaptiveConnections,
-          onChanged: state.setAdaptiveConnections,
-          title: Text('Adaptive acceleration',
-              style: TextStyle(
-                  fontFamily: TurboFonts.body,
-                  color: p.textPrimary,
-                  fontSize: 13)),
-          subtitle: Text(
-            'Start with a few connections and add more only when the host is '
-            'fast. Turn off to open the full width immediately.',
-            style: TextStyle(
-                fontFamily: TurboFonts.body,
-                color: p.textMuted,
-                fontSize: 10.5),
-          ),
-        ),
-        if (state.adaptiveConnections)
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            value: state.rememberHostSpeed,
-            onChanged: state.setRememberHostSpeed,
-            title: Text('Remember fast hosts',
-                style: TextStyle(
-                    fontFamily: TurboFonts.body,
-                    color: p.textPrimary,
-                    fontSize: 13)),
-            subtitle: Text(
-              'Start near the width a host proved last time, instead of '
-              'ramping from scratch. Slow hosts are never remembered.',
-              style: TextStyle(
-                  fontFamily: TurboFonts.body,
-                  color: p.textMuted,
-                  fontSize: 10.5),
-            ),
-          ),
         if (!available) ...[
           const Divider(height: 20),
           const Kicker('Install', letterSpacing: 1.6),
@@ -1070,7 +994,6 @@ class _CookieImportDialogState extends State<_CookieImportDialog> {
   }
 }
 
-
 class _AboutSection extends StatelessWidget {
   final TurboStrings strings;
   final Color accent;
@@ -1130,9 +1053,8 @@ class _ScheduleSection extends StatelessWidget {
     BuildContext context, {
     required bool isStart,
   }) async {
-    final current = isStart
-        ? state.scheduleStartMinute
-        : state.scheduleEndMinute;
+    final current =
+        isStart ? state.scheduleStartMinute : state.scheduleEndMinute;
     final picked = await showTimePicker(
       context: context,
       initialTime: TimeOfDay(hour: current ~/ 60, minute: current % 60),
@@ -1349,7 +1271,8 @@ class _ContactRow extends StatelessWidget {
               ),
             ),
             if (copyValue != null)
-              Icon(Icons.copy_rounded, size: 14, color: p.accent.withOpacity(0.7)),
+              Icon(Icons.copy_rounded,
+                  size: 14, color: p.accent.withOpacity(0.7)),
           ],
         ),
       ),

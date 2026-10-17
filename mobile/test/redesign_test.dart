@@ -39,7 +39,9 @@ void main() {
         (tester) async {
       await pumpScreen(tester, const AddScreen());
       expect(find.text('Link or file URL'.toUpperCase()), findsOneWidget);
-      expect(find.text('Parallel connections'.toUpperCase()), findsOneWidget);
+      // Speed and segment count are not user-tunable; the app is always fast.
+      expect(find.text('Parallel connections'.toUpperCase()), findsNothing);
+      expect(find.byType(Slider), findsNothing);
       expect(find.text('DOWNLOAD TO THIS DEVICE'.toUpperCase()), findsWidgets);
       // The old device/server segmented control is gone.
       expect(find.text('Server'), findsNothing);
@@ -49,7 +51,14 @@ void main() {
         (tester) async {
       await pumpScreen(tester, const SettingsScreen());
       expect(find.text('DEVICE ENGINE'.toUpperCase()), findsOneWidget);
-      expect(find.text('Default connections'.toUpperCase()), findsOneWidget);
+      // The speed is fixed, so there is no connections slider to tune.
+      expect(find.text('Download speed'.toUpperCase()), findsOneWidget);
+      expect(find.text('Default connections'.toUpperCase()), findsNothing);
+      // Nor a bandwidth cap, nor an adaptive/ramp toggle: the app always runs
+      // flat out and backs off by itself.
+      expect(find.text('Speed limit'.toUpperCase()), findsNothing);
+      expect(find.text('Adaptive acceleration'.toUpperCase()), findsNothing);
+      expect(find.text('Remember host speed'.toUpperCase()), findsNothing);
       // The accent picker sits below the fold on a short test surface.
       await tester.scrollUntilVisible(
         find.text('ACCENT COLOUR'.toUpperCase()),

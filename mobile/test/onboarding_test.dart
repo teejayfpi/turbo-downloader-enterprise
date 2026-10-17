@@ -37,7 +37,8 @@ class _ThrowingSettings extends SettingsStore {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<TurboState> pumpTour(WidgetTester tester, {SettingsStore? settings}) async {
+  Future<TurboState> pumpTour(WidgetTester tester,
+      {SettingsStore? settings}) async {
     final state = TurboState(settings: settings)..loading = false;
     addTearDown(state.dispose);
     await tester.pumpWidget(
@@ -66,8 +67,7 @@ void main() {
       expect(state.onboardingDone, isTrue);
     });
 
-    testWidgets('the last page advances via Start downloading',
-        (tester) async {
+    testWidgets('the last page advances via Start downloading', (tester) async {
       SharedPreferences.setMockInitialValues({});
       await pumpTour(tester);
 
@@ -137,17 +137,18 @@ void main() {
       final state = TurboState()..signInSupported = true;
       addTearDown(state.dispose);
 
-      // First launch: no prompt resolved, no session -> gate is shown.
+      // First launch: no session -> gate is shown.
       expect(state.needsFirstRunSignIn, isTrue);
 
-      // A signed-in session satisfies the gate without any prompt flag.
+      // A signed-in session satisfies the gate.
       state.sessionConfigured = true;
       expect(state.needsFirstRunSignIn, isFalse);
 
-      // Declining also satisfies it, even with no session.
+      // There is no skip: dropping the session brings the gate back, so a
+      // session is the only thing that clears it.
       state.sessionConfigured = false;
-      await state.completeSignInPrompt();
-      expect(state.needsFirstRunSignIn, isFalse);
+      expect(state.needsFirstRunSignIn, isTrue,
+          reason: 'a session is the only thing that clears the gate');
     });
 
     test('the gate never appears where there is no in-app sign-in', () {
@@ -158,22 +159,18 @@ void main() {
           reason: 'Linux has no embedded web view to host the gate');
     });
 
-    test('completeSignInPrompt persists across a restart', () async {
+    test('the gate tracks the session, not a persisted prompt flag', () async {
       SharedPreferences.setMockInitialValues({});
-      final first = TurboState();
-      addTearDown(first.dispose);
-      await first.init();
-      await first.completeSignInPrompt();
+      final state = TurboState()..signInSupported = true;
+      addTearDown(state.dispose);
+      await state.init();
 
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getBool(SettingsStore.kSignInPromptDone), isTrue);
-
-      final second = TurboState()..signInSupported = true;
-      addTearDown(second.dispose);
-      await second.init();
-      expect(second.signInPromptDone, isTrue);
-      expect(second.needsFirstRunSignIn, isFalse,
-          reason: 'a resolved prompt must not be shown again');
+      expect(state.needsFirstRunSignIn, isTrue);
+      state.sessionConfigured = true;
+      expect(state.needsFirstRunSignIn, isFalse);
+      state.sessionConfigured = false;
+      expect(state.needsFirstRunSignIn, isTrue,
+          reason: 'a session is the only thing that clears the gate');
     });
 
     testWidgets('the tour hands off to the sign-in gate when a session is due',
@@ -201,7 +198,34 @@ void main() {
       expect(state.onboardingDone, isTrue);
     });
 
-    testWidgets('first run goes splash -> onboarding -> home, then the next '
+    testWidgets('the sign-in gate offers no way past it', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final state = TurboState()..signInSupported = true;
+      addTearDown(state.dispose);
+      await tester.pumpWidget(
+        ChangeNotifierProvider<TurboState>.value(
+          value: state,
+          child: MaterialApp(
+            theme: buildTurboTheme(TurboAccents.of('cyan')),
+            home: const YouTubeLoginScreen(required: true),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // No skip control, and the back gesture cannot dismiss the gate.
+      expect(find.text('Not now'), findsNothing);
+      expect(find.text('Continue anyway'), findsNothing);
+      expect(find.text('Save'), findsOneWidget);
+      // PopScope is generic, so match by predicate rather than exact type.
+      final popScope = tester
+          .widgetList(find.byWidgetPredicate((w) => w is PopScope))
+          .single as PopScope<Object?>;
+      expect(popScope.canPop, isFalse);
+    });
+
+    testWidgets(
+        'first run goes splash -> onboarding -> home, then the next '
         'launch goes straight to home', (tester) async {
       SharedPreferences.setMockInitialValues({});
       final state = TurboState();

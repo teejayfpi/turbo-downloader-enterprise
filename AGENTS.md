@@ -449,17 +449,21 @@ Changing one without the others silently caps speed.
   a retry after a settings change (or a grid change between versions) stitches
   bytes at the wrong offsets. The plan is removed on completion and by
   `cleanupArtifacts`.
-- The mobile ceiling is 32 connections everywhere: `SpeedMode.turbo` returns 32,
-  `setDefaultConnections` clamps to 32, `LocalDownloader.maxConnections` is 32,
-  and `LocalDownloader.add` clamps to 32. A stray `clamp(1, 16)` silently undoes
-  Turbo mode.
+- The mobile download width is fixed, not a preference: `DownloadSpeed` in
+  `state.dart` is the single source (32 connections, ramp step 2, 16 ramp steps),
+  `LocalDownloader.maxConnections` is 32, and `LocalDownloader.add` clamps to 32.
+  `TurboState.addLink` ignores any caller-supplied width. There is deliberately
+  no user control over speed or segment count — a slower setting only makes
+  downloads slower, and the ramp backs off on a host that cannot feed the width.
+  A stray `clamp(1, 16)` silently undoes the fastest profile. The legacy
+  `turbo.speedMode` preference is deleted on load and never read.
 - Mobile adaptive acceleration (`LocalDownloader.adaptiveConnections`) starts a
   ranged transfer at `initialSegments` and ramps toward `task.connections`,
   splitting the segment with the most bytes *remaining*. The ramp adds
   `rampStepConnections` per window for at most `maxRampSteps` windows, so the
   reachable width is `initialSegments + rampStepConnections * maxRampSteps`;
-  `state.dart` sizes both from the speed mode (`SpeedMode.rampStep`/`rampSteps`)
-  or Turbo would top out far below its own 32-connection ceiling. A split
+  `state.dart` sizes both from `DownloadSpeed` (`rampStep`/`rampSteps`) or the
+  profile would top out far below its own 32-connection ceiling. A split
   appends the tail index, so `segmentStart`/`segmentEnd` are **not**
   byte-ascending and
   `segmentStart[i]` is not necessarily below the segment before it in the array.
@@ -528,16 +532,16 @@ Changing one without the others silently caps speed.
   to this flow rather than the generic "retry in a moment" wording.
 - First-run sign-in gate: after the tour, a capable platform shows
   `YouTubeLoginScreen(required: true)` as the root route (it has nothing to pop
-  to, so saving replaces itself with the shell). It is "mandatory" in the sense
-  that Back is intercepted (`PopScope`) and there is no skip on the page, but a
-  "Not now" action confirms once and persists so a locked-out network never
-  traps the user. `TurboState.needsFirstRunSignIn` is
-  `platform-capable && !signInPromptDone && !sessionConfigured`; the prompt flag
-  is a separate preference (`turbo.signInPromptDone`) so a declined prompt is not
-  shown again while a later-cleared session does not re-trigger it. `init()`
-  awaits `refreshSession()` before the splash hands off, so a returning user with
-  an existing session is not gated. `signInSupported` overrides the platform
-  check in tests (the harness has no web view).
+  to, so saving replaces itself with the shell). Sign-in is mandatory: Back is
+  swallowed by `PopScope` and there is no skip control on the page. A
+  logged-out client hits YouTube's bot checks immediately, so reaching the app
+  without a session would just look broken. `TurboState.needsFirstRunSignIn` is
+  `platform-capable && !sessionConfigured`; `completeSignInPrompt` still exists
+  and persists `turbo.signInPromptDone`, but nothing offers it any more, so the
+  gate is only satisfied by a real session. `init()` awaits `refreshSession()`
+  before the splash hands off, so a returning user with an existing session is
+  not gated. `signInSupported` overrides the platform check in tests (the
+  harness has no web view).
 - The signed-in session reaches **both** engines. yt-dlp gets `--cookies` /
   `--cookies-from-browser` via `SessionStore.applyTo`. The pure-Dart built-in
   extractor (`youtube_explode_dart`) reads none of that on its own — it sends
@@ -556,7 +560,7 @@ Changing one without the others silently caps speed.
   silently drops the whole login. `countCookies` and `cookieHeaderFromJar`
   both special-case it.
 - YouTube fragmented (HLS/DASH) sources are fetched over many connections via
-  yt-dlp `-N` (`concurrentFragments`), sized by the same `SpeedMode` width as
+  yt-dlp `-N` (`concurrentFragments`), sized by the same `DownloadSpeed` width as
   the built-in engine. Without it yt-dlp pulls one fragment at a time, which
   measured 14 s versus 1 s for a 1.25 MiB clip, so it is not optional for speed.
 - yt-dlp needs a solver for YouTube's signature challenge. The app prefers a

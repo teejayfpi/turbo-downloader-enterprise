@@ -21,38 +21,40 @@ import 'services/url_validator.dart';
 import 'services/youtube_browser.dart';
 import 'services/youtube_session.dart';
 
-/// How aggressively the built-in engine splits a download.
-enum SpeedMode {
-  /// Fewer connections; polite to the host.
-  balanced,
+/// The single, fixed speed profile. Turbo always downloads as fast as the host
+/// allows: the full connection width, opened as quickly as the host proves it
+/// can feed it. There is deliberately no user control over this — a slower
+/// setting only makes downloads slower, and the ramp already backs off on a
+/// host that cannot keep up.
+class DownloadSpeed {
+  const DownloadSpeed._();
 
-  /// More connections for the fastest transfer the host allows.
-  turbo;
+  /// Segment ceiling for a range-capable transfer.
+  static const int connections = 32;
 
-  int connections(int base) => switch (this) {
-        SpeedMode.balanced => base.clamp(1, 16),
-        SpeedMode.turbo => 32,
-      };
+  /// Connections added per ramp window.
+  static const int rampStep = 2;
 
-  /// Connections added per ramp window. Turbo climbs faster so a fast host
-  /// reaches its full width in a few windows instead of one per window.
-  int get rampStep => switch (this) {
-        SpeedMode.balanced => 1,
-        SpeedMode.turbo => 2,
-      };
+  /// Ramp evaluations allowed per transfer, enough to reach [connections] at
+  /// [rampStep] per window.
+  static const int rampSteps = 16;
 
-  /// Ramp evaluations allowed per transfer. Turbo needs enough steps to reach
-  /// its 32 connections at [rampStep] per window.
-  int get rampSteps => switch (this) {
-        SpeedMode.balanced => 8,
-        SpeedMode.turbo => 16,
-      };
+  /// Width for a multi-file download.
+  static const int multiFileConnections = 16;
 
-  String get label => switch (this) {
-        SpeedMode.balanced => 'Balanced',
-        SpeedMode.turbo => 'Turbo',
-      };
+  static const String label = 'Fastest';
 }
+
+/// Preference keys from when speed was user-selectable. They are no longer
+/// read; [TurboState._loadPreferences] deletes them so a stale value can never
+/// be mistaken for a live setting.
+const List<String> kLegacySpeedKeys = [
+  'turbo.speedMode',
+  'turbo.connections',
+  'turbo.adaptiveConnections',
+  'turbo.rememberHostSpeed',
+  'turbo.speedLimitBps',
+];
 
 /// The result of inspecting a media page with whichever engine can read it.
 class ProbeResult {
@@ -167,12 +169,6 @@ class TurboState extends ChangeNotifier {
 
   // ------------------------------------------------------------------ engine
 
-  /// Base segment count applied to new downloads.
-  int defaultConnections = 4;
-
-  /// Speed profile; Turbo raises the segment ceiling for range-capable hosts.
-  SpeedMode speedMode = SpeedMode.turbo;
-
   /// When true, non-YouTube sites and every format are routed through yt-dlp
   /// whenever it is installed. When false, YouTube uses the built-in extractor.
   bool preferEngine = true;
@@ -202,20 +198,6 @@ class TurboState extends ChangeNotifier {
   /// exclusive). A start after the end wraps past midnight, e.g. 22:00–06:00.
   int scheduleStartMinute = 60; // 01:00
   int scheduleEndMinute = 420; // 07:00
-
-  /// Global download speed cap in bytes per second. Zero means unlimited.
-  int speedLimitBps = 0;
-
-  /// Start ranged downloads with a small number of segments and add more as
-  /// the host proves able to feed them (adaptive acceleration). When off, the
-  /// full connection width is opened immediately.
-  bool adaptiveConnections = true;
-
-  /// Remember how wide a host let the ramp grow last time, so a repeat
-  /// download from that host starts near its proven width instead of ramping
-  /// from scratch. Only hosts that benefited are remembered; slow ones are not
-  /// penalised. Requires adaptive acceleration.
-  bool rememberHostSpeed = true;
 
   /// Notify when the whole queue finishes, every download, or never.
   NotificationStyle notifyStyle = NotificationStyle.onQueueComplete;
@@ -281,24 +263,15 @@ class TurboState extends ChangeNotifier {
   bool sessionConfigured = false;
   int sessionCookieCount = 0;
 
-  /// True once the first-run YouTube sign-in prompt has been resolved (signed
-  /// in, or explicitly declined). Kept separate from [sessionConfigured] so a
-  /// user who declines is not asked again, while a stale session that gets
-  /// cleared does not re-trigger the gate.
-  bool signInPromptDone = false;
-
   /// Overrides the platform sign-in capability in tests, where no web view is
   /// available. Null means detect from the platform.
   @visibleForTesting
   bool? signInSupported;
 
   /// True when the app should show the mandatory first-run YouTube sign-in:
-  /// it can host the web view, the prompt has never been resolved, and there is
-  /// no session yet (a returning user who signed in before the flag existed).
+  /// it can host the web view and there is no session yet.
   bool get needsFirstRunSignIn =>
-      (signInSupported ?? supportsInAppYouTubeSignIn) &&
-      !signInPromptDone &&
-      !sessionConfigured;
+      (signInSupported ?? supportsInAppYouTubeSignIn) && !sessionConfigured;
 
   /// The browser profile yt-dlp should read, when the user chose that route.
   String? sessionBrowser;
@@ -389,10 +362,11 @@ class TurboState extends ChangeNotifier {
   Future<void> _loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     accentKey = prefs.getString('turbo.accent') ?? 'cyan';
-    defaultConnections = prefs.getInt('turbo.connections') ?? 4;
-    speedMode = prefs.getString('turbo.speedMode') == 'balanced'
-        ? SpeedMode.balanced
-        : SpeedMode.turbo;
+    // Drop the legacy speed preferences: the speed is no longer a choice, so
+    // an old value must not be left behind to look like a live setting.
+    for (final key in kLegacySpeedKeys) {
+      await prefs.remove(key);
+    }
     preferEngine = prefs.getBool('turbo.preferredEngine') ?? true;
     playSound = prefs.getBool('turbo.playSound') ?? true;
     local.ytdlp.overridePath = prefs.getString('turbo.ytdlpPath');
@@ -408,31 +382,21 @@ class TurboState extends ChangeNotifier {
     scheduleEnabled = prefs.getBool(SettingsStore.kScheduleEnabled) ?? false;
     scheduleStartMinute = prefs.getInt(SettingsStore.kScheduleStart) ?? 60;
     scheduleEndMinute = prefs.getInt(SettingsStore.kScheduleEnd) ?? 420;
-    speedLimitBps = prefs.getInt(SettingsStore.kSpeedLimitBps) ?? 0;
     autoRetry = prefs.getBool(SettingsStore.kAutoRetry) ?? true;
-    adaptiveConnections =
-        prefs.getBool(SettingsStore.kAdaptiveConnections) ?? true;
-    rememberHostSpeed =
-        prefs.getBool(SettingsStore.kRememberHostSpeed) ?? true;
     notifyProgress = prefs.getBool(SettingsStore.kNotifyProgress) ?? false;
     checkUpdates = prefs.getBool(SettingsStore.kCheckUpdates) ?? true;
     onboardingDone = prefs.getBool(SettingsStore.kOnboardingDone) ?? false;
-    signInPromptDone =
-        prefs.getBool(SettingsStore.kSignInPromptDone) ?? false;
     updateChannel = _channelFrom(prefs.getString(SettingsStore.kUpdateChannel));
     notifyStyle =
         _notifyStyleFrom(prefs.getString(SettingsStore.kNotifyComplete));
     clipboardMonitor = prefs.getBool(SettingsStore.kClipboardMonitor) ?? false;
 
     _applySpeedMode();
-    local.adaptiveConnections = adaptiveConnections;
-    local.rememberHostSpeed = rememberHostSpeed;
     local.setOffPeakSchedule(
       enabled: scheduleEnabled,
       startMinute: scheduleStartMinute,
       endMinute: scheduleEndMinute,
     );
-    local.applySpeedLimit(speedLimitBps);
     local.maxConcurrent = maxConcurrent;
     if (!autoRetry) local.retryPolicy = RetryPolicy.none;
   }
@@ -469,11 +433,10 @@ class TurboState extends ChangeNotifier {
       unawaited(notifications.setProgress(active: 0, percent: 0));
       return;
     }
-    final running = local.tasks
-        .where((t) => t.isRunning || t.isQueued)
-        .toList();
-    final total = running.fold<int>(
-        0, (sum, t) => sum + (t.total > 0 ? t.total : 0));
+    final running =
+        local.tasks.where((t) => t.isRunning || t.isQueued).toList();
+    final total =
+        running.fold<int>(0, (sum, t) => sum + (t.total > 0 ? t.total : 0));
     final done = running.fold<int>(
         0, (sum, t) => sum + (t.total > 0 ? t.downloaded : 0));
     final percent = total > 0 ? ((done / total) * 100).round() : 0;
@@ -583,29 +546,12 @@ class TurboState extends ChangeNotifier {
     _safeNotify();
   }
 
-  /// Pushes the active speed mode onto the engine: the connection ceiling
-  /// and the ramp shape that reaches it.
+  /// Pushes the fixed fastest profile onto the engine. There is no user knob:
+  /// the ramp adapts to the host, so the widest useful setting is always best.
   void _applySpeedMode() {
-    local.maxConnections = speedMode.connections(defaultConnections);
-    local.rampStepConnections = speedMode.rampStep;
-    local.maxRampSteps = speedMode.rampSteps;
-  }
-
-  Future<void> setDefaultConnections(int value) async {
-    defaultConnections = value.clamp(1, 32);
-    _applySpeedMode();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('turbo.connections', defaultConnections);
-    _safeNotify();
-  }
-
-  Future<void> setSpeedMode(SpeedMode mode) async {
-    speedMode = mode;
-    _applySpeedMode();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-        'turbo.speedMode', mode == SpeedMode.turbo ? 'turbo' : 'balanced');
-    _safeNotify();
+    local.maxConnections = DownloadSpeed.connections;
+    local.rampStepConnections = DownloadSpeed.rampStep;
+    local.maxRampSteps = DownloadSpeed.rampSteps;
   }
 
   Future<void> setPreferEngine(bool value) async {
@@ -634,20 +580,6 @@ class TurboState extends ChangeNotifier {
     autoRetry = value;
     local.retryPolicy = value ? const RetryPolicy() : RetryPolicy.none;
     await settings.setBool(SettingsStore.kAutoRetry, value);
-    _safeNotify();
-  }
-
-  Future<void> setAdaptiveConnections(bool value) async {
-    adaptiveConnections = value;
-    local.adaptiveConnections = value;
-    await settings.setBool(SettingsStore.kAdaptiveConnections, value);
-    _safeNotify();
-  }
-
-  Future<void> setRememberHostSpeed(bool value) async {
-    rememberHostSpeed = value;
-    local.rememberHostSpeed = value;
-    await settings.setBool(SettingsStore.kRememberHostSpeed, value);
     _safeNotify();
   }
 
@@ -687,14 +619,6 @@ class TurboState extends ChangeNotifier {
     );
     await settings.setInt(SettingsStore.kScheduleStart, scheduleStartMinute);
     await settings.setInt(SettingsStore.kScheduleEnd, scheduleEndMinute);
-    _safeNotify();
-  }
-
-  /// Sets the global speed cap (bytes per second); 0 removes it.
-  Future<void> setSpeedLimit(int bytesPerSecond) async {
-    speedLimitBps = bytesPerSecond > 0 ? bytesPerSecond : 0;
-    local.applySpeedLimit(speedLimitBps);
-    await settings.setInt(SettingsStore.kSpeedLimitBps, speedLimitBps);
     _safeNotify();
   }
 
@@ -738,16 +662,6 @@ class TurboState extends ChangeNotifier {
     // tour is shown once more on the next launch.
     try {
       await settings.setBool(SettingsStore.kOnboardingDone, true);
-    } catch (_) {}
-  }
-
-  /// Marks the first-run YouTube sign-in prompt as resolved, so the gate is not
-  /// shown again whether the user signed in or chose to continue without one.
-  Future<void> completeSignInPrompt() async {
-    signInPromptDone = true;
-    _safeNotify();
-    try {
-      await settings.setBool(SettingsStore.kSignInPromptDone, true);
     } catch (_) {}
   }
 
@@ -1010,7 +924,6 @@ class TurboState extends ChangeNotifier {
   LocalTask? addLink(
     String url, {
     String? filename,
-    int? connections,
     String? engine,
     String? formatSelector,
     String? formatId,
@@ -1034,11 +947,13 @@ class TurboState extends ChangeNotifier {
       resolvedEngine = useYtdlp ? 'ytdlp' : 'http';
     }
 
-    final conns = speedMode.connections(connections ?? defaultConnections);
+    // The width is fixed: every transfer opens the full ceiling and the ramp
+    // backs off on its own if the host cannot feed it. A caller-supplied
+    // `connections` is ignored so nothing can quietly slow a download down.
     return local.addIfNew(
       trimmed,
       filename: filename ?? mediaInfo?.title,
-      connections: conns,
+      connections: DownloadSpeed.connections,
       kind: page ? 'media' : 'http',
       engine: resolvedEngine,
       formatSelector: formatSelector,
@@ -1088,8 +1003,7 @@ class TurboState extends ChangeNotifier {
         filename: probe?.title ?? video.title,
         engine: probe != null && probe.usedYtdlp ? 'ytdlp' : null,
         mediaInfo: probe,
-        formatSelector:
-            probe != null && probe.usedYtdlp ? format?.id : null,
+        formatSelector: probe != null && probe.usedYtdlp ? format?.id : null,
         formatId: probe != null && !probe.usedYtdlp ? format?.id : null,
         extensionHint: format?.extension,
       );
@@ -1109,18 +1023,17 @@ class TurboState extends ChangeNotifier {
   }
 
   /// Queues a plain download without any inspection (used by tests and the
-  /// direct-link flow).
+  /// direct-link flow). The width is always the fixed fastest profile.
   void addToDevice(
     String url, {
     String? filename,
-    int connections = 4,
     String kind = 'http',
     String engine = 'http',
   }) {
     local.add(
       url,
       filename: filename,
-      connections: speedMode.connections(connections),
+      connections: DownloadSpeed.connections,
       kind: kind,
       engine: engine,
     );

@@ -16,7 +16,6 @@ class SettingsStore {
   static const kThemeMode = 'turbo.themeMode';
   static const kLocale = 'turbo.locale';
   static const kOnboardingDone = 'turbo.onboardingDone';
-  static const kSignInPromptDone = 'turbo.signInPromptDone';
   static const kMaxConcurrent = 'turbo.maxConcurrent';
   static const kWifiOnly = 'turbo.wifiOnly';
   static const kBatteryAware = 'turbo.batteryAware';
@@ -26,12 +25,9 @@ class SettingsStore {
   static const kReducedMotion = 'turbo.reducedMotion';
   static const kTextScale = 'turbo.textScale';
   static const kAutoRetry = 'turbo.autoRetry';
-  static const kAdaptiveConnections = 'turbo.adaptiveConnections';
-  static const kRememberHostSpeed = 'turbo.rememberHostSpeed';
   static const kScheduleEnabled = 'turbo.scheduleEnabled';
   static const kScheduleStart = 'turbo.scheduleStart';
   static const kScheduleEnd = 'turbo.scheduleEnd';
-  static const kSpeedLimitBps = 'turbo.speedLimitBps';
   static const kUpdateChannel = 'turbo.updateChannel';
   static const kCheckUpdates = 'turbo.checkUpdates';
   static const kClipboardMonitor = 'turbo.clipboardMonitor';

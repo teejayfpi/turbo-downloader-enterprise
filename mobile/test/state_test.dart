@@ -82,8 +82,7 @@ void main() {
         diagnostics: Diagnostics(rootOverride: dir),
         secure: SecureStore(rootOverride: dir),
         updater: UpdateChecker(repo: '127.0.0.1:1/x'),
-      )
-        ..startBackgroundServices = false;
+      )..startBackgroundServices = false;
       addTearDown(state.dispose);
 
       // The preferences stage throws, but init must still reach the queue
@@ -103,7 +102,7 @@ void main() {
       addTearDown(state.dispose);
 
       // There is nothing to configure before downloading: no base URL, no key.
-      expect(state.defaultConnections, 4);
+      // The download width is fixed, so there is no speed setting to expose.
       expect(state.accentKey, 'cyan');
       expect(state.playSound, isTrue);
       expect(state.local.tasks, isEmpty);
@@ -166,8 +165,7 @@ void main() {
       // Probe attempted, but the task is queued anyway.
       expect(calls, 1);
       expect(result.queued, 1);
-      expect(state.local.tasks.single.url,
-          'https://www.youtube.com/watch?v=a');
+      expect(state.local.tasks.single.url, 'https://www.youtube.com/watch?v=a');
     });
 
     test('only the first probeLimit links are inspected up front', () async {
