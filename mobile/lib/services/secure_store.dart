@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'app_dirs.dart';
+
 /// A small key/value store for values that should not sit in plain
 /// `SharedPreferences`.
 ///
@@ -33,11 +35,16 @@ class SecureStore {
   static const _indexKey = 'turbo.secure.index';
 
   Future<File> _file() async {
-    final root = _rootOverride ??
-        Directory(
-            '${Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.'}/.turbo');
-    if (!await root.exists()) await root.create(recursive: true);
+    final root = await _root();
     return File('${root.path}/secure.json');
+  }
+
+  /// The directory holding `secure.json`. A test override wins; otherwise
+  /// [AppDirs] picks a writable location, so a missing `HOME` or a read-only
+  /// working directory cannot fail a session read.
+  Future<Directory> _root() async {
+    if (_rootOverride != null) return _rootOverride;
+    return AppDirs.data();
   }
 
   /// Writes [value] under [key], overwriting any previous value.

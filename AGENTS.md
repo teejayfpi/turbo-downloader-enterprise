@@ -363,6 +363,14 @@ it is not a filter.
   and the Android Keystore on Android. Desktop has no OS keychain: a local
   user with read access to the file can recover cookies. Treat that as
   accepted, not as safe.
+- `AppDirs.data()` owns the location of every state file (session, history,
+  desktop credentials). Never build it as `HOME ?? '.'` + `/.turbo`: with no
+  `HOME`/`USERPROFILE` that is a working-directory-relative path, and a
+  read-only cwd fails the session read with `OS Error: Read-only file system`,
+  which surfaces to the user as "Could not read the session" and blocks
+  sign-in. `AppDirs` tries `~/.turbo`, then `getApplicationSupportDirectory()`
+  (the only sensible Android location), then the temp directory, and only
+  returns a candidate it confirmed it could create.
 - yt-dlp's error text is surfaced to the user via `DownloadError.detail`, so
   do not add flags that echo secrets into stderr.
 

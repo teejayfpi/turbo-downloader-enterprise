@@ -1,7 +1,43 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:turbo_downloader/services/app_dirs.dart';
 import 'package:turbo_downloader/services/secure_store.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('default location', () {
+    // The reported failure: with no override the store resolved `./.turbo` and
+    // a read-only cwd made the session read throw. These drive the real
+    // no-override path (not the test-only rootOverride).
+    late Directory dir;
+
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      dir = Directory.systemTemp.createTempSync('secure-default');
+      AppDirs.testOverride = dir;
+    });
+    tearDown(() {
+      AppDirs.testOverride = null;
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+
+    test('round-trips a value without an explicit root', () async {
+      final store = SecureStore();
+      await store.write('session', 'cookie-jar');
+      expect(await SecureStore().read('session'), 'cookie-jar');
+    });
+
+    test('writes nothing outside the resolved directory', () async {
+      final store = SecureStore();
+      await store.write('session', 'cookie-jar');
+      final files = dir.listSync().map((e) => e.path).toList();
+      expect(files.any((p) => p.endsWith('secure.json')), isTrue);
+    });
+  });
+
   group('SecureStore.generate', () {
     test('honours the requested length', () {
       expect(SecureStore.generate(length: 12).length, 12);

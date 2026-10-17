@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../media_url.dart';
+import 'app_dirs.dart';
 
 /// One finished or failed transfer, kept for the history screen.
 ///
@@ -140,11 +141,10 @@ class HistoryStore {
   List<HistoryEntry> get entries => List.unmodifiable(_entries);
 
   Future<Directory> _root() async {
-    final dir = _rootOverride ??
-        Directory(
-            '${Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.'}/.turbo');
-    if (!await dir.exists()) await dir.create(recursive: true);
-    return dir;
+    if (_rootOverride != null) return _rootOverride;
+    // Same writable-location rule as the session store: never a
+    // working-directory-relative path, which is read-only in a sandbox.
+    return AppDirs.data();
   }
 
   Future<File> _file() async => File('${(await _root()).path}/history.json');
