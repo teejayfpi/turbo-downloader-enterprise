@@ -11,8 +11,8 @@ dependencies:
     sdk: flutter
   flutter_localizations:
     sdk: flutter
-  shared_preferences: ^2.3.2
-  path_provider: ^2.1.4
+  shared_preferences: ^2.5.6
+  path_provider: ^2.1.6
   open_filex: ^4.5.0
   provider: ^6.1.2
   youtube_explode_dart: ^3.1.0
@@ -22,32 +22,32 @@ dependencies:
   # Android Gradle script, which the Flutter 3.24 Gradle template does not
   # expose.
   app_links: ">=6.3.0 <6.4.0"
-  receive_sharing_intent: ^1.8.1
+  receive_sharing_intent: ^1.9.0
   # Embedded login for YouTube on mobile: the OS sandbox hides other apps'
   # cookies, so the user signs in here and we read the jar from the platform
   # cookie store.
   flutter_inappwebview: ^6.1.5
   desktop_drop: ^0.5.0
   # Opens external links from the app, e.g. the designer's WhatsApp chat.
-  url_launcher: ^6.3.0
+  url_launcher: ^6.3.3
   # SHA-256 fingerprints for credentials, checksums, and release verification.
   crypto: ^3.0.3
   # Bundled FFmpeg, used to merge the separate video and audio tracks that
   # YouTube serves above 360p. The `min` build keeps H.264/AAC and the MP4
   # muxer without the encoders we never use, so the APK stays small.
-  ffmpeg_kit_flutter_new_min: ^3.6.4
+  ffmpeg_kit_flutter_new_min: ^3.6.7
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
-  flutter_launcher_icons: ^0.13.1
+  flutter_launcher_icons: ^0.14.4
   # Used by media_extractor_test.dart to build canned stream metadata.
-  http_parser: ^4.0.0
+  http_parser: ^4.1.2
   # Lets session_test.dart point path_provider at a temp directory.
-  path_provider_platform_interface: ^2.1.0
+  path_provider_platform_interface: ^2.1.3
   # Lets state_test.dart simulate an unavailable preferences store.
-  shared_preferences_platform_interface: ^2.4.0
+  shared_preferences_platform_interface: ^2.4.2
 
 flutter:
   uses-material-design: true
