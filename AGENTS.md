@@ -105,7 +105,10 @@ These caused real, user-visible bugs. Do not regress them.
   file refusal.** `LocalDownloadManager` hands the failing URL into the
   classifier (`_classify(error, url: task.fetchUrl)` → `DownloadError.from(…,
   url:)`), so `DownloadErrors.httpStatus(status, url:)` can tell YouTube from a
-  generic host. On YouTube the message names the in-app sign-in and is
+  generic host. The URL that actually fails is the **resolved stream**, which
+  lives on YouTube's media CDN (`*.googlevideo.com`), not the page host — so the
+  check must match `isYouTubeUrl(url) || isYouTubeMediaUrl(url)`, or the branch
+  never fires. On YouTube the message names the in-app sign-in and is
   **retryable** (a signed-in session clears it); elsewhere it stays the generic
   "refused access to this file" with the cookie/region advice. Keep the URL
   threaded through any new HTTP throw site, or the host-aware branch is lost.

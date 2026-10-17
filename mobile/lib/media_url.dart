@@ -89,6 +89,25 @@ bool isYouTubeUrl(String url) {
       host.endsWith('.youtube-nocookie.com');
 }
 
+/// True when [url] is served by YouTube's media CDN (`*.googlevideo.com`) or
+/// its thumbnail host (`*.ytimg.com`).
+///
+/// A media task is resolved to a signed stream URL on one of these hosts before
+/// it is fetched, so a 403 there is the *same* signed-in bot check as a 403 on
+/// the page, and must be explained the same way. Kept separate from
+/// [isYouTubeUrl] because engine selection keys off the page host: a
+/// `googlevideo.com` stream URL is an ordinary file fetch, not a page to
+/// extract.
+bool isYouTubeMediaUrl(String url) {
+  final uri = Uri.tryParse(url.trim());
+  if (uri == null) return false;
+  final host = uri.host.toLowerCase();
+  return host == 'googlevideo.com' ||
+      host.endsWith('.googlevideo.com') ||
+      host == 'ytimg.com' ||
+      host.endsWith('.ytimg.com');
+}
+
 /// True when a link has no recognisable file extension, which usually means it
 /// is a page (to be resolved by an extractor) rather than a file to fetch.
 ///

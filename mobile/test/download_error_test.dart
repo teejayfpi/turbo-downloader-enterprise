@@ -89,6 +89,19 @@ void main() {
     expect(error.retryable, isFalse);
   });
 
+  test('a 403 on the YouTube media CDN is explained as the bot check', () {
+    // The real failure lands on the resolved stream host, not the page host:
+    // the page resolved, then the CDN refused the bytes.
+    final error = DownloadErrors.httpStatus(
+      403,
+      url: 'https://rr3---sn-abc.googlevideo.com/videoplayback?expire=1',
+    );
+    expect(error.kind, DownloadErrorKind.forbidden);
+    expect(error.message, contains('YouTube'));
+    expect(error.advice, contains('Sign-in & cookies'));
+    expect(error.retryable, isTrue);
+  });
+
   test('httpStatus carries the URL so the 403 can be host-aware', () {
     final error = DownloadErrors.httpStatus(
       403,

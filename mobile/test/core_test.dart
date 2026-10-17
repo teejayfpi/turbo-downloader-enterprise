@@ -42,6 +42,28 @@ void main() {
       expect(isYouTubeUrl('https://soundcloud.com/artist/track'), isFalse);
       expect(isYouTubeUrl('https://example.com/file.zip'), isFalse);
     });
+
+    test('excludes the media CDN, which is a file host, not a page', () {
+      expect(
+          isYouTubeUrl('https://rr3---sn-abc.googlevideo.com/videoplayback'),
+          isFalse);
+    });
+  });
+
+  group('isYouTubeMediaUrl', () {
+    test('recognises the media CDN and thumbnail hosts', () {
+      expect(
+          isYouTubeMediaUrl(
+              'https://rr3---sn-abc.googlevideo.com/videoplayback?expire=1'),
+          isTrue);
+      expect(
+          isYouTubeMediaUrl('https://i.ytimg.com/vi/abc/hqdefault.jpg'), isTrue);
+    });
+
+    test('leaves the page host and unrelated hosts alone', () {
+      expect(isYouTubeMediaUrl('https://www.youtube.com/watch?v=abc'), isFalse);
+      expect(isYouTubeMediaUrl('https://example.com/file.zip'), isFalse);
+    });
   });
 
   group('formatBytes', () {

@@ -168,12 +168,15 @@ class DownloadError implements Exception {
       case 403:
         // On YouTube a 403 is the signed-in bot wall, not a file that merely
         // wants cookies: a logged-out client is refused even for public
-        // videos. Point at the in-app sign-in, which is what actually fixes it.
-        if (url != null && isYouTubeUrl(url)) {
+        // videos. The block lands on the media CDN (`*.googlevideo.com`) after
+        // the page resolves, so match both the page host and the CDN. Point at
+        // the in-app sign-in, which is what actually fixes it.
+        if (url != null && (isYouTubeUrl(url) || isYouTubeMediaUrl(url))) {
           return DownloadError(
             DownloadErrorKind.forbidden,
             'YouTube refused to serve this download (HTTP 403). This is its '
-            'bot check, which a signed-in session clears.',
+            'bot check: sign in with the in-app YouTube login, or add cookies '
+            'in Settings → Sign-in & cookies, then retry.',
             advice: 'Sign in from Settings → Sign-in & cookies, then retry. '
                 'If you are already signed in, the network you are on is '
                 'likely blocked by YouTube — try a different one.',
