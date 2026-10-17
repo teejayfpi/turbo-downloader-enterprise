@@ -61,7 +61,9 @@ route is closest to hand:
   (Android share sheet).
 - **Open with Turbo** — tap a link and pick Turbo; the app registers for
   `http`/`https` links (Android intent filter), so a browser's *Open in app*
-  works.
+  works. Turbo also lists `video/*` and `audio/*`, so when a browser offers a
+  *download with* chooser for a media file, Turbo appears there alongside the
+  system download manager.
 - **Drag and drop** — on Windows/Linux/macOS, drag a link straight from the
   browser onto the window; a drop overlay appears and the Add screen opens.
 - **Launch argument / deep link** — the desktop build also reads a URL passed on

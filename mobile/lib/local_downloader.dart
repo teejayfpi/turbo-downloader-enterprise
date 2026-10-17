@@ -1309,7 +1309,7 @@ class LocalDownloadManager extends ChangeNotifier {
   /// retry with exponential backoff when the failure is transient and attempts
   /// remain.
   Future<void> _handleFailure(LocalTask task, Object error) async {
-    final failure = _classify(error);
+    final failure = _classify(error, url: task.fetchUrl);
     task.error = failure.message;
     task.errorKind = failure.kind.name;
     task.errorDetail = failure.technicalDetails;
@@ -1333,7 +1333,7 @@ class LocalDownloadManager extends ChangeNotifier {
     if (failure.retryable) onGaveUp?.call(task);
   }
 
-  static DownloadError _classify(Object error) {
+  static DownloadError _classify(Object error, {String? url}) {
     if (error is MediaResolveException) {
       return DownloadError(DownloadErrorKind.media, error.message);
     }
@@ -1370,7 +1370,7 @@ class LocalDownloadManager extends ChangeNotifier {
         retryable: transient || refused,
       );
     }
-    return DownloadError.from(error);
+    return DownloadError.from(error, url: url);
   }
 
   void _scheduleRetry(Duration delay) {
@@ -1560,7 +1560,7 @@ class LocalDownloadManager extends ChangeNotifier {
     if (res.statusCode != HttpStatus.ok &&
         res.statusCode != HttpStatus.partialContent) {
       await res.drain<void>();
-      throw DownloadErrors.httpStatus(res.statusCode);
+      throw DownloadErrors.httpStatus(res.statusCode, url: url);
     }
     final sink = file.openWrite();
     var done = 0;
@@ -1855,7 +1855,7 @@ class LocalDownloadManager extends ChangeNotifier {
       } else if (res.statusCode != HttpStatus.ok &&
           res.statusCode != HttpStatus.partialContent) {
         await res.drain<void>();
-        throw DownloadErrors.httpStatus(res.statusCode);
+        throw DownloadErrors.httpStatus(res.statusCode, url: task.fetchUrl);
       }
       if (restarted) done = 0;
 

@@ -64,4 +64,42 @@ void main() {
     final error = DownloadError.from(DownloadErrors.storageUnavailable);
     expect(identical(error, DownloadErrors.storageUnavailable), isTrue);
   });
+
+  test('a 403 on YouTube is explained as the sign-in bot check', () {
+    final error = DownloadError.from(
+      const HttpException('Server responded 403'),
+      url: 'https://www.youtube.com/watch?v=abc123',
+    );
+    expect(error.kind, DownloadErrorKind.forbidden);
+    expect(error.message, contains('YouTube'));
+    // The advice must name the in-app sign-in, not a generic cookie import.
+    expect(error.advice, contains('Sign-in & cookies'));
+    // The bot check clears once signed in, so a retry is worthwhile.
+    expect(error.retryable, isTrue);
+  });
+
+  test('a 403 on a non-YouTube host keeps the generic cookie advice', () {
+    final error = DownloadError.from(
+      const HttpException('Server responded 403'),
+      url: 'https://example.com/private.zip',
+    );
+    expect(error.kind, DownloadErrorKind.forbidden);
+    expect(error.message, 'The server refused access to this file.');
+    expect(error.message, isNot(contains('YouTube')));
+    expect(error.retryable, isFalse);
+  });
+
+  test('httpStatus carries the URL so the 403 can be host-aware', () {
+    final error = DownloadErrors.httpStatus(
+      403,
+      url: 'https://youtu.be/abc123',
+    );
+    expect(error.kind, DownloadErrorKind.forbidden);
+    expect(error.message, contains('YouTube'));
+  });
+
+  test('a 403 with no URL falls back to the generic message', () {
+    final error = DownloadError.from(const HttpException('Server responded 403'));
+    expect(error.message, 'The server refused access to this file.');
+  });
 }

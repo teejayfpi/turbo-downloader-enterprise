@@ -65,6 +65,23 @@
                 <data android:scheme="http"/>
             </intent-filter>
 
+            <!-- Be offered when the device asks which app should handle a
+                 media link ("Open with" / the browser's download chooser).
+                 Android only matches an app for an intent that carries a MIME
+                 type if the filter lists that type, so a plain scheme filter
+                 above is not enough for a video/audio link: the browser sends
+                 `video/*` or `audio/*`, which this filter matches. Same pattern
+                 the reference Android downloaders use. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="http"/>
+                <data android:scheme="https"/>
+                <data android:mimeType="video/*"/>
+                <data android:mimeType="audio/*"/>
+            </intent-filter>
+
             <!-- Custom handoff from the browser extension and other helpers:
                  turbo://add?url=https%3A%2F%2F… -->
             <intent-filter>

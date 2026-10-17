@@ -101,6 +101,14 @@ These caused real, user-visible bugs. Do not regress them.
   unlock full HD (video-only 1080p) and a merged download with ffmpeg. So a
   desktop needs yt-dlp **and** `yt-dlp-ejs` **and** deno/node **and** cookies —
   a signed-in cookie with no runtime still yields storyboards.
+- **A direct-fetch 403 on a YouTube media URL is the bot check, not a plain
+  file refusal.** `LocalDownloadManager` hands the failing URL into the
+  classifier (`_classify(error, url: task.fetchUrl)` → `DownloadError.from(…,
+  url:)`), so `DownloadErrors.httpStatus(status, url:)` can tell YouTube from a
+  generic host. On YouTube the message names the in-app sign-in and is
+  **retryable** (a signed-in session clears it); elsewhere it stays the generic
+  "refused access to this file" with the cookie/region advice. Keep the URL
+  threaded through any new HTTP throw site, or the host-aware branch is lost.
 - **`app.set('trust proxy', 1)` is required behind Render's proxy.**
   `express-rate-limit` otherwise aborts every proxied request with
   `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR`, which shows up as intermittent 502s.
@@ -177,6 +185,13 @@ These caused real, user-visible bugs. Do not regress them.
   desktop platforms reveal the file in the file manager instead. The designer's
   WhatsApp link lives in `lib/credits.dart` and is opened with `url_launcher`
   through `WhatsAppTile` (`lib/contact.dart`).
+- **Turbo is a candidate in the system "Open with" chooser.** The Android
+  manifest declares `VIEW`/`BROWSABLE` filters for `http`/`https`, plus one that
+  also lists `video/*` and `audio/*`. The MIME-listing filter is required: a
+  browser sends a media download with a `video/*`/`audio/*` type, and Android
+  only offers an app for a typed intent when a filter names that type, so the
+  plain scheme filter alone is not enough. `test/android_manifest_test.dart`
+  guards this — keep the filter when editing the manifest.
 - **Keep desktop green too.** `flutter create --platforms=windows,linux,macos`
   generated the runner folders; the in-app splash and the file store are
   cross-platform, and `flutter analyze && flutter test` cover them. CI runs the

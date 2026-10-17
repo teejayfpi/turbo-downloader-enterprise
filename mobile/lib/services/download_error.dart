@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import '../media_url.dart';
+
 /// The category of a download failure. The UI uses it to choose an icon, a
 /// colour, and whether a retry makes sense.
 enum DownloadErrorKind {
@@ -51,7 +53,11 @@ class DownloadError implements Exception {
   });
 
   /// Classifies a thrown object into an actionable [DownloadError].
-  factory DownloadError.from(Object error, {String? context}) {
+  ///
+  /// [url] is the resource that failed. It lets a 403 be explained honestly:
+  /// on YouTube that status is the signed-in bot check, not a generic "add
+  /// cookies" refusal, so the advice names the in-app sign-in instead.
+  factory DownloadError.from(Object error, {String? context, String? url}) {
     if (error is DownloadError) return error;
     final text = error.toString();
     final lower = text.toLowerCase();
@@ -88,7 +94,7 @@ class DownloadError implements Exception {
     }
 
     if (error is HttpException) {
-      return _fromHttpText(text);
+      return _fromHttpText(text, url: url);
     }
 
     // A stalled connection is a timeout, not the opaque "stopped
@@ -153,13 +159,28 @@ class DownloadError implements Exception {
     );
   }
 
-  static DownloadError _fromHttpText(String text) {
+  static DownloadError _fromHttpText(String text, {String? url}) {
     final status = int.tryParse(
       RegExp(r'(\d{3})').firstMatch(text)?.group(1) ?? '',
     );
     switch (status) {
       case 401:
       case 403:
+        // On YouTube a 403 is the signed-in bot wall, not a file that merely
+        // wants cookies: a logged-out client is refused even for public
+        // videos. Point at the in-app sign-in, which is what actually fixes it.
+        if (url != null && isYouTubeUrl(url)) {
+          return DownloadError(
+            DownloadErrorKind.forbidden,
+            'YouTube refused to serve this download (HTTP 403). This is its '
+            'bot check, which a signed-in session clears.',
+            advice: 'Sign in from Settings → Sign-in & cookies, then retry. '
+                'If you are already signed in, the network you are on is '
+                'likely blocked by YouTube — try a different one.',
+            detail: text,
+            retryable: true,
+          );
+        }
         return DownloadError(
           DownloadErrorKind.forbidden,
           'The server refused access to this file.',
@@ -295,6 +316,6 @@ class DownloadErrors {
         retryable: true,
       );
 
-  static DownloadError httpStatus(int status) =>
-      DownloadError.from(HttpException('Server responded $status'));
+  static DownloadError httpStatus(int status, {String? url}) =>
+      DownloadError.from(HttpException('Server responded $status'), url: url);
 }
