@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import 'services/network_errors.dart';
+import 'services/youtube_limits.dart';
 import 'services/ytdlp_android.dart';
 
 /// The result of asking yt-dlp to describe a page.
@@ -757,6 +758,10 @@ class YtdlpEngine {
       return 'This video needs a signed-in session. Open Settings → Sign-in & '
           'cookies and add your YouTube cookies, then retry.';
     }
+    // YouTube's IP rate-limit notice is not a sign-in wall, and the generic
+    // "retry in a moment" advice understates it — the app has a dedicated
+    // explanation (and a network-switch suggestion) for this exact page.
+    if (isYouTubeRateLimit(text)) return youTubeRateLimitMessage;
     // A hostname that cannot be resolved is a device/network problem, not a
     // transient server hiccup: the "retry in a moment" advice below would be
     // misleading, and "connection failed partway through" is plainly wrong.

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:turbo_downloader/services/network_errors.dart';
+import 'package:turbo_downloader/services/youtube_limits.dart';
 import 'package:turbo_downloader/services/ytdlp_android.dart';
 import 'package:turbo_downloader/ytdlp.dart';
 
@@ -181,6 +182,20 @@ void main() {
     expect(YtdlpEngine.friendlyMessage('ERROR: $dns'), offlineOrDnsMessage);
     // It must not be classified as a transient server hiccup.
     expect(YtdlpEngine.looksLikeTransientNetwork(dns), isFalse);
+  });
+
+  test('a YouTube rate-limit gets its own explanation, not "retry in a moment"',
+      () {
+    // Previously this fell through to the generic transient wording, which
+    // understates an IP rate limit and hides the network-switch advice.
+    expect(
+      YtdlpEngine.friendlyMessage('ERROR: HTTP Error 429: Too Many Requests'),
+      youTubeRateLimitMessage,
+    );
+    expect(
+      YtdlpEngine.friendlyMessage('ERROR: YouTube is rate-limiting this network'),
+      youTubeRateLimitMessage,
+    );
   });
 
   test('transient network text is recognised separately from a sign-in wall',
