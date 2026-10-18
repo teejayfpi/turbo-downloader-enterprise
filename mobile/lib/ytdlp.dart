@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'services/network_errors.dart';
 import 'services/ytdlp_android.dart';
 
 /// The result of asking yt-dlp to describe a page.
@@ -756,6 +757,10 @@ class YtdlpEngine {
       return 'This video needs a signed-in session. Open Settings → Sign-in & '
           'cookies and add your YouTube cookies, then retry.';
     }
+    // A hostname that cannot be resolved is a device/network problem, not a
+    // transient server hiccup: the "retry in a moment" advice below would be
+    // misleading, and "connection failed partway through" is plainly wrong.
+    if (looksLikeOfflineOrDns(text)) return offlineOrDnsMessage;
     if (looksLikeTransientNetwork(text)) {
       return 'The connection to the media server failed partway through. This '
           'is usually temporary — retry in a moment.';

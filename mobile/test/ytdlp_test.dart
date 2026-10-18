@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:turbo_downloader/services/network_errors.dart';
 import 'package:turbo_downloader/services/ytdlp_android.dart';
 import 'package:turbo_downloader/ytdlp.dart';
 
@@ -165,6 +166,21 @@ void main() {
         contains('JavaScript runtime'),
       )),
     );
+  });
+
+  test('a DNS failure is explained, not reported as a dropped connection', () {
+    // The exact shape Android surfaces when a hostname cannot be resolved.
+    const dns = 'SocketException: Failed host lookup: \'www.youtube.com\' '
+        '(OS Error: No address associated with hostname, errno = 7)';
+    expect(looksLikeOfflineOrDns(dns), isTrue);
+    // Python (the embedded engine) words the same failure differently.
+    expect(
+      looksLikeOfflineOrDns('[Errno -2] Name or service not known'),
+      isTrue,
+    );
+    expect(YtdlpEngine.friendlyMessage('ERROR: $dns'), offlineOrDnsMessage);
+    // It must not be classified as a transient server hiccup.
+    expect(YtdlpEngine.looksLikeTransientNetwork(dns), isFalse);
   });
 
   test('transient network text is recognised separately from a sign-in wall',

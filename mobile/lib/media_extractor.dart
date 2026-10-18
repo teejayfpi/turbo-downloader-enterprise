@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 
+import 'services/network_errors.dart';
 import 'services/youtube_limits.dart';
 import 'services/youtube_session.dart';
 
@@ -259,14 +261,14 @@ class MediaExtractor {
       if (isYouTubeRateLimit(e.message)) {
         throw const MediaResolveException(youTubeRateLimitMessage);
       }
-      throw MediaResolveException('Could not read this page: ${e.message}');
+      throw MediaResolveException(readFailureMessage(e.message));
     } on MediaResolveException {
       rethrow;
     } catch (e) {
       if (isYouTubeRateLimit('$e')) {
         throw const MediaResolveException(youTubeRateLimitMessage);
       }
-      throw MediaResolveException('Could not read this page: $e');
+      throw MediaResolveException(readFailureMessage('$e'));
     } finally {
       client.close();
     }
@@ -331,17 +333,30 @@ class MediaExtractor {
       if (isYouTubeRateLimit(e.message)) {
         throw const MediaResolveException(youTubeRateLimitMessage);
       }
-      throw MediaResolveException('Could not read this page: ${e.message}');
+      throw MediaResolveException(readFailureMessage(e.message));
     } on MediaResolveException {
       rethrow;
     } catch (e) {
       if (isYouTubeRateLimit('$e')) {
         throw const MediaResolveException(youTubeRateLimitMessage);
       }
-      throw MediaResolveException('Could not resolve this page: $e');
+      throw MediaResolveException(readFailureMessage('$e', verb: 'resolve'));
     } finally {
       client.close();
     }
+  }
+
+  /// Turns a raw extractor/network failure into a user-facing sentence.
+  ///
+  /// A name-resolution failure (device offline, DNS outage, VPN filtering the
+  /// host) is the one case worth naming: it is common on mobile, has concrete
+  /// fixes, and would otherwise surface as an unreadable `SocketException`
+  /// dump. Everything else keeps the existing "could not read this page"
+  /// wording, which the retry and fallback logic already understands.
+  @visibleForTesting
+  static String readFailureMessage(String raw, {String verb = 'read'}) {
+    if (looksLikeOfflineOrDns(raw)) return offlineOrDnsMessage;
+    return 'Could not $verb this page: $raw';
   }
 
   static final _apiClients = [

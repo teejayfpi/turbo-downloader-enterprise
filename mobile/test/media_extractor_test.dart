@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http_parser/http_parser.dart';
 import 'package:turbo_downloader/media_extractor.dart';
+import 'package:turbo_downloader/services/network_errors.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 
 final _videoId = yt.VideoId('dQw4w9WgXcQ');
@@ -170,6 +171,27 @@ void main() {
       expect(resolved.extension, 'm4a');
       expect(resolved.url, _url.toString());
       expect(resolved.needsMux, isFalse);
+    });
+
+    test('a DNS failure is explained, not dumped as a raw SocketException',
+        () {
+      // A name-resolution failure reaches the catch-all clause (it is not a
+      // YoutubeExplodeException), which used to interpolate the raw exception
+      // into the user-facing text.
+      const raw = 'ClientException with SocketException: Failed host lookup: '
+          "'www.youtube.com' (OS Error: No address associated with hostname, "
+          'errno = 7)';
+      expect(MediaExtractor.readFailureMessage(raw), offlineOrDnsMessage);
+      // An ordinary failure keeps the wording the retry logic understands.
+      expect(
+        MediaExtractor.readFailureMessage('unexpected response'),
+        'Could not read this page: unexpected response',
+      );
+      expect(
+        MediaExtractor.readFailureMessage('unexpected response',
+            verb: 'resolve'),
+        'Could not resolve this page: unexpected response',
+      );
     });
   });
 }
