@@ -333,6 +333,21 @@ These caused real, user-visible bugs. Do not regress them.
   task queued before `init()` finishes reports an actionable storage error
   rather than "The download stopped unexpectedly. / Null check operator used on
   a null value".
+- **On Android, yt-dlp is embedded, not installed.** The APK bundles CPython,
+  yt-dlp, ffmpeg, and quickjs through `youtubedl-android` (GPL-3.0), exposed by
+  `android/.../YtdlpChannel.kt` and `lib/services/ytdlp_android.dart`.
+  `YtdlpEngine.locate()` returns a sentinel there instead of a path, and
+  `probe`/`download` branch to the bridge; the argument vectors, `-J` parsing,
+  and `_friendly` error text are shared with desktop so both behave the same.
+  Desktop still spawns a real binary. Never add a `--js-runtimes` flag on
+  Android — the native side always passes its bundled quickjs, and a second one
+  is a hard failure. The bridge's completion is polled (not pushed) so the UI
+  thread stays free and the poll doubles as cancellation.
+- **This project is GPL-3.0, not MIT.** Linking the GPL-3.0
+  `youtubedl-android` library makes the whole combined work GPL-3.0. Do not
+  reintroduce an MIT badge or relicense to a permissive licence while the
+  Android build embeds that library; keep the upstream attributions (yt-dlp,
+  FFmpeg, youtubedl-android) intact.
 - **The generic yt-dlp extractor emits `vcodec: null`.** A direct `.mp4`/`.mp3`
   link has both codecs unknown; `_parseProbe` keeps it as a single combined
   format instead of dropping the only entry, which otherwise leaves the picker

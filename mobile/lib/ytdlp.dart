@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'services/ytdlp_android.dart';
+
 /// The result of asking yt-dlp to describe a page.
 ///
 /// [formats] are ordered best-first and each carries a ready-to-use yt-dlp
@@ -90,6 +92,9 @@ class YtdlpEngine {
   String? _cachedBinary;
   bool _searched = false;
 
+  /// True on Android, where yt-dlp is embedded rather than found on `PATH`.
+  bool get _isAndroid => !kIsWeb && Platform.isAndroid;
+
   static String? _cachedJsRuntime;
   static bool _searchedJs = false;
 
@@ -116,6 +121,9 @@ class YtdlpEngine {
   /// challenge. Without one yt-dlp only sees storyboard images on many videos,
   /// so a signed-in cookie alone is not enough. Cached after the first probe.
   static Future<String?> jsRuntime() async {
+    // Android bundles quickjs and the native bridge wires it into every yt-dlp
+    // call, so there is always a runtime there and no PATH search is needed.
+    if (!kIsWeb && Platform.isAndroid) return 'quickjs';
     if (_searchedJs) return _cachedJsRuntime;
     _searchedJs = true;
     // yt-dlp enables deno by default; any of these can be named explicitly.
@@ -137,6 +145,9 @@ class YtdlpEngine {
   /// flag being supported so an older yt-dlp build is never handed an
   /// unrecognised argument and turned into a hard failure.
   Future<List<String>> _solverArgs() async {
+    // Android: the native bridge always passes its bundled quickjs runtime to
+    // yt-dlp, so adding one here would duplicate the flag.
+    if (_isAndroid) return const [];
     final runtime = await jsRuntime();
     if (runtime != null) return ['--js-runtimes', runtime];
     if (await _supportsRemoteComponentsFlag()) {
@@ -149,6 +160,7 @@ class YtdlpEngine {
   /// Probed once per binary; a failure to probe is treated as "unsupported",
   /// which keeps the argument vector valid.
   Future<bool> _supportsRemoteComponentsFlag() async {
+    if (_isAndroid) return false;
     final bin = await locate();
     if (bin == null) return false;
     if (_remoteComponentsProbedFor == bin && _supportsRemoteComponents != null) {
@@ -220,6 +232,14 @@ class YtdlpEngine {
   /// Finds the yt-dlp binary once and caches the answer. A [overridePath] from
   /// Settings wins; otherwise `PATH` and the usual install locations are tried.
   Future<String?> locate() async {
+    // Android runs the embedded engine; there is no binary path, so a non-null
+    // sentinel reports it as available once the native side has unpacked.
+    if (_isAndroid) {
+      final version = await YtdlpAndroidBridge.init();
+      if (version == null) return null;
+      _cachedBinary = 'embedded-ytdlp';
+      return _cachedBinary;
+    }
     final explicit = overridePath?.trim();
     if (explicit != null && explicit.isNotEmpty) {
       if (await _isRunnable(explicit)) {
@@ -285,7 +305,8 @@ class YtdlpEngine {
     }
   }
 
-  Future<bool> hasFfmpeg() async => (await _which('ffmpeg')) != null;
+  Future<bool> hasFfmpeg() async =>
+      _isAndroid ? true : (await _which('ffmpeg')) != null;
 
   /// True when a JavaScript runtime yt-dlp can drive is installed. It needs one
   /// for YouTube's signature challenge; without it many videos expose only
@@ -300,9 +321,26 @@ class YtdlpEngine {
         'The download engine (yt-dlp) is not installed.',
       );
     }
+    final args = await probeArgs(url);
+    if (_isAndroid) {
+      try {
+        final json = await YtdlpAndroidBridge.probe(args);
+        return _parseProbe(json, await hasFfmpeg());
+      } on YtdlpAndroidException catch (e) {
+        final raw = e.detail?.toString() ?? e.message;
+        throw YtdlpException(
+          _friendly(raw, youtube: isYouTube(url)),
+          detail: raw.trim().isEmpty ? null : raw.trim(),
+        );
+      } on YtdlpException {
+        rethrow;
+      } catch (e) {
+        throw YtdlpException('Could not read this page: $e');
+      }
+    }
     final result = await Process.run(
       bin,
-      await probeArgs(url),
+      args,
       stdoutEncoding: utf8,
       stderrEncoding: utf8,
     );
@@ -316,6 +354,10 @@ class YtdlpEngine {
     try {
       final json = jsonDecode(result.stdout.toString()) as Map<String, dynamic>;
       return _parseProbe(json, await hasFfmpeg());
+    } on YtdlpException {
+      // Already carries a user-facing explanation (e.g. "no downloadable
+      // video"); do not bury it under a generic "could not read this page".
+      rethrow;
     } catch (e) {
       throw YtdlpException('Could not read this page: $e');
     }
@@ -354,34 +396,28 @@ class YtdlpEngine {
       concurrentFragments: concurrentFragments,
     );
 
+    if (_isAndroid) {
+      return _downloadAndroid(
+        args: args,
+        url: url,
+        dir: dir,
+        stem: stem,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      );
+    }
+
     final process = await Process.start(bin, args);
 
     var cancelled = false;
-    var lastBytes = 0;
-    var lastAt = DateTime.now();
-    var speed = 0;
+    final progress = YtdlpProgressReader(onProgress);
 
     final stderrBuf = StringBuffer();
 
     final stdoutDone =
         process.stdout.transform(const Utf8Decoder()).listen((chunk) {
       for (final line in chunk.split('\n')) {
-        final trimmed = line.trim();
-        if (!trimmed.startsWith('PROG ')) continue;
-        final parts = trimmed.substring(5).split(RegExp(r'\s+'));
-        if (parts.length < 4) continue;
-        final downloaded = _num(parts[0]);
-        var total = _num(parts[1]);
-        if (total <= 0) total = _num(parts[2]);
-        final now = DateTime.now();
-        final ms = now.difference(lastAt).inMilliseconds;
-        if (ms >= 400) {
-          final delta = downloaded - lastBytes;
-          speed = ms == 0 ? 0 : (delta * 1000 / ms).round();
-          lastBytes = downloaded;
-          lastAt = now;
-        }
-        onProgress?.call(downloaded, total, speed);
+        progress.onLine(line);
       }
     }).asFuture<void>();
 
@@ -414,6 +450,49 @@ class YtdlpEngine {
       );
     }
     return findResult(dir, stem);
+  }
+
+  /// The Android path of [download]: the process runs on a native worker thread
+  /// and is observed by polling, which also carries cancellation.
+  Future<File?> _downloadAndroid({
+    required List<String> args,
+    required String url,
+    required Directory dir,
+    required String stem,
+    void Function(int downloaded, int total, int speed)? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    final progress = YtdlpProgressReader(onProgress);
+    final processId = await YtdlpAndroidBridge.startDownload(
+      args: args,
+      onOutput: progress.onLine,
+    );
+    try {
+      while (true) {
+        final cancelled = isCancelled?.call() ?? false;
+        final result = await YtdlpAndroidBridge.pollDownload(
+          processId,
+          cancel: cancelled,
+        );
+        if (result == null) {
+          if (cancelled) return null;
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+          continue;
+        }
+        if (result['canceled'] == true) return null;
+        final code = (result['exitCode'] as num?)?.toInt() ?? 1;
+        if (code != 0) {
+          final raw = result['stderr']?.toString() ?? '';
+          throw YtdlpException(
+            _friendly(raw, youtube: isYouTube(url)),
+            detail: raw.trim().isEmpty ? null : raw.trim(),
+          );
+        }
+        return findResult(dir, stem);
+      }
+    } finally {
+      YtdlpAndroidBridge.forget(processId);
+    }
   }
 
   /// Finds the file yt-dlp produced for [stem] in [dir], preferring a merged
@@ -778,4 +857,38 @@ class YtdlpEngine {
   /// Exposes the cookie flags for tests, since [_cookieArgs] is private.
   @visibleForTesting
   List<String> get cookieArguments => _cookieArgs();
+}
+
+/// Turns the raw yt-dlp output lines into progress callbacks.
+///
+/// Both engines feed this the same lines — a spawned process on desktop, and
+/// the channel-delivered output on Android — so the progress template and the
+/// speed windowing live in one place. Lines that are not progress (warnings,
+/// the final summary) are ignored.
+class YtdlpProgressReader {
+  YtdlpProgressReader(this._onProgress);
+
+  final void Function(int downloaded, int total, int speed)? _onProgress;
+  int _lastBytes = 0;
+  DateTime _lastAt = DateTime.now();
+  int _speed = 0;
+
+  void onLine(String line) {
+    final trimmed = line.trim();
+    if (!trimmed.startsWith('PROG ')) return;
+    final parts = trimmed.substring(5).split(RegExp(r'\s+'));
+    if (parts.length < 4) return;
+    final downloaded = YtdlpEngine._num(parts[0]);
+    var total = YtdlpEngine._num(parts[1]);
+    if (total <= 0) total = YtdlpEngine._num(parts[2]);
+    final now = DateTime.now();
+    final ms = now.difference(_lastAt).inMilliseconds;
+    if (ms >= 400) {
+      final delta = downloaded - _lastBytes;
+      _speed = ms == 0 ? 0 : (delta * 1000 / ms).round();
+      _lastBytes = downloaded;
+      _lastAt = now;
+    }
+    _onProgress?.call(downloaded, total, _speed);
+  }
 }

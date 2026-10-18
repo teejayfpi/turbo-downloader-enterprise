@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:turbo_downloader/services/ytdlp_android.dart';
 import 'package:turbo_downloader/ytdlp.dart';
 
 /// Parsing yt-dlp's `-J` output into the format list the picker shows.
@@ -329,6 +330,45 @@ void main() {
       expect(YtdlpEngine.isYouTube('https://youtu.be/x'), isTrue);
       expect(YtdlpEngine.isYouTube('https://m.youtube.com/watch?v=x'), isTrue);
       expect(YtdlpEngine.isYouTube('https://example.com/v.mp4'), isFalse);
+    });
+  });
+
+  group('YtdlpProgressReader', () {
+    test('a PROG line reports bytes, a total, and falls back to the estimate',
+        () {
+      final events = <List<int>>[];
+      final reader = YtdlpProgressReader((d, t, s) => events.add([d, t, s]));
+
+      reader.onLine('PROG 1024 4096 NA NA');
+      expect(events, hasLength(1));
+      expect(events.single[0], 1024);
+      expect(events.single[1], 4096);
+
+      // yt-dlp prints NA for total_bytes on a live stream and a real value in
+      // total_bytes_estimate; that estimate must become the denominator.
+      reader.onLine('PROG 2048 NA 8192 NA');
+      expect(events.last[1], 8192);
+    });
+
+    test('non-progress output is ignored', () {
+      var calls = 0;
+      final reader = YtdlpProgressReader((_, __, ___) => calls++);
+      reader.onLine('[youtube] Extracting URL: ...');
+      reader.onLine('PROG 1 2'); // too few fields
+      reader.onLine('');
+      expect(calls, 0);
+    });
+  });
+
+  group('YtdlpAndroidException', () {
+    test('carries the raw stderr for the friendly-message classifier', () {
+      final e = YtdlpAndroidException('boom', 'ERROR: HTTP Error 403');
+      expect(e.toString(), 'boom');
+      expect(e.detail, 'ERROR: HTTP Error 403');
+    });
+
+    test('detail is optional', () {
+      expect(YtdlpAndroidException('boom').detail, isNull);
     });
   });
 }

@@ -6,7 +6,7 @@ platforms) straight to your device with multi-connection, resumable transfers �
 **no server, no account, no API key.**
 
 ![Version](https://img.shields.io/badge/version-2.4.0-00d4ff?style=for-the-badge)
-![License](https://img.shields.io/badge/license-MIT-00ff88?style=for-the-badge)
+![License](https://img.shields.io/badge/license-GPL--3.0--or--later-00ff88?style=for-the-badge)
 
 ---
 
@@ -459,7 +459,8 @@ schedule.
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+GPL-3.0 — see [`LICENSE`](LICENSE). Turbo bundles yt-dlp and CPython through
+the GPL-3.0 `youtubedl-android` library, so the whole work is GPL-3.0.
 
 ---
 

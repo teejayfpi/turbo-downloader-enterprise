@@ -30,6 +30,18 @@ class MainActivity : FlutterActivity() {
         // capability cannot disable the others.
         PlatformChannels.register(this, flutterEngine)
 
+        // The embedded yt-dlp engine (CPython + yt-dlp + ffmpeg). Registered on
+        // its own channel: a failure to start it must not affect the built-in
+        // HTTP engine, and the Dart side treats a missing channel as "no
+        // yt-dlp", which is the same state as a desktop without the binary.
+        YtdlpChannel.register(
+            this,
+            MethodChannel(
+                flutterEngine.dartExecutor.binaryMessenger,
+                "turbo_downloader/ytdlp"
+            )
+        )
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {

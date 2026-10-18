@@ -778,6 +778,12 @@ class _EngineSection extends StatelessWidget {
       return 'sudo apt install yt-dlp\n'
           '(ffmpeg optional: sudo apt install ffmpeg)';
     }
+    if (Platform.isAndroid) {
+      // The engine is bundled, so "not found" means it failed to unpack rather
+      // than that anything needs installing.
+      return 'Turbo\'s download engine is built in. Tap Re-check to retry the '
+          'one-time setup; if it still fails, reinstall the app.';
+    }
     return 'Install yt-dlp, then tap Re-check.';
   }
 }

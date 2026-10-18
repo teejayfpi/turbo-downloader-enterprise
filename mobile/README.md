@@ -17,11 +17,14 @@ device:
   first so the UI can show the title, uploader, duration, thumbnail, and a
   quality picker.
 - **Every other platform** (Vimeo, TikTok, SoundCloud, Twitch, Instagram,
-  archive.org, and hundreds more) is handled by [yt-dlp](https://github.com/yt-dlp/yt-dlp)
-  when it is installed. yt-dlp is an ordinary program that runs on your machine:
-  it opens the connections and writes to this device's disk, so there is still
-  no server, account, or key. The app finds it on `PATH` or in the usual install
-  locations.
+  archive.org, and hundreds more) is handled by [yt-dlp](https://github.com/yt-dlp/yt-dlp).
+  On Android, yt-dlp is bundled into the app: CPython, yt-dlp, FFmpeg, and a
+  JavaScript runtime ship as native libraries (via
+  [youtubedl-android](https://github.com/yausername/youtubedl-android)), so it
+  runs on-device with nothing to install. On desktop it is an ordinary program
+  the app finds on `PATH` or in the usual install locations. Either way it
+  opens the connections and writes to this device's disk, so there is still no
+  server, account, or key.
 - **Unlisted sites keep working**: a link that has no file extension is treated
   as a page and offered to an extractor too, so a brand-new platform is not
   stuck behind a hard-coded list.
@@ -30,9 +33,8 @@ The page URL is what is stored, so a resume re-resolves rather than reusing an
 expired stream URL. YouTube serves every resolution above 360p as separate
 video and audio tracks; the app downloads both and merges them on the device
 with the bundled FFmpeg, so 720p, 1080p and higher are available with no extra
-setup. yt-dlp is still optional and adds non-YouTube platforms; when its own
-ffmpeg is present it can merge tracks too. Everything works out of the box —
-install yt-dlp only to unlock more platforms.
+setup. On desktop yt-dlp is optional and adds non-YouTube platforms; on Android
+it is always present. Everything works out of the box.
 
 ## Install
 
