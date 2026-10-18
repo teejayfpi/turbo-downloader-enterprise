@@ -163,6 +163,10 @@ class _AddScreenState extends State<AddScreen> {
         !(uri.isScheme('http') || uri.isScheme('https'))) {
       return;
     }
+    // Inspecting is not cancellable, so a second trigger while one is in
+    // flight (e.g. a deep link arriving just after a manual inspect) would
+    // fire a duplicate request and stack an identical error twice.
+    if (_probing) return;
     setState(() => _probing = true);
     try {
       final result = await state.probeMedia(url);
@@ -176,9 +180,9 @@ class _AddScreenState extends State<AddScreen> {
       final message = e is MediaResolveException
           ? e.message
           : 'Could not read this page: $e';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) setState(() => _probing = false);
     }
