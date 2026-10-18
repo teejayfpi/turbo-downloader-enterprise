@@ -193,17 +193,27 @@ internal object YtdlpChannel {
     }
 
     /**
-     * Turns the Dart argument vector into a request. The url is the last
-     * element; the rest are handed over verbatim with `addCommands`, which is
-     * the library's own escape hatch for options it does not model. Splitting
-     * them into addOption() calls would lose the distinction between a flag and
-     * its value and corrupt the command line.
+     * Turns the Dart argument vector into a request.
+     *
+     * The url is located by its scheme rather than by position: yt-dlp accepts
+     * the url anywhere on the command line, and the two vectors Dart builds
+     * disagree on where they put it (the probe puts it last, the download puts
+     * it first). Assuming a position meant a download handed the whole option
+     * list to yt-dlp as the url and the real url as an option, so nothing
+     * downloaded. The remaining tokens are passed verbatim with `addCommands`,
+     * the library's escape hatch for options it does not model; splitting them
+     * into addOption() calls would lose the distinction between a flag and its
+     * value and corrupt the command line.
      */
     private fun requestFor(args: List<String>): YoutubeDLRequest {
-        val request = YoutubeDLRequest(args.last())
-        request.addCommands(args.dropLast(1))
+        val urlIndex = args.indexOfLast { isUrl(it) }.takeIf { it >= 0 } ?: (args.size - 1)
+        val request = YoutubeDLRequest(args[urlIndex])
+        request.addCommands(args.filterIndexed { index, _ -> index != urlIndex })
         return request
     }
+
+    private fun isUrl(value: String): Boolean =
+        value.startsWith("http://") || value.startsWith("https://")
 
     private fun stderrOf(e: Exception): String = e.message ?: ""
 }

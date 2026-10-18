@@ -200,6 +200,9 @@ class YtdlpEngine {
   /// speed ceiling too. [concurrentFragments] adds `-N` so a fragmented
   /// (HLS/DASH) source is fetched over many connections at once; without it
   /// yt-dlp pulls fragments one at a time and a short clip can take minutes.
+  ///
+  /// The url is placed last, matching [probeArgs], so the Android bridge can
+  /// rely on a single contract for both vectors.
   Future<List<String>> downloadArgs({
     required String url,
     required String selector,
@@ -209,7 +212,6 @@ class YtdlpEngine {
     int concurrentFragments = 1,
   }) async =>
       [
-        url,
         '-f', selector,
         '--no-playlist',
         '--no-warnings',
@@ -223,6 +225,7 @@ class YtdlpEngine {
         '--progress-template',
         'download:PROG %(progress.downloaded_bytes)s %(progress.total_bytes)s '
             '%(progress.total_bytes_estimate)s %(progress.speed)s',
+        url,
       ];
 
   /// The binary in use, or null when yt-dlp is not installed.

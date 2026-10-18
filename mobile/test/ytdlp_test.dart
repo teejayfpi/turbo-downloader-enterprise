@@ -289,6 +289,28 @@ void main() {
     }
   });
 
+  test('the url is the last element of both argument vectors', () async {
+    // The Android bridge lifts the url out of the vector, so both vectors must
+    // agree on where it is. A download used to put the url first while the
+    // bridge assumed last, which handed the whole option list to yt-dlp as the
+    // url and the real url as an option — nothing ever downloaded on Android.
+    final dir = Directory.systemTemp.createTempSync('ytdlp-url');
+    const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+    final engine = YtdlpEngine();
+
+    expect((await engine.probeArgs(url)).last, url);
+    expect(
+      (await engine.downloadArgs(
+        url: url,
+        selector: 'best',
+        dir: dir,
+        stem: 'clip',
+      ))
+          .last,
+      url,
+    );
+  });
+
   test('a speed cap is passed to yt-dlp as --limit-rate', () async {
     final dir = Directory.systemTemp.createTempSync('ytdlp-rate');
     final engine = YtdlpEngine();
