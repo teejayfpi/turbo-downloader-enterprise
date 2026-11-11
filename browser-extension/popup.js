@@ -7,6 +7,8 @@
 
 const listEl = document.getElementById('list');
 const countEl = document.getElementById('count');
+const capturedListEl = document.getElementById('capturedList');
+const capturedCountEl = document.getElementById('capturedCount');
 const titleEl = document.getElementById('pageTitle');
 const urlEl = document.getElementById('pageUrl');
 const fallbackEl = document.getElementById('fallback');
@@ -14,6 +16,7 @@ const fallbackLabelEl = document.getElementById('fallbackLabel');
 const fallbackUrlEl = document.getElementById('fallbackUrl');
 
 let pageUrl = '';
+let tabId = null;
 
 function toast(text) {
   const el = document.getElementById('toast');
@@ -88,11 +91,77 @@ function render(items, hiddenPlayer) {
   });
 }
 
+/**
+ * Renders the streams the background captured for this tab. The URL is a signed
+ * media URL, so it is shown truncated; the session headers travel with the
+ * hand-off and are never displayed.
+ *
+ * A YouTube HD video arrives as two captures — the picture and the sound. The
+ * label says which is which, and pressing Send on either one pairs it with its
+ * counterpart (see planPair) so the server can merge them into one file.
+ */
+function renderCaptured(items) {
+  capturedCountEl.textContent = String(items.length);
+  capturedListEl.textContent = '';
+  if (!items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent =
+      'Nothing yet — play the video for a moment, then reopen this popup.';
+    capturedListEl.appendChild(empty);
+    return;
+  }
+  items.forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'item';
+
+    const kind = document.createElement('div');
+    kind.className = 'kind';
+    kind.textContent = TurboMediaWatch.labelFor(item);
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = hostOf(item.url);
+    const host = document.createElement('div');
+    host.className = 'host';
+    host.textContent = item.url;
+    meta.append(label, host);
+
+    const btn = document.createElement('button');
+    btn.textContent = 'Send';
+    btn.addEventListener('click', () => sendCapture(items, item));
+
+    row.append(kind, meta, btn);
+    capturedListEl.appendChild(row);
+  });
+}
+
+/**
+ * Sends a captured stream, pairing it with its companion track when there is
+ * one. A lone picture stream produces a silent file, so the matching audio is
+ * attached and the server merges them; a lone audio capture just downloads.
+ * Session headers ride along for both halves.
+ */
+function sendCapture(items, item) {
+  const plan = TurboMediaWatch.planPair(items, item);
+  const primary = plan.streams[0] || item;
+  const companion = plan.streams[1];
+  const meta = { kind: primary.kind, headers: primary.headers };
+  if (companion) {
+    meta.audio = { url: companion.url, headers: companion.headers };
+    toast('Sending video + audio…');
+  }
+  send(primary.url, meta);
+}
+
 function scan() {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tab = tabs[0];
     if (!tab) return;
     pageUrl = tab.url || '';
+    tabId = tab.id;
     titleEl.textContent = tab.title || 'Untitled';
     urlEl.textContent = pageUrl;
 
@@ -106,6 +175,14 @@ function scan() {
     });
 
     showFallback();
+
+    chrome.runtime.sendMessage({ type: 'turbo:captured', tabId }, (resp) => {
+      if (chrome.runtime.lastError || !resp) {
+        renderCaptured([]);
+        return;
+      }
+      renderCaptured(resp.items || []);
+    });
 
     chrome.tabs.sendMessage(tab.id, { type: 'turbo:detect' }, (resp) => {
       if (chrome.runtime.lastError || !resp) {

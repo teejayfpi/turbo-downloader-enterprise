@@ -333,6 +333,81 @@ class MediaService {
       });
     });
   }
+
+  /**
+   * Merges a separate video and audio file into one file with ffmpeg.
+   *
+   * YouTube serves HD as a picture stream and a sound stream; downloading both
+   * only produces a playable file once they are muxed. `-c copy` remuxes the
+   * already-encoded streams without re-encoding, so the operation is fast and
+   * lossless. The inputs are removed on success so the download directory does
+   * not accumulate orphaned fragments.
+   *
+   * Resolves with the merged path. Rejects with a message that names ffmpeg as
+   * the remedy when it is absent, since that is the only fix.
+   */
+  merge(videoPath, audioPath, outputPath) {
+    if (!this.hasFfmpeg()) {
+      return Promise.reject(new Error(
+        'ffmpeg is required to combine the video and audio streams. Install ffmpeg and retry.',
+      ));
+    }
+    return this.runFfmpegMerge(videoPath, audioPath, outputPath).catch((error) => {
+      // A VP9/AV1 picture or an Opus soundtrack cannot be copied into an MP4
+      // container. Matroska holds every codec YouTube serves, so retry there
+      // rather than failing a download whose bytes are already on disk.
+      if (path.extname(outputPath).toLowerCase() === '.mp4') {
+        return this.runFfmpegMerge(videoPath, audioPath, outputPath.replace(/\.mp4$/i, '.mkv'));
+      }
+      throw error;
+    });
+  }
+
+  runFfmpegMerge(videoPath, audioPath, outputPath) {
+    const isMp4 = path.extname(outputPath).toLowerCase() === '.mp4';
+    return new Promise((resolve, reject) => {
+      const args = [
+        '-y',
+        '-hide_banner',
+        '-loglevel', 'error',
+        '-i', videoPath,
+        '-i', audioPath,
+        '-map', '0:v:0',
+        '-map', '1:a:0',
+        '-c', 'copy',
+      ];
+      // `faststart` is an MP4 flag; Matroska rejects it.
+      if (isMp4) args.push('-movflags', '+faststart');
+      args.push(outputPath);
+
+      const child = spawn(FFMPEG, args);
+      let stderr = '';
+      let settled = false;
+
+      child.stderr.on('data', (data) => { stderr += data.toString(); });
+      child.on('error', (error) => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(`Failed to run ffmpeg: ${error.message}`));
+      });
+      child.on('close', (code) => {
+        if (settled) return;
+        settled = true;
+        if (code !== 0) {
+          reject(new Error(cleanError(stderr) || `ffmpeg exited with code ${code}`));
+          return;
+        }
+        if (!fs.existsSync(outputPath)) {
+          reject(new Error('ffmpeg finished but produced no output file'));
+          return;
+        }
+        // The fragments are only disposable once the merge succeeded.
+        fs.rm(videoPath, { force: true }, () => {});
+        fs.rm(audioPath, { force: true }, () => {});
+        resolve(outputPath);
+      });
+    });
+  }
 }
 
 function toBytes(value, unit) {

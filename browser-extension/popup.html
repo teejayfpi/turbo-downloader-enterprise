@@ -145,6 +145,17 @@
     <div id="list"></div>
   </div>
 
+  <div class="section">
+    <h3>Streams captured (<span id="capturedCount">0</span>)</h3>
+    <div id="capturedList"></div>
+    <div class="hint">
+      Playing a video makes the browser request its real stream. Turbo records
+      that request — the signed URL and the session that signed it — and can
+      hand both to the app, so the download happens from this machine. Play the
+      video, then press Send here.
+    </div>
+  </div>
+
   <div class="section" id="fallback" hidden>
     <h3>Last hand-off</h3>
     <div class="item">
@@ -169,6 +180,7 @@
   </footer>
   <div class="toast" id="toast">Sent to Turbo</div>
 
+  <script src="lib/media-watch.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
