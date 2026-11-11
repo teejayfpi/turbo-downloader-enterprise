@@ -15,15 +15,46 @@ the page and hands it to the **Turbo** app, which downloads it on your device.
 It does **not** download anything itself and does not upload anything. It only
 reads the current page and passes a URL to the app.
 
-### When there is no direct URL
+## Capturing a stream the page hides (IDM-style)
 
 A player that streams through Media Source Extensions — YouTube and most large
 sites — serves fragments to a `blob:` URL and never puts a downloadable URL on
-the page, so nothing can be listed. Detection reports this as `hiddenPlayer`
-and the popup says so, steering you to **Send this page to Turbo**; the app then
-resolves the stream from the page URL itself. Reading the manifest property only
-works for players that happen to expose it; it is not a general YouTube
-solution, and no fragment-scraping is attempted here.
+the page, so DOM detection alone finds nothing. The background worker therefore
+also watches the actual network requests the page makes and keeps the ones that
+point at media: the signed `googlevideo.com/videoplayback` stream, an HLS
+manifest, a progressive MP4.
+
+That captured URL is the same one the browser is playing, and it is bound to
+this machine's IP address (the signature is minted for the requester) and to the
+session that signed it. So the capture is handed to the app together with the
+`Cookie` / `Referer` / `Origin` / `Authorization` headers from the real request,
+and the app fetches the bytes **from this machine** — the same footing IDM is
+on. Two consequences follow:
+
+- It only works against a Turbo server on **this** machine (`127.0.0.1`). A
+  hosted Turbo instance has a different IP, so the signed URL is rejected; the
+  extension never sends session headers to a non-loopback API for that reason.
+- Play the video for a moment first. The capture only exists once the browser
+  has requested the stream; open the popup afterwards and the stream is listed
+  under **Streams captured**.
+
+### HD arrives as two streams, and they are merged
+
+Above 360p YouTube does not serve one file: it sends the picture and the sound
+as **separate** streams (DASH). That is why IDM sometimes hands you a silent
+video. The popup shows both captures — "1080p video" and "audio" — and pressing
+**Send** on either one pairs it with its counterpart automatically. The app
+downloads both and muxes them with ffmpeg into a single file with sound.
+
+Pairing is keyed on the video id and the `itag`: a video's picture and sound
+share the same id and differ only in `itag`, so both are kept and matched. A
+`muxed` capture (the old 360p `itag=18`) already has sound and is sent alone.
+Merging needs **ffmpeg** on the Turbo server; without it the picture downloads
+mute and the popup's pairing has nothing to merge with.
+
+Detection reports a page with a player but no direct URL as `hiddenPlayer`, and
+the popup says so, steering you to the captured list or to **Send this page to
+Turbo**.
 
 ## How the hand-off works
 
@@ -95,10 +126,13 @@ permissions, so nothing is declared "just in case".
 | `activeTab` | Read the current tab's URL and title when you open the popup. Granted only on click. |
 | `contextMenus` | The right-click "Send … to Turbo" entries. |
 | `storage` | Remember the last hand-off so the popup can offer it for copying. |
+| `webRequest` | Watch media requests so a hidden stream can be captured. Read-only: it observes headers, it does not block or rewrite anything. `extraHeaders` is passed to the listener so Chrome hands over `Cookie`/`Referer`; Firefox ignores it. |
 | host access to `localhost` / `127.0.0.1` | POST to the Turbo app's local API. No other host access. |
+| host access to `*.googlevideo.com` | The media CDN whose requests are captured. |
 
-It does **not** request `tabs` (no browsing history), `scripting`, `cookies`,
-`downloads`, or `<all_urls>` host access.
+It does **not** request `tabs` (no browsing history), `scripting`, `cookies`, or
+`downloads`. Host access is limited to the loopback API and the one media CDN,
+not `<all_urls>`.
 
 ## Firefox
 
@@ -118,19 +152,22 @@ handler (the app is not installed). The popup keeps the last hand-off under
 **Last hand-off** with a **Copy** button, so you can paste the link into
 Turbo → Add by hand.
 
-## Why not send cookies from here
+## How session headers are sent
 
-The hand-off is a `turbo://add?url=…` custom-scheme link. Cookies must not ride
-in it: a custom-scheme URL is visible to the OS handler, other registered
-handlers, and any log that records opened URLs, so a session token in the query
-string is a disclosure with no way to take it back. Reading cookies also needs
-the `cookies` permission, which the store review flags and which this extension
-does not request.
+The hand-off to a *remote* Turbo is still a `turbo://add?url=…` custom-scheme
+link, and cookies must not ride in it: a custom-scheme URL is visible to the OS
+handler, other registered handlers, and any log that records opened URLs, so a
+session token in the query string is a disclosure with no way to take it back.
 
-Session-gated URLs are therefore handled by the app instead: paste the Cookie /
-Authorization / Referer into the New Transfer options in the UI, and the server
-sends them per download. If automatic cookie capture is ever wanted, it must go
-over a POST body to the app's HTTP API, never through the deep link.
+For a **local** Turbo, session headers travel in the POST body to the app's
+HTTP API instead, which is the only place they belong. The capture forwards a
+whitelisted set — `Cookie`, `Referer`, `Origin`, `Authorization` — and nothing
+else; the server's `sanitizeHeaders()` drops anything unsafe. The extension only
+attaches them when the API endpoint is loopback, never to a remote host, and
+never writes them to `storage` or the deep link.
+
+Pasted cookies also still work: the New Transfer options in the UI accept
+Cookie / Authorization / Referer for a single download.
 
 ## Store submission
 

@@ -264,12 +264,42 @@ These caused real, user-visible bugs. Do not regress them.
   `manifest.firefox.json` (Firefox; needs an add-on id and `background.scripts`).
   Hand-off order is `POST http://127.0.0.1:3001/api/downloads` first, then the
   `turbo://` deep link as fallback, so the popup can say whether the app actually
-  took the link. Permissions are least-privilege on purpose (`activeTab`,
-  `contextMenus`, `storage`, loopback hosts only) — do not add `scripting`,
-  `tabs`, `cookies`, or `<all_urls>`. Detection lives in
-  `browser-extension/lib/detector.js` and is DOM-optional so it unit-tests under
-  `node --test`. `.github/workflows/extension.yml` validates, lints the Firefox
-  manifest with `web-ext`, and packages both zips.
+  took the link. Permissions stay least-privilege: `activeTab`, `contextMenus`,
+  `storage`, `webRequest`, and host access to loopback **plus**
+  `*.googlevideo.com` only. Do not add `scripting`, `tabs`, `cookies`, or
+  `<all_urls>`; widen the capture filter's host list instead if another CDN is
+  ever needed. Detection lives in `browser-extension/lib/detector.js` and is
+  DOM-optional so it unit-tests under `node --test`.
+  `.github/workflows/extension.yml` validates, lints the Firefox manifest with
+  `web-ext`, and packages both zips.
+- **The extension has an IDM-style capture path, and it is local-only by
+  nature.** `browser-extension/lib/media-watch.js` +
+  `chrome.webRequest.onBeforeSendHeaders` record the real media request
+  (`*.googlevideo.com/videoplayback`) — the URL a `blob:` player hides — and
+  forward a whitelisted header set (`Cookie`/`Referer`/`Origin`/`Authorization`)
+  in the POST body so the server replays the session. Three invariants: session
+  headers go **only** to a loopback API (a signed media URL is bound to the
+  requester's IP, so a remote Turbo both fails and leaks the cookie), they are
+  **never** written to `storage` or the `turbo://` link, and the captured URL is
+  normalized to drop the player's `range`/`rn`/`rbuf` query params before the
+  engine sets its own `Range` header. Keep the pure logic in `media-watch.js`
+  chrome-free so it tests under `node --test`.
+- **YouTube HD is two streams, so a capture is paired before it is sent.**
+  Above 360p YouTube serves the picture and the sound separately (DASH), and the
+  popup labels them ("1080p video" / "audio"). `planPair` matches them on video
+  id **plus `itag`** — keying dedupe on `id` alone collapses the pair into one
+  entry and silently drops the audio, which is the bug this fixes. A paired
+  hand-off carries `options.audioUrl` + `options.audioHeaders`; the engine sees
+  both and creates a **`dash`** task (`database.js` stores `audio_url` /
+  `audio_headers`, the `downloads` table gained those two columns). `runDash`
+  downloads each stream with the same segmented engine an ordinary download uses
+  — via a context object that shares the task's `_cancel`/`_requests` but keeps
+  its own byte counter, so a cancel aborts both and progress is their sum — then
+  calls `mediaService.merge`, which remuxes with `ffmpeg -c copy` and falls back
+  to `.mkv` when MP4 cannot hold the codec (VP9/AV1/Opus). Merging needs ffmpeg;
+  without it `runDash` fails fast with a non-retryable error. Verified end to
+  end by `server/test/dashMerge.test.mjs` (real ffmpeg, ffprobe confirms both a
+  video and an audio track in the output).
 - **`app_links` stays under 6.4.** 6.4+ reads `flutter.compileSdkVersion` from
   its Android Gradle script, which the Flutter 3.24 template does not expose;
   the release APK fails to assemble without the pin in `pubspec.yaml`.

@@ -295,6 +295,11 @@ function DownloadItem({ download, onDragStart, onDropOn, isDragged, run }) {
                   media
                 </span>
               )}
+              {download.kind === 'dash' && (
+                <span className="px-1.5 py-0.5 rounded-sm text-[9px] bg-warning/20 text-warning font-semibold tracking-wider shrink-0 uppercase">
+                  merge
+                </span>
+              )}
               {download.status === 'scheduled' && (
                 <span className="px-1.5 py-0.5 rounded-sm text-[10px] bg-accent/20 text-accent shrink-0">
                   {formatRelativeTime(download.scheduledAt)}

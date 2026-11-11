@@ -61,7 +61,7 @@ const COLUMNS = [
   'id', 'url', 'filename', 'filepath', 'total', 'downloaded', 'status',
   'progress', 'speed', 'error', 'platform', 'kind', 'format', 'connections',
   'priority', 'resume_supported', 'checksum', 'checksum_algo', 'headers', 'scheduled_at',
-  'started_at', 'completed_at', 'created_at',
+  'started_at', 'completed_at', 'created_at', 'audio_url', 'audio_headers',
 ];
 
 function rowToTask(row) {
@@ -88,6 +88,14 @@ function rowToTask(row) {
     headers: (() => {
       try {
         return sanitizeHeaders(JSON.parse(row.headers));
+      } catch {
+        return {};
+      }
+    })(),
+    audioUrl: row.audio_url || null,
+    audioHeaders: (() => {
+      try {
+        return sanitizeHeaders(JSON.parse(row.audio_headers));
       } catch {
         return {};
       }
@@ -159,6 +167,10 @@ export class DownloadEngine {
       checksum: task.checksum || null,
       checksum_algo: task.checksumAlgo || null,
       headers: task.headers && Object.keys(task.headers).length ? JSON.stringify(task.headers) : null,
+      audio_url: task.audioUrl || null,
+      audio_headers: task.audioHeaders && Object.keys(task.audioHeaders).length
+        ? JSON.stringify(task.audioHeaders)
+        : null,
       scheduled_at: task.scheduledAt || null,
       started_at: task.startedAt || null,
       completed_at: task.completedAt || null,
@@ -183,7 +195,15 @@ export class DownloadEngine {
       const url = String(rawUrl).trim();
       const parsed = validateHttpUrl(url);
       const platform = detectPlatform(url);
-      const kind = isMediaPlatform(platform) && mediaService.isAvailable() ? 'media' : 'http';
+
+      // A captured YouTube HD stream is only the picture; the extension pairs
+      // it with the matching sound track. When both are present the task is a
+      // `dash` download: fetch the two streams, then merge them with ffmpeg.
+      const audioUrl = options.audioUrl ? String(options.audioUrl).trim() : null;
+      const isDash = !!audioUrl && mediaService.hasFfmpeg();
+      const kind = isDash
+        ? 'dash'
+        : (isMediaPlatform(platform) && mediaService.isAvailable() ? 'media' : 'http');
 
       let scheduledAt = null;
       if (options.scheduledAt) {
@@ -214,6 +234,8 @@ export class DownloadEngine {
         // for a URL behind a login. Validated here so every request path that
         // spreads baseHeaders() carries the same safe set.
         headers: sanitizeHeaders(options.headers),
+        audioUrl,
+        audioHeaders: sanitizeHeaders(options.audioHeaders),
         checksum: options.checksum || null,
         checksumAlgo: options.checksumAlgo || null,
         scheduledAt,
@@ -233,6 +255,7 @@ export class DownloadEngine {
       };
 
       await assertPublicHost(parsed.hostname);
+      if (audioUrl) await assertPublicHost(validateHttpUrl(audioUrl).hostname);
 
       this.tasks.set(task.id, task);
       this.persist(task);
@@ -516,7 +539,9 @@ export class DownloadEngine {
   run(task) {
     if (task._running) return;
     task._running = true;
-    const runner = task.kind === 'media' ? this.runMedia(task) : this.runHttp(task);
+    const runner = task.kind === 'media' ? this.runMedia(task)
+      : task.kind === 'dash' ? this.runDash(task)
+      : this.runHttp(task);
     runner
       .catch((error) => this.handleFailure(task, error))
       .finally(() => {
@@ -576,23 +601,7 @@ export class DownloadEngine {
     task.resumeSupported = probe.rangeSupported;
     if (probe.total) task.total = probe.total;
 
-    const { connections, split } = this.settings.getSettings();
-    // `connections` is the requested parallelism and `split` is the ceiling.
-    // Bound by both, and by the size floor so a small file is not carved into
-    // segments too small to amortise a request.
-    const parallel = Math.max(
-      1,
-      Math.min(task.connections || connections, split, Math.floor(probe.total / MIN_SEGMENT_BYTES)),
-    );
-    // Dynamic segmentation: slice the file into many more chunks than there are
-    // workers. A worker pulls the next unclaimed chunk as soon as it frees up,
-    // so one slow connection cannot leave a long tail and the others soak up
-    // the slack. Chunk size targets CHUNK_TARGET_BYTES but never drops below
-    // MIN_SEGMENT_BYTES, and the grid is capped so the file does not become
-    // thousands of part files.
-    const byTarget = Math.ceil(probe.total / CHUNK_TARGET_BYTES);
-    const byFloor = Math.floor(probe.total / MIN_SEGMENT_BYTES);
-    const chunkCount = Math.max(1, Math.min(Math.max(parallel, byTarget), byFloor, MAX_CHUNKS));
+    const { parallel, chunkCount } = this.planSegments(task, probe.total);
 
     if (probe.rangeSupported && probe.total >= SEGMENT_THRESHOLD && chunkCount > 1) {
       await this.downloadSegmented(task, urlObj, finalPath, probe.total, chunkCount, parallel, address);
@@ -602,6 +611,30 @@ export class DownloadEngine {
 
     if (task._cancel || task._paused) return;
     await this.finalize(task);
+  }
+
+  /**
+   * Chooses the segment grid for a transfer of [total] bytes.
+   *
+   * `connections` is the requested parallelism and `split` is the ceiling.
+   * Bound by both, and by the size floor so a small file is not carved into
+   * segments too small to amortise a request. Dynamic segmentation slices the
+   * file into many more chunks than there are workers: a worker pulls the next
+   * unclaimed chunk as soon as it frees up, so one slow connection cannot leave
+   * a long tail. Chunk size targets CHUNK_TARGET_BYTES but never drops below
+   * MIN_SEGMENT_BYTES, and the grid is capped so the file does not become
+   * thousands of part files.
+   */
+  planSegments(task, total) {
+    const { connections, split } = this.settings.getSettings();
+    const parallel = Math.max(
+      1,
+      Math.min(task.connections || connections, split, Math.floor(total / MIN_SEGMENT_BYTES)),
+    );
+    const byTarget = Math.ceil(total / CHUNK_TARGET_BYTES);
+    const byFloor = Math.floor(total / MIN_SEGMENT_BYTES);
+    const chunkCount = Math.max(1, Math.min(Math.max(parallel, byTarget), byFloor, MAX_CHUNKS));
+    return { parallel, chunkCount };
   }
 
   baseHeaders(task = null) {
@@ -966,6 +999,122 @@ export class DownloadEngine {
     res.on('close', () => task._requests.delete(res));
   }
 
+  // ---------------------------------------------------------------- dash engine
+
+  /**
+   * A DASH download: the picture and the sound are two separate streams that
+   * ffmpeg must mux into one file.
+   *
+   * The streams are fetched with the same segmented engine an ordinary download
+   * uses — via a lightweight context that shares the task's cancellation and
+   * request set but carries its own headers and byte counter — so the two
+   * transfers stay multi-connection and resumable, and a cancel aborts both.
+   * Progress on the task is the sum of the two, so the UI bar is meaningful.
+   */
+  async runDash(task) {
+    if (task._cancel || task._paused) return;
+    if (!task.audioUrl) throw new Error('DASH download is missing its audio stream');
+    if (!mediaService.hasFfmpeg()) {
+      const error = new Error(
+        'ffmpeg is required to combine the video and audio streams. Install ffmpeg and retry.',
+      );
+      error.retryable = false;
+      throw error;
+    }
+
+    task.status = 'active';
+    task.error = null;
+    task.startedAt = task.startedAt || new Date().toISOString();
+    this.persist(task);
+    this.emit();
+
+    const dir = this.settings.ensureDownloadDir();
+    if (!task.filepath) {
+      task.filepath = await this.resolveFilepath(dir, task);
+      if (!task.filepath) {
+        await this.finalize(task);
+        return;
+      }
+      task.filename = path.basename(task.filepath);
+    }
+    const finalPath = task.filepath;
+    const videoTmp = `${finalPath}.turbo.video`;
+    const audioTmp = `${finalPath}.turbo.audio`;
+
+    // Both streams count toward one progress bar. `base` is the bytes already
+    // completed by earlier streams, so each stream's counter offsets into the
+    // task total.
+    let base = 0;
+    const video = await this.downloadStreamToFile(task, task.url, task.headers, videoTmp, base);
+    if (task._cancel || task._paused) return;
+    base += video.bytes;
+
+    const audio = await this.downloadStreamToFile(task, task.audioUrl, task.audioHeaders, audioTmp, base);
+    if (task._cancel || task._paused) return;
+
+    task.total = video.bytes + audio.bytes;
+    task.downloaded = task.total;
+    task.speed = 0;
+    this.persist(task);
+    this.emit();
+
+    const merged = await mediaService.merge(video.path, audio.path, finalPath);
+    if (merged !== finalPath) {
+      // ffmpeg fell back to Matroska for a codec MP4 cannot hold.
+      task.filepath = merged;
+      task.filename = path.basename(merged);
+    }
+    await this.finalize(task);
+  }
+
+  /**
+   * Downloads one media stream to [destPath] using the segmented engine, and
+   * reports the path actually written plus the byte count.
+   *
+   * The stream is given a context that delegates cancellation and the request
+   * set to [task] — so `abort()` stops it — while keeping its own headers and
+   * byte counter. That counter is mirrored onto the task as `base + local`, so
+   * a two-stream download advances a single progress bar.
+   */
+  async downloadStreamToFile(task, url, headers, destPath, base) {
+    const urlObj = validateHttpUrl(url);
+    const address = await assertPublicHost(urlObj.hostname);
+
+    let local = 0;
+    // A real object, not a delegating stub: the segmented downloader writes its
+    // chunk list to `_segments` and derives `downloaded` from it, so the stream
+    // must own those. Cancellation and the request set are read through to the
+    // task, so `abort()` stops both streams at once.
+    const ctx = {
+      url,
+      filepath: destPath,
+      filename: path.basename(destPath),
+      headers: headers || {},
+      total: 0,
+      _segments: null,
+      checksum: null,
+      checksumAlgo: null,
+      get downloaded() { return local; },
+      set downloaded(value) { local = value; task.downloaded = base + local; },
+      get _cancel() { return task._cancel; },
+      get _paused() { return task._paused; },
+      get _requests() { return task._requests; },
+    };
+
+    const probe = await this.probe(urlObj, ctx, address);
+    // Mirror the running total onto the task so the progress bar advances while
+    // the streams are still downloading; the exact sum is set once both finish.
+    if (probe.total) task.total = base + probe.total;
+    const { parallel, chunkCount } = this.planSegments(task, probe.total);
+    if (probe.rangeSupported && probe.total >= SEGMENT_THRESHOLD && chunkCount > 1) {
+      await this.downloadSegmented(ctx, urlObj, destPath, probe.total, chunkCount, parallel, address);
+    } else {
+      await this.downloadSingle(ctx, urlObj, destPath, `${destPath}.turbo.part`, address);
+    }
+
+    return { path: ctx.filepath, bytes: local };
+  }
+
   // ---------------------------------------------------------------- media engine
 
   async runMedia(task) {
@@ -1035,7 +1184,15 @@ export class DownloadEngine {
       targets.push(`${task.filepath}.turbo.part`);
       targets.push(`${task.filepath}.turbo.merge`);
       targets.push(`${task.filepath}.turbo.plan`);
+      targets.push(`${task.filepath}.turbo.video`);
+      targets.push(`${task.filepath}.turbo.video.turbo.part`);
+      targets.push(`${task.filepath}.turbo.video.turbo.plan`);
+      targets.push(`${task.filepath}.turbo.audio`);
+      targets.push(`${task.filepath}.turbo.audio.turbo.part`);
+      targets.push(`${task.filepath}.turbo.audio.turbo.plan`);
       for (let i = 0; i < 64; i++) targets.push(`${task.filepath}.turbo.part${i}`);
+      for (let i = 0; i < 64; i++) targets.push(`${task.filepath}.turbo.video.turbo.part${i}`);
+      for (let i = 0; i < 64; i++) targets.push(`${task.filepath}.turbo.audio.turbo.part${i}`);
       if (removeFinal) targets.push(task.filepath);
     }
     await Promise.all(targets.map((t) => fsp.rm(t, { force: true }).catch(() => {})));

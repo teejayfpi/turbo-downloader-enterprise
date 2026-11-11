@@ -31,7 +31,7 @@ router.get('/', (req, res) => {
 
 // Create one or more downloads
 router.post('/', asyncHandler(async (req, res) => {
-  const { url, urls, options = {}, format, formatId, scheduledAt, checksum, checksumAlgo, connections, filename, priority, headers } = req.body || {};
+  const { url, urls, options = {}, format, formatId, scheduledAt, checksum, checksumAlgo, connections, filename, priority, headers, audioUrl, audioHeaders } = req.body || {};
   const list = urls || (url ? [url] : []);
 
   if (!Array.isArray(list) || list.length === 0) {
@@ -51,6 +51,10 @@ router.post('/', asyncHandler(async (req, res) => {
       checksum: checksum || options.checksum,
       checksumAlgo: checksumAlgo || options.checksumAlgo,
       headers: headers || options.headers,
+      // A captured YouTube HD download pairs the picture with its sound track;
+      // the engine downloads both and merges them.
+      audioUrl: audioUrl || options.audioUrl,
+      audioHeaders: audioHeaders || options.audioHeaders,
       connections: connections || options.connections,
       filename: filename || options.filename,
       priority: priority ?? options.priority,

@@ -60,5 +60,14 @@ const downloadColumns = db.prepare('PRAGMA table_info(downloads)').all().map((c)
 if (!downloadColumns.includes('headers')) {
   db.exec('ALTER TABLE downloads ADD COLUMN headers TEXT');
 }
+// A DASH media download is a video stream plus a separate audio stream that
+// ffmpeg merges. The audio URL and its session headers are stored alongside the
+// primary URL so the task survives a restart the same way an ordinary one does.
+if (!downloadColumns.includes('audio_url')) {
+  db.exec('ALTER TABLE downloads ADD COLUMN audio_url TEXT');
+}
+if (!downloadColumns.includes('audio_headers')) {
+  db.exec('ALTER TABLE downloads ADD COLUMN audio_headers TEXT');
+}
 
 export default db;

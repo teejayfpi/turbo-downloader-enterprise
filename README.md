@@ -222,6 +222,26 @@ stale yt-dlp. Other platforms are not gated the same way: SoundCloud, Bandcamp,
 Mixcloud, archive.org and Reddit generally work from cloud hosts without
 cookies.
 
+### The local shortcut (browser extension)
+
+The browser extension (`browser-extension/`) can bypass the whole yt-dlp
+question for YouTube. While you play a video, it captures the browser's real
+media request — the signed `googlevideo.com/videoplayback` URL — and hands that
+URL plus the request's session headers to a Turbo server on the **same
+machine**, which downloads it directly. Because the browser already holds a
+valid session and a residential IP, this is the same mechanism IDM uses.
+
+It only works against a **local** Turbo (`127.0.0.1`): the signed URL is bound
+to the requester's IP, so a hosted instance is refused. Run the server on the
+machine with the browser, play the video, then use **Streams captured** in the
+extension popup.
+
+HD video arrives as two streams — the picture and the sound — so the extension
+sends both and the server merges them with **ffmpeg** into one file with sound.
+Install ffmpeg on the machine running the server (`brew install ffmpeg`,
+`sudo apt install ffmpeg`, or the Windows build); without it the picture
+downloads mute.
+
 ### Install it on your phone
 
 Turbo is a PWA, so the hosted URL installs like a native app. The site must be
