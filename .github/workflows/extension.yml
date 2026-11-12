@@ -65,6 +65,9 @@ jobs:
   # files) are uploaded separately, because stores want a zip, not a folder.
   package:
     runs-on: ubuntu-latest
+    # Needed to publish the release below.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
 
@@ -114,3 +117,27 @@ jobs:
             turbo-browser-extension-firefox.zip
             turbo-browser-extension.sha256
           if-no-files-found: error
+
+      # Actions artifacts need a signed-in GitHub account to download. Publish
+      # the same zips as a release so anyone can grab a build from a plain link,
+      # which is how a user installs the extension without the source tree.
+      # Tagged `ext-v*` and marked NOT the latest release, so the app's in-app
+      # updater — which reads releases/latest and expects app assets — is never
+      # pointed at an extension-only release.
+      - name: Publish the extension release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          version=$(node -p "require('./browser-extension/manifest.json').version")
+          tag="ext-v$version"
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+                 --title "Turbo Browser Extension $tag" --generate-notes \
+                 --latest=false
+          gh release upload "$tag" \
+            turbo-browser-extension.zip \
+            turbo-browser-extension-firefox.zip \
+            turbo-browser-extension.sha256 \
+            --repo "$GITHUB_REPOSITORY" --clobber
