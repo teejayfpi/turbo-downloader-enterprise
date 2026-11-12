@@ -131,49 +131,24 @@ void main() {
           reason: 'the tour must be shown only once');
     });
 
-    test('the first-run sign-in gate needs a capable platform and no session',
-        () async {
+    test('the first-run sign-in gate is disabled so sign-in is optional', () {
       SharedPreferences.setMockInitialValues({});
-      final state = TurboState()..signInSupported = true;
-      addTearDown(state.dispose);
+      final signedOut = TurboState()..signInSupported = true;
+      addTearDown(signedOut.dispose);
+      expect(signedOut.needsFirstRunSignIn, isFalse,
+          reason: 'a fresh install must open without a sign-in');
 
-      // First launch: no session -> gate is shown.
-      expect(state.needsFirstRunSignIn, isTrue);
+      // A session no longer changes the outcome either: the gate is gone, not
+      // merely satisfied by one.
+      signedOut.sessionConfigured = true;
+      expect(signedOut.needsFirstRunSignIn, isFalse);
 
-      // A signed-in session satisfies the gate.
-      state.sessionConfigured = true;
-      expect(state.needsFirstRunSignIn, isFalse);
-
-      // There is no skip: dropping the session brings the gate back, so a
-      // session is the only thing that clears it.
-      state.sessionConfigured = false;
-      expect(state.needsFirstRunSignIn, isTrue,
-          reason: 'a session is the only thing that clears the gate');
+      signedOut.sessionConfigured = false;
+      expect(signedOut.needsFirstRunSignIn, isFalse,
+          reason: 'sign-in is optional and never blocks the first run');
     });
 
-    test('the gate never appears where there is no in-app sign-in', () {
-      SharedPreferences.setMockInitialValues({});
-      final state = TurboState()..signInSupported = false;
-      addTearDown(state.dispose);
-      expect(state.needsFirstRunSignIn, isFalse,
-          reason: 'Linux has no embedded web view to host the gate');
-    });
-
-    test('the gate tracks the session, not a persisted prompt flag', () async {
-      SharedPreferences.setMockInitialValues({});
-      final state = TurboState()..signInSupported = true;
-      addTearDown(state.dispose);
-      await state.init();
-
-      expect(state.needsFirstRunSignIn, isTrue);
-      state.sessionConfigured = true;
-      expect(state.needsFirstRunSignIn, isFalse);
-      state.sessionConfigured = false;
-      expect(state.needsFirstRunSignIn, isTrue,
-          reason: 'a session is the only thing that clears the gate');
-    });
-
-    testWidgets('the tour hands off to the sign-in gate when a session is due',
+    testWidgets('the tour hands off straight to home, with no sign-in gate',
         (tester) async {
       SharedPreferences.setMockInitialValues({});
       final state = TurboState()..signInSupported = true;
@@ -193,8 +168,9 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
 
-      expect(find.byType(YouTubeLoginScreen), findsOneWidget);
-      expect(find.byType(HomeShell), findsNothing);
+      expect(find.byType(HomeShell), findsOneWidget);
+      expect(find.byType(YouTubeLoginScreen), findsNothing,
+          reason: 'the tour must not force a sign-in');
       expect(state.onboardingDone, isTrue);
     });
 

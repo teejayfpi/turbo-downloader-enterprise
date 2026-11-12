@@ -604,18 +604,20 @@ Changing one without the others silently caps speed.
   (`services/sign_in_support.dart`); Linux has no supported web view and keeps
   the file/browser path, so the button is hidden there. A YouTube 403 is routed
   to this flow rather than the generic "retry in a moment" wording.
-- First-run sign-in gate: after the tour, a capable platform shows
-  `YouTubeLoginScreen(required: true)` as the root route (it has nothing to pop
-  to, so saving replaces itself with the shell). Sign-in is mandatory: Back is
-  swallowed by `PopScope` and there is no skip control on the page. A
-  logged-out client hits YouTube's bot checks immediately, so reaching the app
-  without a session would just look broken. `TurboState.needsFirstRunSignIn` is
-  `platform-capable && !sessionConfigured`; `completeSignInPrompt` still exists
-  and persists `turbo.signInPromptDone`, but nothing offers it any more, so the
-  gate is only satisfied by a real session. `init()` awaits `refreshSession()`
-  before the splash hands off, so a returning user with an existing session is
-  not gated. `signInSupported` overrides the platform check in tests (the
-  harness has no web view).
+- First-run sign-in gate: **disabled**. `TurboState.needsFirstRunSignIn` now
+  returns `false` unconditionally, so the splash and the tour both go straight to
+  `HomeShell` and sign-in is entirely optional. The call sites in
+  `splash_screen.dart` and `onboarding_screen.dart` are kept, commented out, so
+  the gate can be restored by returning the original condition
+  (`platform-capable && !sessionConfigured`) and uncommenting them.
+  History: the gate used to show `YouTubeLoginScreen(required: true)` as the
+  root route after the tour, with Back swallowed by `PopScope` and no skip
+  control, on the theory that a logged-out client hits YouTube's bot checks
+  immediately and would look broken. It forced every new user through a sign-in
+  they did not want, so it was removed. `init()` still awaits `refreshSession()`
+  before the splash hands off, so a returning user's session is live either way.
+  `signInSupported` overrides the platform check in tests (the harness has no web
+  view); it is now only meaningful for restoring the gate.
 - The signed-in session reaches **both** engines. yt-dlp gets `--cookies` /
   `--cookies-from-browser` via `SessionStore.applyTo`. The pure-Dart built-in
   extractor (`youtube_explode_dart`) reads none of that on its own — it sends

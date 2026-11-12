@@ -14,7 +14,6 @@ import 'services/retry_policy.dart';
 import 'services/secure_store.dart';
 import 'services/session_store.dart';
 import 'services/settings_store.dart';
-import 'services/sign_in_support.dart';
 import 'services/storage_stats.dart';
 import 'services/update_checker.dart';
 import 'services/url_validator.dart';
@@ -268,10 +267,19 @@ class TurboState extends ChangeNotifier {
   @visibleForTesting
   bool? signInSupported;
 
-  /// True when the app should show the mandatory first-run YouTube sign-in:
-  /// it can host the web view and there is no session yet.
-  bool get needsFirstRunSignIn =>
-      (signInSupported ?? supportsInAppYouTubeSignIn) && !sessionConfigured;
+  /// The mandatory first-run YouTube sign-in gate is switched off.
+  ///
+  /// Turbo used to refuse to open until a session was captured, on the theory
+  /// that a signed-out client hits YouTube's bot checks immediately and looks
+  /// broken. In practice it forced every new user through a sign-in they did not
+  /// want, so the gate is disabled: the app opens straight to the shell, and a
+  /// session is entirely optional. Sign-in is still offered in Settings for
+  /// anyone who wants a video that needs an account.
+  ///
+  /// Kept as a named predicate rather than deleting the call sites, so the gate
+  /// can be restored by returning the original condition again:
+  ///   (signInSupported ?? supportsInAppYouTubeSignIn) && !sessionConfigured
+  bool get needsFirstRunSignIn => false;
 
   /// The browser profile yt-dlp should read, when the user chose that route.
   String? sessionBrowser;
