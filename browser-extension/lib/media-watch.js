@@ -216,37 +216,132 @@
   }
 
   /**
-   * Chooses the streams needed to produce one playable file, given what the
-   * user picked and everything captured for the tab.
+   * Picks the soundtrack for a picture stream: the highest-quality `audio`
+   * capture belonging to the same video.
    *
-   * A `muxed` capture is already a complete file. A `video` capture is only the
-   * picture, so its matching `audio` track (same `id`) is added — highest
-   * quality first — and vice versa. The result tells the caller whether the
-   * server must merge the two.
+   * Matching on the video id is what keeps a page with several videos from
+   * pairing one video's picture with another's sound. When the picture carries
+   * no id at all (a plain MP4, not a signed YouTube stream) a lone soundtrack
+   * is still paired, but an ambiguous set is not guessed at.
    */
-  function planPair(items, chosen) {
-    if (!chosen) return { streams: [], needsMerge: false };
-    if (chosen.kind === 'muxed' || chosen.kind === 'stream') {
-      return { streams: [chosen], needsMerge: false };
+  function bestAudioFor(audios, videoId) {
+    var matches;
+    if (videoId) {
+      matches = audios.filter(function (a) { return a.videoId === videoId; });
+    } else {
+      matches = audios.length === 1 ? audios.slice() : [];
+    }
+    if (!matches.length) return null;
+    matches.sort(function (a, b) { return b.audioRank - a.audioRank; });
+    return matches[0];
+  }
+
+  /**
+   * Turns the captures for a tab into the quality options a person chooses
+   * between — the IDM-style list.
+   *
+   * A YouTube HD video is captured as a picture stream and a sound stream that
+   * share a video id, so each picture becomes one option paired with its own
+   * soundtrack. A `muxed` capture is already a complete file and becomes an
+   * option on its own. Any captured sound that no picture claimed is offered as
+   * "Audio only". Options are returned best-first: highest resolution with
+   * sound, then video-only, then audio.
+   *
+   * Note the honest limit: the extension only sees streams the player actually
+   * requested, so this lists what was played, not every quality YouTube holds.
+   */
+  function groupQualities(items) {
+    items = items || [];
+    var muxed = [];
+    var videos = [];
+    var audios = [];
+    var streams = [];
+    items.forEach(function (item) {
+      if (item.kind === 'muxed') muxed.push(item);
+      else if (item.kind === 'video') videos.push(item);
+      else if (item.kind === 'audio') audios.push(item);
+      else streams.push(item);
+    });
+
+    var options = [];
+
+    videos.forEach(function (video) {
+      var companion = bestAudioFor(audios, video.videoId);
+      options.push({
+        label: video.height ? video.height + 'p' : 'Video',
+        height: video.height || 0,
+        kind: 'video',
+        streams: companion ? [video, companion] : [video],
+        needsMerge: !!companion,
+        hasAudio: !!companion,
+      });
+    });
+
+    muxed.forEach(function (item) {
+      options.push({
+        label: item.height ? item.height + 'p (with sound)' : 'Video (with sound)',
+        height: item.height || 0,
+        kind: 'muxed',
+        streams: [item],
+        needsMerge: false,
+        hasAudio: true,
+      });
+    });
+
+    if (audios.length) {
+      var bestAudio = audios.slice().sort(function (a, b) { return b.audioRank - a.audioRank; })[0];
+      options.push({
+        label: 'Audio only',
+        height: 0,
+        kind: 'audio',
+        streams: [bestAudio],
+        needsMerge: false,
+        hasAudio: true,
+      });
     }
 
-    var wantAudio = chosen.kind === 'video';
-    var candidates = (items || []).filter(function (item) {
-      if (item === chosen || !chosen.videoId) return false;
-      if (item.videoId !== chosen.videoId) return false;
-      return wantAudio ? item.kind === 'audio' : item.kind === 'video';
+    streams.forEach(function (item) {
+      options.push({
+        label: 'Stream',
+        height: 0,
+        kind: 'stream',
+        streams: [item],
+        needsMerge: false,
+        hasAudio: false,
+      });
     });
 
-    if (!candidates.length) return { streams: [chosen], needsMerge: false };
-
-    candidates.sort(function (a, b) {
-      return wantAudio ? b.audioRank - a.audioRank : b.height - a.height;
+    options.sort(function (a, b) {
+      // Audio-only ranks below every picture; at equal resolution an option
+      // that already carries sound wins, so the default pick is not silent.
+      var ah = a.kind === 'audio' ? -1 : a.height;
+      var bh = b.kind === 'audio' ? -1 : b.height;
+      if (bh !== ah) return bh - ah;
+      if (a.hasAudio !== b.hasAudio) return a.hasAudio ? -1 : 1;
+      return 0;
     });
-    var companion = candidates[0];
+    return options;
+  }
 
-    // Video first: the server treats the first stream as the picture.
-    var streams = wantAudio ? [chosen, companion] : [companion, chosen];
-    return { streams: streams, needsMerge: true };
+  /** The option the one-click button should use: the best one available. */
+  function bestOption(options) {
+    return options && options.length ? options[0] : null;
+  }
+
+  /**
+   * Turns a chosen quality option into the `{url, meta}` the hand-off expects.
+   * A paired option (picture + sound) becomes a `dash` hand-off: the server
+   * downloads both and merges them. Session headers ride along for both halves.
+   */
+  function optionToPayload(option) {
+    if (!option || !option.streams || !option.streams.length) return null;
+    var primary = option.streams[0];
+    var companion = option.streams[1];
+    var meta = { kind: primary.kind, headers: primary.headers };
+    if (companion) {
+      meta.audio = { url: companion.url, headers: companion.headers };
+    }
+    return { url: primary.url, meta: meta };
   }
 
   /**
@@ -280,21 +375,14 @@
     };
   }
 
-  /** A short human label for a capture, e.g. "1080p video" or "audio". */
-  function labelFor(record) {
-    if (record.kind === 'audio') return record.audioRank >= 4 ? 'high-quality audio' : 'audio';
-    if (record.kind === 'video') return record.height ? record.height + 'p video' : 'video';
-    if (record.kind === 'muxed') return record.height ? record.height + 'p (with sound)' : 'video (with sound)';
-    return 'stream';
-  }
-
   return {
     isMediaHost: isMediaHost,
     isMediaRequest: isMediaRequest,
     pickSessionHeaders: pickSessionHeaders,
     classifyStream: classifyStream,
-    labelFor: labelFor,
-    planPair: planPair,
+    groupQualities: groupQualities,
+    bestOption: bestOption,
+    optionToPayload: optionToPayload,
     toRecord: toRecord,
     normalizeMediaUrl: normalizeMediaUrl,
     dedupeKey: dedupeKey,

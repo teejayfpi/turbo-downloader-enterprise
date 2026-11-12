@@ -138,15 +138,6 @@ test('classifyStream separates a DASH picture, a DASH sound and a muxed stream',
   assert.equal(watch.classifyStream('https://cdn.example.com/master.m3u8'), 'stream');
 });
 
-test('labelFor names the stream in human terms', () => {
-  const video = watch.toRecord({ url: 'https://h/videoplayback?id=x&itag=137' }, {});
-  const audio = watch.toRecord({ url: 'https://h/videoplayback?id=x&itag=140' }, {});
-  const muxed = watch.toRecord({ url: 'https://h/videoplayback?id=x&itag=18' }, {});
-  assert.equal(watch.labelFor(video), '1080p video');
-  assert.equal(watch.labelFor(audio), 'audio');
-  assert.equal(watch.labelFor(muxed), '360p (with sound)');
-});
-
 test('a picture and its sound are two records, not one', () => {
   const store = watch.createStore(10);
   store.add(watch.toRecord({ url: 'https://h/videoplayback?id=x&itag=137', tabId: 1 }, {}));
@@ -154,38 +145,86 @@ test('a picture and its sound are two records, not one', () => {
   assert.equal(store.list(1).length, 2, 'id+itag keeps the pair distinct');
 });
 
-test('planPair attaches the best sound track to a chosen picture stream', () => {
-  const items = [
-    watch.toRecord({ url: 'https://h/videoplayback?id=x&itag=137' }, {}),
-    watch.toRecord({ url: 'https://h/videoplayback?id=x&itag=140' }, {}),
-    watch.toRecord({ url: 'https://h/videoplayback?id=x&itag=251' }, {}),
-    watch.toRecord({ url: 'https://h/videoplayback?id=other&itag=140' }, {}),
-  ];
-  const plan = watch.planPair(items, items[0]);
-  assert.equal(plan.needsMerge, true);
-  assert.equal(plan.streams.length, 2);
-  assert.equal(plan.streams[0].itag, 137, 'the picture stays first');
-  assert.equal(plan.streams[1].itag, 251, 'the best audio of the same video is chosen');
+// ---------------------------------------------------------------- qualities
+
+test('groupQualities pairs each picture with its own sound track', () => {
+  const v1080 = watch.toRecord({ url: 'https://h/videoplayback?id=a&itag=137' }, {});
+  const v720 = watch.toRecord({ url: 'https://h/videoplayback?id=a&itag=136' }, {});
+  const audio = watch.toRecord({ url: 'https://h/videoplayback?id=a&itag=140' }, {});
+
+  const options = watch.groupQualities([v1080, v720, audio]);
+
+  // Two picture qualities plus one "Audio only" entry.
+  assert.equal(options.length, 3);
+  assert.equal(options[0].label, '1080p');
+  assert.equal(options[0].needsMerge, true, 'the 1080p option brings its sound');
+  assert.equal(options[0].streams.length, 2);
+  assert.equal(options[1].label, '720p');
+  assert.equal(options[2].label, 'Audio only');
+  assert.equal(options[2].kind, 'audio');
 });
 
-test('planPair on an audio capture promotes a picture, and muxed needs no pair', () => {
-  const video = watch.toRecord({ url: 'https://h/videoplayback?id=x&itag=136' }, {});
-  const audio = watch.toRecord({ url: 'https://h/videoplayback?id=x&itag=140' }, {});
-  const muxed = watch.toRecord({ url: 'https://h/videoplayback?id=y&itag=18' }, {});
+test('groupQualities does not cross-pair two videos on one page', () => {
+  // Two different videos; each picture must take its own soundtrack.
+  const a = watch.toRecord({ url: 'https://h/videoplayback?id=a&itag=137' }, {});
+  const b = watch.toRecord({ url: 'https://h/videoplayback?id=b&itag=136' }, {});
+  const aAudio = watch.toRecord({ url: 'https://h/videoplayback?id=a&itag=140' }, {});
+  const bAudio = watch.toRecord({ url: 'https://h/videoplayback?id=b&itag=251' }, {});
 
-  const fromAudio = watch.planPair([video, audio], audio);
-  assert.equal(fromAudio.needsMerge, true);
-  assert.equal(fromAudio.streams[0].itag, 136, 'the picture is placed first for the muxer');
-  assert.equal(fromAudio.streams[1].itag, 140);
-
-  const solo = watch.planPair([muxed], muxed);
-  assert.equal(solo.needsMerge, false);
-  assert.equal(solo.streams.length, 1);
+  const options = watch.groupQualities([a, b, aAudio, bAudio]);
+  const optA = options.find((o) => o.streams[0].videoId === 'a');
+  const optB = options.find((o) => o.streams[0].videoId === 'b');
+  assert.equal(optA.streams[1].videoId, 'a');
+  assert.equal(optB.streams[1].videoId, 'b');
 });
 
-test('planPair with no companion returns the chosen stream alone', () => {
-  const video = watch.toRecord({ url: 'https://h/videoplayback?id=x&itag=137' }, {});
-  const plan = watch.planPair([video], video);
-  assert.equal(plan.needsMerge, false);
-  assert.deepEqual(plan.streams, [video]);
+test('groupQualities marks a picture with no captured sound as video-only', () => {
+  const video = watch.toRecord({ url: 'https://h/videoplayback?id=a&itag=137' }, {});
+  const options = watch.groupQualities([video]);
+  assert.equal(options.length, 1);
+  assert.equal(options[0].needsMerge, false);
+  assert.equal(options[0].hasAudio, false);
+});
+
+test('groupQualities ranks a higher resolution with sound above a lower one', () => {
+  const v1080 = watch.toRecord({ url: 'https://h/videoplayback?id=a&itag=137' }, {});
+  const v720 = watch.toRecord({ url: 'https://h/videoplayback?id=a&itag=136' }, {});
+  const options = watch.groupQualities([v720, v1080]);
+  assert.equal(options[0].height, 1080);
+});
+
+test('groupQualities keeps a muxed stream as its own complete option', () => {
+  const muxed = watch.toRecord({ url: 'https://h/videoplayback?id=a&itag=18' }, {});
+  const options = watch.groupQualities([muxed]);
+  assert.equal(options.length, 1);
+  assert.equal(options[0].kind, 'muxed');
+  assert.equal(options[0].hasAudio, true);
+  assert.equal(options[0].needsMerge, false);
+});
+
+test('bestOption returns the top-ranked option or null', () => {
+  assert.equal(watch.bestOption([]), null);
+  const options = watch.groupQualities([
+    watch.toRecord({ url: 'https://h/videoplayback?id=a&itag=137' }, {}),
+    watch.toRecord({ url: 'https://h/videoplayback?id=a&itag=140' }, {}),
+  ]);
+  assert.equal(watch.bestOption(options).label, '1080p');
+});
+
+test('optionToPayload shapes a paired option for the DASH hand-off', () => {
+  const video = watch.toRecord({ url: 'https://h/videoplayback?id=a&itag=137' }, { Cookie: 'c' });
+  const audio = watch.toRecord({ url: 'https://h/videoplayback?id=a&itag=140' }, { Cookie: 'c' });
+  const option = watch.groupQualities([video, audio])[0];
+
+  const payload = watch.optionToPayload(option);
+  assert.equal(payload.url, video.url);
+  assert.equal(payload.meta.kind, 'video');
+  assert.equal(payload.meta.headers.Cookie, 'c');
+  assert.equal(payload.meta.audio.url, audio.url, 'the sound URL rides along');
+  assert.equal(payload.meta.audio.headers.Cookie, 'c');
+});
+
+test('optionToPayload returns null for an empty option', () => {
+  assert.equal(watch.optionToPayload(null), null);
+  assert.equal(watch.optionToPayload({ streams: [] }), null);
 });

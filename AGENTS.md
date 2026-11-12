@@ -272,6 +272,17 @@ These caused real, user-visible bugs. Do not regress them.
   DOM-optional so it unit-tests under `node --test`.
   `.github/workflows/extension.yml` validates, lints the Firefox manifest with
   `web-ext`, and packages both zips.
+- **The extension looks like IDM on purpose: a floating button and a quality
+  picker.** `browser-extension/lib/overlay.js` paints a **Download** button over
+  each real video (skipping anything under `MIN_SIZE`, so icon/ad pixels get
+  none) and sends the best capture on click; with nothing captured yet it hands
+  over the page URL instead, so the button is never a dead end. It is on by
+  default and switchable from the popup (`overlayEnabled` in `storage`).
+  `groupQualities(items)` turns raw captures into the rows the popup shows
+  ("1080p", "720p", "Audio only"), each picture paired with its own soundtrack;
+  `optionToPayload` shapes the chosen row for the hand-off. Keep both pure and
+  chrome-free — the DOM painting lives in `mountOverlay`, which takes an
+  injectable `window` so it tests under `node --test`.
 - **The extension has an IDM-style capture path, and it is local-only by
   nature.** `browser-extension/lib/media-watch.js` +
   `chrome.webRequest.onBeforeSendHeaders` record the real media request

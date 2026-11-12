@@ -92,18 +92,18 @@ function render(items, hiddenPlayer) {
 }
 
 /**
- * Renders the streams the background captured for this tab. The URL is a signed
- * media URL, so it is shown truncated; the session headers travel with the
- * hand-off and are never displayed.
+ * Renders the quality options for this tab — the IDM-style picker. Each option
+ * is one downloadable result (e.g. "1080p" or "Audio only"); pressing Send
+ * hands over the stream(s) it needs, with the session headers that sign them.
  *
- * A YouTube HD video arrives as two captures — the picture and the sound. The
- * label says which is which, and pressing Send on either one pairs it with its
- * counterpart (see planPair) so the server can merge them into one file.
+ * The list is derived from the requests the player actually made, so it offers
+ * the qualities that were streamed rather than every quality the site holds.
  */
 function renderCaptured(items) {
-  capturedCountEl.textContent = String(items.length);
+  const options = TurboMediaWatch.groupQualities(items);
+  capturedCountEl.textContent = String(options.length);
   capturedListEl.textContent = '';
-  if (!items.length) {
+  if (!options.length) {
     const empty = document.createElement('div');
     empty.className = 'empty';
     empty.textContent =
@@ -111,49 +111,46 @@ function renderCaptured(items) {
     capturedListEl.appendChild(empty);
     return;
   }
-  items.forEach((item) => {
+  options.forEach((option) => {
     const row = document.createElement('div');
     row.className = 'item';
 
     const kind = document.createElement('div');
     kind.className = 'kind';
-    kind.textContent = TurboMediaWatch.labelFor(item);
+    kind.textContent = option.label;
 
     const meta = document.createElement('div');
     meta.className = 'meta';
     const label = document.createElement('div');
     label.className = 'label';
-    label.textContent = hostOf(item.url);
+    label.textContent = option.needsMerge
+      ? 'video + audio, merged on download'
+      : option.kind === 'audio'
+        ? 'audio track'
+        : 'single file';
     const host = document.createElement('div');
     host.className = 'host';
-    host.textContent = item.url;
+    host.textContent = hostOf(option.streams[0].url);
     meta.append(label, host);
 
     const btn = document.createElement('button');
     btn.textContent = 'Send';
-    btn.addEventListener('click', () => sendCapture(items, item));
+    btn.addEventListener('click', () => sendOption(option));
 
     row.append(kind, meta, btn);
     capturedListEl.appendChild(row);
   });
 }
 
-/**
- * Sends a captured stream, pairing it with its companion track when there is
- * one. A lone picture stream produces a silent file, so the matching audio is
- * attached and the server merges them; a lone audio capture just downloads.
- * Session headers ride along for both halves.
- */
-function sendCapture(items, item) {
-  const plan = TurboMediaWatch.planPair(items, item);
-  const primary = plan.streams[0] || item;
-  const companion = plan.streams[1];
-  const meta = { kind: primary.kind, headers: primary.headers };
-  if (companion) {
-    meta.audio = { url: companion.url, headers: companion.headers };
-    toast('Sending video + audio…');
+/** Hands a chosen quality option to the app. */
+function sendOption(option) {
+  const payload = TurboMediaWatch.optionToPayload(option);
+  if (!payload) {
+    toast('Nothing to send');
+    return;
   }
-  send(primary.url, meta);
+  if (option.needsMerge) toast('Sending video + audio…');
+  send(payload.url, payload.meta);
 }
 
 function scan() {
@@ -172,6 +169,18 @@ function scan() {
     document.getElementById('fallbackCopy').addEventListener('click', () => {
       const text = fallbackUrlEl.textContent;
       if (text) navigator.clipboard.writeText(text).then(() => toast('Copied'), () => {});
+    });
+
+    // The floating button's on/off switch. Persisted so the choice survives
+    // reopening the popup, and pushed to the tab so the button reacts at once.
+    const overlayToggle = document.getElementById('overlayToggle');
+    chrome.storage.local.get('overlayEnabled', ({ overlayEnabled }) => {
+      overlayToggle.checked = overlayEnabled !== false;
+    });
+    overlayToggle.addEventListener('change', () => {
+      const enabled = overlayToggle.checked;
+      chrome.storage.local.set({ overlayEnabled: enabled });
+      chrome.tabs.sendMessage(tab.id, { type: 'turbo:overlayEnabled', enabled }).catch(() => {});
     });
 
     showFallback();
