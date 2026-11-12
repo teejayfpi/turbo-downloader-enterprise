@@ -9,12 +9,14 @@ import 'package:path_provider/path_provider.dart';
 
 import 'file_store.dart';
 import 'media_extractor.dart';
+import 'media_url.dart';
 import 'services/diagnostics.dart';
 import 'services/download_error.dart';
 import 'services/ffmpeg.dart';
 import 'services/history_store.dart';
 import 'services/retry_policy.dart';
 import 'services/url_validator.dart';
+import 'services/youtube_session.dart';
 import 'ytdlp.dart';
 
 // `ResolvedMedia`/`MediaResolveException` appear in the manager's public API
@@ -262,6 +264,19 @@ class LocalTask {
   /// [sanitizeHeaders]. Persisted with the task so resume keeps the session.
   final Map<String, String> headers;
 
+  /// Headers for fetching the *resolved stream*, set when a media page resolves
+  /// to a host that only serves the bytes to the same client that signed the
+  /// URL (YouTube's `googlevideo.com` CDN). Not persisted: the stream URL is
+  /// re-resolved on every start, so these are rebuilt each time. Empty for a
+  /// plain file.
+  Map<String, String> streamHeaders = const {};
+
+  /// Headers the byte fetch actually sends: [streamHeaders] (the identity the
+  /// stream URL was signed for) overlaid with [headers] (an explicit session,
+  /// which wins). Empty [streamHeaders] means a plain file, so [headers] alone.
+  Map<String, String> get fetchHeaders =>
+      streamHeaders.isEmpty ? headers : {...streamHeaders, ...headers};
+
   bool get isActive => status == 'active';
   bool get isPaused => status == 'paused';
   bool get isQueued => status == 'queued';
@@ -479,12 +494,16 @@ class LocalDownloadManager extends ChangeNotifier {
   /// acceleration). Off means the full plan is used from the first request.
   bool adaptiveConnections = true;
 
-  /// Segments to open before the first ramp evaluation. Small enough not to
-  /// overwhelm a slow host, large enough to measure real throughput.
-  int initialSegments = 2;
+  /// Segments to open before the first ramp evaluation. Wide enough to make
+  /// the first window productive on a fast host, small enough not to overwhelm
+  /// a slow one — the ramp still holds the width when the host cannot feed it.
+  int initialSegments = 8;
 
-  /// How long to let the initial segments run before each ramp evaluation.
-  Duration rampWindow = const Duration(milliseconds: 1500);
+  /// How long to let the open segments run before each ramp evaluation. Short,
+  /// so a fast host reaches its full width within the first second or two of a
+  /// transfer instead of many seconds in. The first window doubles as the
+  /// startup grace period.
+  Duration rampWindow = const Duration(milliseconds: 400);
 
   /// Adds a segment only when the host sustains at least this many bytes per
   /// second per open connection (below it, extra connections rarely help).
@@ -495,10 +514,10 @@ class LocalDownloadManager extends ChangeNotifier {
   /// benefited are recorded; a slow host never lowers the starting width.
   bool rememberHostSpeed = true;
 
-  /// Connections added per ramp evaluation. Turbo adds more at a time so a
-  /// fast host reaches its full width in a couple of windows instead of
+  /// Connections added per ramp evaluation. Turbo adds a wide batch at a time
+  /// so a fast host reaches its full width in a couple of windows instead of
   /// climbing one connection per window.
-  int rampStepConnections = 1;
+  int rampStepConnections = 8;
 
   /// Proven segment width per host, loaded from `host_speed.json`. A hit seeds
   /// a fresh transfer's starting width; the ramp still adapts from there.
@@ -512,9 +531,10 @@ class LocalDownloadManager extends ChangeNotifier {
   Timer? _hostWriteTimer;
 
   /// Ceiling on ramp-up evaluations per transfer, a backstop against a host
-  /// whose throughput looks high but never lets a segment finish. Turbo
-  /// allows more steps so a fast host can actually reach its 32 connections.
-  int maxRampSteps = 8;
+  /// whose throughput looks high but never lets a segment finish. With the
+  /// batch above, a few windows are enough to reach the 32-connection ceiling
+  /// from the initial width.
+  int maxRampSteps = 4;
 
   static Future<ResolvedMedia> _defaultResolve(
     String pageUrl, {
@@ -1412,6 +1432,15 @@ class LocalDownloadManager extends ChangeNotifier {
         final media =
             await resolveMediaOverride(task.url, formatId: task.formatId);
         task.streamUrl = media.url;
+        // A YouTube stream URL is signed to the client that resolved it, and
+        // its CDN refuses a fetch that does not carry that identity with a 403
+        // (the bot check the user sees). Replay the extractor's own download
+        // headers so the bytes are served. Non-YouTube hosts get no synthetic
+        // cookie — only their own explicit session, if any.
+        final youtubeStream =
+            isYouTubeUrl(task.url) || isYouTubeMediaUrl(media.url);
+        task.streamHeaders =
+            youtubeStream ? YouTubeSession.streamHeaders() : const {};
         if (task.filename.isEmpty || task.filename == 'download') {
           task.filename = _mediaName(media);
         } else if (task.extensionHint == null &&
@@ -1429,7 +1458,7 @@ class LocalDownloadManager extends ChangeNotifier {
         }
       }
 
-      final probe = await _probe(client, task.fetchUrl, task.headers);
+      final probe = await _probe(client, task.fetchUrl, task.fetchHeaders);
       task.rangeSupported = probe.range;
       // Drop bytes from a previous run when the remote resource changed. The
       // `If-Range` header only protects mid-transfer resumes; across sessions
@@ -1490,7 +1519,7 @@ class LocalDownloadManager extends ChangeNotifier {
       media.url,
       videoPath,
       run,
-      headers: task.headers,
+      headers: task.fetchHeaders,
       onBytes: (n) {
         task.downloaded = n;
         _safeNotify();
@@ -1503,7 +1532,7 @@ class LocalDownloadManager extends ChangeNotifier {
       media.audioUrl!,
       audioPath,
       run,
-      headers: task.headers,
+      headers: task.fetchHeaders,
       onBytes: (n) {
         task.downloaded = videoDone + n;
         _safeNotify();
@@ -1815,7 +1844,8 @@ class LocalDownloadManager extends ChangeNotifier {
       if (end >= 0 && done >= end - start + 1) return;
 
       final req =
-          await _open(client, Uri.parse(task.fetchUrl), headers: task.headers);
+          await _open(client, Uri.parse(task.fetchUrl),
+              headers: task.fetchHeaders);
       // Ask only for the bytes still missing. `end < 0` means the length is
       // unknown, so an open-ended range from the resume point is used.
       if (done > 0 || end >= 0) {

@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:turbo_downloader/local_downloader.dart';
 import 'package:turbo_downloader/services/retry_policy.dart';
+import 'package:turbo_downloader/services/youtube_session.dart';
 
 /// Serves a byte blob over real HTTP, with configurable range support, so the
 /// engine is exercised end to end rather than against a mock.
@@ -716,6 +717,45 @@ void main() {
     expect(task.url, 'https://youtube.com/watch?v=abc123');
     expect(task.streamUrl, origin.url);
     expect(task.filename, 'Launch _ Recap.mp4');
+    expect(await File(task.filePath!).readAsBytes(), equals(data));
+  });
+
+  test('a YouTube media fetch replays the session the stream URL was signed for',
+      () async {
+    final data = _blob(300 * 1024);
+    // The origin stands in for the googlevideo CDN: it 403s unless the request
+    // carries a session cookie, exactly as YouTube does for a signed stream.
+    final origin = _Origin(data, requireCookie: true)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    // A signed-in session is what makes the bytes servable.
+    YouTubeSession.setFromJar(
+      '# Netscape HTTP Cookie File\n'
+      '.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tsigned-in\n',
+    );
+    addTearDown(() => YouTubeSession.setFromJar(null));
+
+    manager.resolveMediaOverride = (page, {String? formatId}) async =>
+        ResolvedMedia(
+          url: origin.url,
+          title: 'Signed Clip',
+          extension: 'mp4',
+          size: data.length,
+          qualityLabel: '360p',
+          kind: 'video',
+        );
+
+    final task = manager.add('https://youtube.com/watch?v=signed',
+        kind: 'media', connections: 1);
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    expect(origin.lastCookie, contains('SID=signed-in'),
+        reason: 'the signed-in cookie must reach the media CDN, or YouTube '
+            'answers 403 even for a valid stream URL');
     expect(await File(task.filePath!).readAsBytes(), equals(data));
   });
 

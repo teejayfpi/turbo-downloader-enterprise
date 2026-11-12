@@ -112,6 +112,17 @@ These caused real, user-visible bugs. Do not regress them.
   **retryable** (a signed-in session clears it); elsewhere it stays the generic
   "refused access to this file" with the cookie/region advice. Keep the URL
   threaded through any new HTTP throw site, or the host-aware branch is lost.
+- **The resolved YouTube stream must be fetched with the identity that signed
+  it, or it 403s even when signed in.** `youtube_explode_dart` validates a
+  `googlevideo.com` URL with *its own* client (library browser UA + the session
+  cookie from `YouTubeSession`), but `LocalDownloadManager` then fetched the
+  bytes with the engine's generic UA and **no cookie** — so the session never
+  reached the media bytes and the bot check answered 403, making sign-in look
+  broken. `LocalTask.streamHeaders` (set from `YouTubeSession.streamHeaders()`
+  when the page or stream is a YouTube host) carries the library's browser agent
+  plus the signed-in cookie into every byte request; `fetchHeaders` overlays any
+  explicit task `headers` on top. `streamHeaders` is in-memory only (the stream
+  URL is re-resolved per start), so no cookie is persisted for a media task.
 - **`app.set('trust proxy', 1)` is required behind Render's proxy.**
   `express-rate-limit` otherwise aborts every proxied request with
   `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR`, which shows up as intermittent 502s.
