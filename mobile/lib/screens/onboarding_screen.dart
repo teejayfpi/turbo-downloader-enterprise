@@ -7,7 +7,6 @@ import '../credits.dart';
 import '../state.dart';
 import '../theme.dart';
 import 'home_shell.dart';
-import 'youtube_login_screen.dart';
 
 /// A short first-run tour. It explains the local-first model, points out the
 /// optional yt-dlp engine, and confirms where files are saved. Nothing here is
@@ -60,16 +59,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     // Leave the tour immediately; persist in the background. Waiting on the
     // storage write here is what left SKIP/Start unresponsive when the platform
     // channel was slow, and skipped the write when the widget was gone.
-    final state = context.read<TurboState>();
-    unawaited(state.completeOnboarding());
+    unawaited(context.read<TurboState>().completeOnboarding());
     if (!mounted) return;
-    // On first run the tour is followed by the YouTube sign-in gate, so the
-    // session is in place before the user reaches the shell.
-    final route = state.needsFirstRunSignIn
-        ? MaterialPageRoute<void>(
-            builder: (_) => const YouTubeLoginScreen(required: true),
-          )
-        : MaterialPageRoute<void>(builder: (_) => const HomeShell());
+    // The tour now goes straight to the shell. The mandatory YouTube sign-in
+    // gate that used to follow is disabled (see TurboState.needsFirstRunSignIn);
+    // sign-in is optional and lives in Settings. Kept, commented, so it can be
+    // restored:
+    //   final route = state.needsFirstRunSignIn
+    //       ? MaterialPageRoute<void>(
+    //           builder: (_) => const YouTubeLoginScreen(required: true),
+    //         )
+    //       : MaterialPageRoute<void>(builder: (_) => const HomeShell());
+    final route = MaterialPageRoute<void>(builder: (_) => const HomeShell());
     Navigator.of(context).pushReplacement(route);
   }
 
