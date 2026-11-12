@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Turbo Downloader — Media Detector",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Detects videos, audio and files on the page and sends them to the Turbo download manager on your device.",
   "minimum_chrome_version": "102",
   "permissions": ["activeTab", "contextMenus", "storage", "webRequest"],
@@ -28,7 +28,7 @@
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*"],
-      "js": ["lib/detector.js", "content.js"],
+      "js": ["lib/detector.js", "lib/media-watch.js", "lib/overlay.js", "content.js"],
       "run_at": "document_idle",
       "all_frames": false
     }

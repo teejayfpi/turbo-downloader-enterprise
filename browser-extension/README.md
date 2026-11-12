@@ -36,21 +36,44 @@ on. Two consequences follow:
   extension never sends session headers to a non-loopback API for that reason.
 - Play the video for a moment first. The capture only exists once the browser
   has requested the stream; open the popup afterwards and the stream is listed
-  under **Streams captured**.
+  under **Download this video**.
+
+### The floating Download button
+
+As soon as a page has a real video, a small **Download** button appears in its
+top-left corner — the IDM touch — so a download is one click away without
+opening the popup. Clicking it sends the **best** captured quality for that tab;
+if the video has not been played yet there is nothing captured, so it falls back
+to handing the page URL over, exactly like **Send this page to Turbo**. The
+button can be switched off with the toggle in the popup, and the choice is
+remembered.
+
+### Choosing a quality
+
+The popup lists one row per downloadable result, best first — "1080p",
+"720p", "Audio only" — rather than the raw capture list. Each picture row is
+already paired with its own soundtrack, so pressing **Send** on "1080p"
+downloads the picture *and* the sound and merges them.
+
+The list is built from the requests the player actually made, so it offers the
+qualities that were streamed, not every quality the site holds. To get a
+different resolution, change it in the player, let it play a moment, then reopen
+the popup.
 
 ### HD arrives as two streams, and they are merged
 
 Above 360p YouTube does not serve one file: it sends the picture and the sound
 as **separate** streams (DASH). That is why IDM sometimes hands you a silent
-video. The popup shows both captures — "1080p video" and "audio" — and pressing
-**Send** on either one pairs it with its counterpart automatically. The app
-downloads both and muxes them with ffmpeg into a single file with sound.
+video. The popup pairs the two automatically — the "1080p" row carries the
+picture and its matching sound — and the app downloads both and muxes them with
+ffmpeg into a single file with sound.
 
 Pairing is keyed on the video id and the `itag`: a video's picture and sound
-share the same id and differ only in `itag`, so both are kept and matched. A
+share the same id and differ only in `itag`, so both are kept and matched. On a
+page with several videos, each picture is paired only with its own sound. A
 `muxed` capture (the old 360p `itag=18`) already has sound and is sent alone.
 Merging needs **ffmpeg** on the Turbo server; without it the picture downloads
-mute and the popup's pairing has nothing to merge with.
+mute and the pairing has nothing to merge with.
 
 Detection reports a page with a player but no direct URL as `hiddenPlayer`, and
 the popup says so, steering you to the captured list or to **Send this page to
@@ -129,10 +152,13 @@ permissions, so nothing is declared "just in case".
 | `webRequest` | Watch media requests so a hidden stream can be captured. Read-only: it observes headers, it does not block or rewrite anything. `extraHeaders` is passed to the listener so Chrome hands over `Cookie`/`Referer`; Firefox ignores it. |
 | host access to `localhost` / `127.0.0.1` | POST to the Turbo app's local API. No other host access. |
 | host access to `*.googlevideo.com` | The media CDN whose requests are captured. |
+| content script on `http(s)://*` | Scans the page for media and paints the floating Download button. It reads the DOM and posts findings to the background worker; it never reads page form data or sends anything to a network. |
 
 It does **not** request `tabs` (no browsing history), `scripting`, `cookies`, or
-`downloads`. Host access is limited to the loopback API and the one media CDN,
-not `<all_urls>`.
+`downloads`. The only host access declared in `host_permissions` is the loopback
+API and the one media CDN — the content script runs broadly so the button and
+detection work anywhere, but it talks only to the background worker, which posts
+solely to `127.0.0.1`.
 
 ## Firefox
 
@@ -144,7 +170,10 @@ requires in MV3. Build it by copying that file over `manifest.json` (the CI
 
 ## Using it
 
-- Click the toolbar icon → the popup lists what it found → **Send** on any item.
+- A **Download** button appears over each video on the page → click it to send
+  the best captured quality (or the page URL if nothing was captured yet).
+- Click the toolbar icon → the popup lists the qualities it captured → **Send**
+  on the one you want.
 - Or right-click the page / a link / a video → **Send … to Turbo**.
 
 If nothing happens after **Send**, the `turbo://` scheme likely has no registered

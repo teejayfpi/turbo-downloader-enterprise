@@ -186,10 +186,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       chrome.action.setBadgeBackgroundColor({ tabId, color: '#22E0FF' });
     }
   } else if (msg.type === 'turbo:captured') {
-    // The popup asks for the streams seen on its tab; newest first.
-    sendResponse({ items: store.list(msg.tabId) });
+    // The popup asks for the streams seen on its tab (it passes tabId); the
+    // content script's overlay asks for its own tab, where the sender is the
+    // source of truth. Newest first either way.
+    const tabId = msg.tabId != null ? msg.tabId : (sender.tab && sender.tab.id);
+    sendResponse({ items: store.list(tabId) });
   } else if (msg.type === 'turbo:clearCaptured') {
-    store.clear(msg.tabId);
+    const tabId = msg.tabId != null ? msg.tabId : (sender.tab && sender.tab.id);
+    store.clear(tabId);
+    sendResponse({ ok: true });
+  } else if (msg.type === 'turbo:overlayEnabled') {
+    const tabId = msg.tabId != null ? msg.tabId : (sender.tab && sender.tab.id);
+    if (tabId != null) {
+      chrome.tabs.sendMessage(tabId, { type: 'turbo:overlayEnabled', enabled: msg.enabled })
+        .catch(() => {});
+    }
     sendResponse({ ok: true });
   } else if (msg.type === 'turbo:send') {
     sendToTurbo(msg.url, msg.meta).then(sendResponse);
