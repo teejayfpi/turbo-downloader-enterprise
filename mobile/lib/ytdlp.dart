@@ -181,17 +181,41 @@ class YtdlpEngine {
     return supported;
   }
 
+  /// The `--extractor-args` workaround for YouTube's "The page needs to be
+  /// reloaded" failure.
+  ///
+  /// YouTube's TV player clients — the default for a signed-in session —
+  /// intermittently answer with an unplayable response and that message, so a
+  /// download that resolved fine moments ago starts failing for cookie users.
+  /// Forcing the web-embedded client alongside the defaults makes the video
+  /// resolvable again. This is the fix the yt-dlp maintainers recommend
+  /// (yt-dlp issue #17389); `default` keeps the normal client set, so it only
+  /// adds a fallback rather than replacing the working path.
+  @visibleForTesting
+  static const List<String> youtubeClientFallbackArgs = [
+    '--extractor-args',
+    'youtube:player_client=default,web_embedded',
+  ];
+
   /// The full argument vector for a `-J` probe. Built here (not inline) so the
   /// command line is unit-testable without spawning a process, on every OS.
   ///
   /// TLS verification is left on deliberately: `--no-check-certificates` would
   /// let a network attacker swap the media or read the cookie jar in transit.
-  Future<List<String>> probeArgs(String url) async => [
+  ///
+  /// [extraArgs] is appended just before the url for a one-off retry (see
+  /// [youtubeClientFallbackArgs]).
+  Future<List<String>> probeArgs(
+    String url, {
+    List<String> extraArgs = const [],
+  }) async =>
+      [
         '-J',
         '--no-warnings',
         '--no-playlist',
         ...await _solverArgs(),
         ..._cookieArgs(),
+        ...extraArgs,
         url,
       ];
 
@@ -210,6 +234,7 @@ class YtdlpEngine {
     required String stem,
     int limitBps = 0,
     int concurrentFragments = 1,
+    List<String> extraArgs = const [],
   }) async =>
       [
         '-f', selector,
@@ -220,6 +245,7 @@ class YtdlpEngine {
         if (limitBps > 0) ...['--limit-rate', '${limitBps}B'],
         ...await _solverArgs(),
         ..._cookieArgs(),
+        ...extraArgs,
         '-P', dir.path,
         '-o', '$stem.%(ext)s',
         '--progress-template',
@@ -319,6 +345,10 @@ class YtdlpEngine {
   Future<bool> hasJsRuntime() async => (await jsRuntime()) != null;
 
   /// Describes [url]: title, author, duration, thumbnail, and formats.
+  ///
+  /// A YouTube "page needs to be reloaded" failure is retried once with the
+  /// web-embedded player client ([youtubeClientFallbackArgs]) before giving up,
+  /// because that failure is a bad player response rather than a bad link.
   Future<YtdlpProbe> probe(String url) async {
     final bin = await locate();
     if (bin == null) {
@@ -326,7 +356,21 @@ class YtdlpEngine {
         'The download engine (yt-dlp) is not installed.',
       );
     }
-    final args = await probeArgs(url);
+    try {
+      return await _probeOnce(bin, url);
+    } on YtdlpException catch (e) {
+      if (!isYouTube(url) || !_isPageNeedsReload(e)) rethrow;
+      return _probeOnce(bin, url, extraArgs: youtubeClientFallbackArgs);
+    }
+  }
+
+  /// One `-J` attempt with [extraArgs] appended before the url.
+  Future<YtdlpProbe> _probeOnce(
+    String bin,
+    String url, {
+    List<String> extraArgs = const [],
+  }) async {
+    final args = await probeArgs(url, extraArgs: extraArgs);
     if (_isAndroid) {
       try {
         final json = await YtdlpAndroidBridge.probe(args);
@@ -368,12 +412,21 @@ class YtdlpEngine {
     }
   }
 
+  /// True when a probe failure is the YouTube player-response reload error.
+  /// Classified on the raw yt-dlp text, not the friendly sentence.
+  static bool _isPageNeedsReload(YtdlpException e) =>
+      looksLikePageNeedsReload(e.detail ?? e.message);
+
   /// Downloads [url] into [dir] with the given [selector], reporting progress.
   ///
   /// The merged output is allowed to keep whatever container yt-dlp picks; the
   /// caller finds the resulting file with [findResult]. [onProgress] receives
   /// (downloaded, total, bytesPerSecond); total is 0 when unknown. When
   /// [isCancelled] returns true the process is killed and this returns null.
+  ///
+  /// A YouTube "page needs to be reloaded" failure is retried once with the
+  /// web-embedded player client ([youtubeClientFallbackArgs]), the same recovery
+  /// the probe uses, so a download that trips the TV-client bug still completes.
   Future<File?> download({
     required String url,
     required String selector,
@@ -391,7 +444,48 @@ class YtdlpEngine {
       );
     }
     if (!await dir.exists()) await dir.create(recursive: true);
+    try {
+      return await _downloadOnce(
+        bin: bin,
+        url: url,
+        selector: selector,
+        dir: dir,
+        stem: stem,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+        limitBps: limitBps,
+        concurrentFragments: concurrentFragments,
+      );
+    } on YtdlpException catch (e) {
+      if (!isYouTube(url) || !_isPageNeedsReload(e)) rethrow;
+      return _downloadOnce(
+        bin: bin,
+        url: url,
+        selector: selector,
+        dir: dir,
+        stem: stem,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+        limitBps: limitBps,
+        concurrentFragments: concurrentFragments,
+        extraArgs: youtubeClientFallbackArgs,
+      );
+    }
+  }
 
+  /// One download attempt with [extraArgs] appended before the output path.
+  Future<File?> _downloadOnce({
+    required String bin,
+    required String url,
+    required String selector,
+    required Directory dir,
+    required String stem,
+    void Function(int downloaded, int total, int speed)? onProgress,
+    bool Function()? isCancelled,
+    int limitBps = 0,
+    int concurrentFragments = 1,
+    List<String> extraArgs = const [],
+  }) async {
     final args = await downloadArgs(
       url: url,
       selector: selector,
@@ -399,6 +493,7 @@ class YtdlpEngine {
       stem: stem,
       limitBps: limitBps,
       concurrentFragments: concurrentFragments,
+      extraArgs: extraArgs,
     );
 
     if (_isAndroid) {
@@ -761,6 +856,11 @@ class YtdlpEngine {
       return 'This video needs a signed-in session. Open Settings → Sign-in & '
           'cookies and add your YouTube cookies, then retry.';
     }
+    // YouTube's TV client returns an unplayable response ("The page needs to be
+    // reloaded"). It is neither a sign-in wall nor a network drop, and the raw
+    // text tells the user nothing they can act on, so name the cause and the
+    // remedy (a different player client) instead.
+    if (looksLikePageNeedsReload(text)) return pageNeedsReloadMessage;
     // YouTube's IP rate-limit notice is not a sign-in wall, and the generic
     // "retry in a moment" advice understates it — the app has a dedicated
     // explanation (and a network-switch suggestion) for this exact page.
@@ -836,6 +936,24 @@ class YtdlpEngine {
         lower.contains('status $s') ||
         RegExp('(?<![0-9])$s(?![0-9])').hasMatch(lower);
   }
+
+  /// True when yt-dlp's message means YouTube wants the page reloaded, which is
+  /// its TV player client (`tv_downgraded`) returning an unplayable response.
+  /// It is not a sign-in wall and not a network drop: retrying with the
+  /// web-embedded client ([youtubeClientFallbackArgs]) is what clears it.
+  static bool looksLikePageNeedsReload(String message) {
+    final m = message.toLowerCase();
+    return m.contains('needs to be reloaded') ||
+        m.contains('reload the page') ||
+        m.contains('player response playability status');
+  }
+
+  /// What to show if the page-reload failure survives the client fallback.
+  static const String pageNeedsReloadMessage =
+      'YouTube returned an unplayable response for this video (its TV player '
+      'client failed). Turbo retried with a different client and it still '
+      'failed. Update yt-dlp, then retry; if it persists, sign out and back in '
+      'under Settings → Sign-in & cookies.';
 
   /// True when yt-dlp's message means the site wants an authenticated session
   /// (bot check, age gate, private/members-only video) rather than a plain

@@ -424,4 +424,119 @@ void main() {
       expect(YtdlpAndroidException('boom').detail, isNull);
     });
   });
+
+  group('YouTube page-reload failure', () {
+    test('the raw yt-dlp text is recognised', () {
+      expect(
+        YtdlpEngine.looksLikePageNeedsReload(
+            'ERROR: [youtube] 2lWZAOZMvxY: The page needs to be reloaded.'),
+        isTrue,
+      );
+      // The verbose form names the playability status.
+      expect(
+        YtdlpEngine.looksLikePageNeedsReload(
+            'tv_downgraded player response playability status: UNPLAYABLE'),
+        isTrue,
+      );
+      expect(YtdlpEngine.looksLikePageNeedsReload('ERROR: HTTP Error 403'), isFalse);
+      expect(
+        YtdlpEngine.looksLikePageNeedsReload('Sign in to confirm you are not a bot'),
+        isFalse,
+      );
+    });
+
+    test('it is explained instead of shown raw', () {
+      expect(
+        YtdlpEngine.friendlyMessage(
+            'ERROR: [youtube] 2lWZAOZMvxY: The page needs to be reloaded.'),
+        YtdlpEngine.pageNeedsReloadMessage,
+      );
+    });
+
+    test('the fallback asks yt-dlp for the web-embedded client', () {
+      expect(YtdlpEngine.youtubeClientFallbackArgs, contains('--extractor-args'));
+      expect(
+        YtdlpEngine.youtubeClientFallbackArgs,
+        contains('youtube:player_client=default,web_embedded'),
+      );
+    });
+
+    test('extraArgs land just before the url in both vectors', () async {
+      final dir = Directory.systemTemp.createTempSync('ytdlp-extra');
+      const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+      final e = YtdlpEngine();
+
+      final probe = await e.probeArgs(url,
+          extraArgs: YtdlpEngine.youtubeClientFallbackArgs);
+      expect(probe.last, url);
+      expect(probe[probe.length - 3], '--extractor-args');
+      expect(probe[probe.length - 2], 'youtube:player_client=default,web_embedded');
+
+      final dl = await e.downloadArgs(
+        url: url,
+        selector: 'best',
+        dir: dir,
+        stem: 'clip',
+        extraArgs: YtdlpEngine.youtubeClientFallbackArgs,
+      );
+      expect(dl.last, url);
+      expect(
+        dl[dl.indexOf('--extractor-args') + 1],
+        'youtube:player_client=default,web_embedded',
+      );
+    });
+
+    test('a YouTube reload failure is retried once and then succeeds', () async {
+      if (Platform.isWindows) {
+        markTestSkipped('the fake engine is a POSIX shell script');
+        return;
+      }
+      final dir = Directory.systemTemp.createTempSync('ytdlp-reload');
+      // Fails with the reload message unless the fallback client is requested,
+      // so success proves the retry actually ran with the workaround args.
+      final script = File('${dir.path}/yt-dlp')
+        ..writeAsStringSync('#!/bin/sh\n'
+            'for a in "\$@"; do\n'
+            '  if [ "\$a" = "--version" ]; then echo "2025.01.01"; exit 0; fi\n'
+            '  if [ "\$a" = "--extractor-args" ]; then\n'
+            '    echo \'{"title":"Clip","formats":[{"format_id":"22",'
+            '"ext":"mp4","vcodec":"avc1","acodec":"mp4a","height":720,'
+            '"filesize":1000}]}\'\n'
+            '    exit 0\n'
+            '  fi\n'
+            'done\n'
+            'echo "ERROR: [youtube] abc: The page needs to be reloaded." >&2\n'
+            'exit 1\n');
+      Process.runSync('chmod', ['+x', script.path]);
+      final engine = YtdlpEngine()..overridePath = script.path;
+
+      final probe = await engine.probe('https://www.youtube.com/watch?v=abc');
+      expect(probe.title, 'Clip');
+      expect(probe.formats, isNotEmpty);
+    });
+
+    test('a non-YouTube reload failure is not retried', () async {
+      if (Platform.isWindows) {
+        markTestSkipped('the fake engine is a POSIX shell script');
+        return;
+      }
+      final dir = Directory.systemTemp.createTempSync('ytdlp-reload-other');
+      final script = File('${dir.path}/yt-dlp')
+        ..writeAsStringSync('#!/bin/sh\n'
+            'for a in "\$@"; do\n'
+            '  if [ "\$a" = "--version" ]; then echo "2025.01.01"; exit 0; fi\n'
+            '  if [ "\$a" = "--extractor-args" ]; then echo \'{"title":"Clip",'
+            '"formats":[]}\'; exit 0; fi\n'
+            'done\n'
+            'echo "ERROR: The page needs to be reloaded." >&2\n'
+            'exit 1\n');
+      Process.runSync('chmod', ['+x', script.path]);
+      final engine = YtdlpEngine()..overridePath = script.path;
+
+      await expectLater(
+        engine.probe('https://example.com/watch?v=abc'),
+        throwsA(isA<YtdlpException>()),
+      );
+    });
+  });
 }

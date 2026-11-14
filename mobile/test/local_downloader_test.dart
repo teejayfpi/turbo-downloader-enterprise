@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:turbo_downloader/local_downloader.dart';
 import 'package:turbo_downloader/services/retry_policy.dart';
+import 'package:turbo_downloader/services/youtube_session.dart';
 
 /// Serves a byte blob over real HTTP, with configurable range support, so the
 /// engine is exercised end to end rather than against a mock.
@@ -719,6 +720,45 @@ void main() {
     expect(await File(task.filePath!).readAsBytes(), equals(data));
   });
 
+  test('a YouTube media fetch replays the session the stream URL was signed for',
+      () async {
+    final data = _blob(300 * 1024);
+    // The origin stands in for the googlevideo CDN: it 403s unless the request
+    // carries a session cookie, exactly as YouTube does for a signed stream.
+    final origin = _Origin(data, requireCookie: true)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+
+    // A signed-in session is what makes the bytes servable.
+    YouTubeSession.setFromJar(
+      '# Netscape HTTP Cookie File\n'
+      '.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tsigned-in\n',
+    );
+    addTearDown(() => YouTubeSession.setFromJar(null));
+
+    manager.resolveMediaOverride = (page, {String? formatId}) async =>
+        ResolvedMedia(
+          url: origin.url,
+          title: 'Signed Clip',
+          extension: 'mp4',
+          size: data.length,
+          qualityLabel: '360p',
+          kind: 'video',
+        );
+
+    final task = manager.add('https://youtube.com/watch?v=signed',
+        kind: 'media', connections: 1);
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    expect(origin.lastCookie, contains('SID=signed-in'),
+        reason: 'the signed-in cookie must reach the media CDN, or YouTube '
+            'answers 403 even for a valid stream URL');
+    expect(await File(task.filePath!).readAsBytes(), equals(data));
+  });
+
   test('resuming a media task re-resolves instead of reusing a stale stream',
       () async {
     final data = _blob(600 * 1024);
@@ -922,6 +962,43 @@ void main() {
     expect(task.attempts, 2);
     expect(task.errorAdvice, contains('Retry'));
     expect(task.errorDetail, contains('HTTP Error 403'));
+  });
+
+  test('a YouTube reload failure is retried and carries advice', () async {
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    manager.retryPolicy = const RetryPolicy(
+      maxAttempts: 2,
+      baseDelay: Duration(milliseconds: 10),
+      maxDelay: Duration(milliseconds: 20),
+    );
+
+    var calls = 0;
+    manager.ytdlpOverride = ({
+      required String url,
+      required String selector,
+      required Directory dir,
+      required String stem,
+      void Function(int, int, int)? onProgress,
+      bool Function()? isCancelled,
+      int limitBps = 0,
+      int concurrentFragments = 1,
+    }) async {
+      calls += 1;
+      throw const YtdlpException(
+        YtdlpEngine.pageNeedsReloadMessage,
+        detail: 'ERROR: [youtube] 2lWZAOZMvxY: The page needs to be reloaded.',
+      );
+    };
+
+    final task = manager.add('https://youtube.com/watch?v=reload',
+        kind: 'media', engine: 'ytdlp', formatSelector: 'best');
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isFailed, isTrue);
+    expect(task.errorKind, 'engine');
+    expect(calls, 2, reason: 'a bad TV-player response is worth a retry');
+    expect(task.errorAdvice, contains('Retry'));
   });
 
   test('a yt-dlp failure falls back to the built-in engine for a media page',

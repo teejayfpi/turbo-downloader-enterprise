@@ -42,6 +42,26 @@ class YouTubeSession {
       httpClient: _CookieHttpClient(cookie),
     );
   }
+
+  /// Headers a direct fetch of a signed media stream must send.
+  ///
+  /// The extractor validates a `googlevideo.com` URL with the library's own
+  /// client, but the engine then fetches the bytes itself with a generic
+  /// browser User-Agent and no cookie — so YouTube's bot check answers 403 even
+  /// though the URL is valid, and signing in never helped because the session
+  /// cookie never reached the bytes. Replay the exact headers the library's own
+  /// downloader uses (its browser agent, `CONSENT`, and the signed-in cookie),
+  /// so the fetch carries the identity the URL was signed for. This is what a
+  /// browser (and IDM) does implicitly: it downloads with the session that made
+  /// the stream playable.
+  static Map<String, String> streamHeaders() {
+    final headers = Map<String, String>.from(yt.YoutubeHttpClient.defaultHeaders);
+    final cookie = _header;
+    if (cookie != null && cookie.isNotEmpty) {
+      headers['cookie'] = cookie;
+    }
+    return headers;
+  }
 }
 
 /// Adds a fixed `Cookie:` header to every request. Extends the package's own

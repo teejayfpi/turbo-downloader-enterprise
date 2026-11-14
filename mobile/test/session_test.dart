@@ -169,6 +169,29 @@ void main() {
       YouTubeSession.setFromJar(null);
       expect(YouTubeSession.revision, before + 1);
     });
+
+    test('stream headers carry the browser agent even with no session', () {
+      YouTubeSession.setFromJar(null);
+      final headers = YouTubeSession.streamHeaders();
+      expect(headers['user-agent'], isNotNull,
+          reason: 'the CDN 403s the bare dart:io agent');
+      expect(headers['user-agent'], contains('Mozilla/'));
+      // The library's consent cookie is still sent; no session means no SID.
+      expect(headers['cookie'], isNotNull);
+      expect(headers['cookie'], isNot(contains('SID=')));
+    });
+
+    test('stream headers replay the signed-in cookie the URL was signed for',
+        () {
+      YouTubeSession.setFromJar(
+        '# Netscape HTTP Cookie File\n'
+        '.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tabc\n',
+      );
+      final headers = YouTubeSession.streamHeaders();
+      expect(headers['cookie'], contains('SID=abc'),
+          reason: 'the media bytes must be fetched with the session, or '
+              'YouTube answers 403');
+    });
   });
 
   group('YtdlpEngine cookie flags', () {

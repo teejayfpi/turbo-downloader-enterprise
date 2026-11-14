@@ -31,12 +31,20 @@ class DownloadSpeed {
   /// Segment ceiling for a range-capable transfer.
   static const int connections = 32;
 
-  /// Connections added per ramp window.
-  static const int rampStep = 2;
+  /// Segments opened before the first ramp evaluation. Wide enough that a fast
+  /// host is productive from the first bytes, not just after the ramp climbs.
+  static const int initialSegments = 8;
 
-  /// Ramp evaluations allowed per transfer, enough to reach [connections] at
-  /// [rampStep] per window.
-  static const int rampSteps = 16;
+  /// How long each ramp window runs before the width is re-evaluated. Short,
+  /// so a fast host reaches [connections] within the first second or two.
+  static const Duration rampWindow = Duration(milliseconds: 400);
+
+  /// Connections added per ramp window.
+  static const int rampStep = 8;
+
+  /// Ramp evaluations allowed per transfer, enough to reach [connections] from
+  /// [initialSegments] at [rampStep] per window.
+  static const int rampSteps = 4;
 
   /// Width for a multi-file download.
   static const int multiFileConnections = 16;
@@ -558,6 +566,8 @@ class TurboState extends ChangeNotifier {
   /// the ramp adapts to the host, so the widest useful setting is always best.
   void _applySpeedMode() {
     local.maxConnections = DownloadSpeed.connections;
+    local.initialSegments = DownloadSpeed.initialSegments;
+    local.rampWindow = DownloadSpeed.rampWindow;
     local.rampStepConnections = DownloadSpeed.rampStep;
     local.maxRampSteps = DownloadSpeed.rampSteps;
   }
