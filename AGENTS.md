@@ -694,3 +694,12 @@ Changing one without the others silently caps speed.
   `downloadArgs` take an `extraArgs` list placed before the output flags/url, so
   a retry never has to rebuild the whole vector.
 
+- **The onboarding tour reappearing every launch was a preferences read that
+  threw, not a failed write.** `_loadPreferences` read ~20 keys with the raw
+  `SharedPreferences.get*`, and those throw when a stored value has the wrong
+  type (a corrupt or legacy entry, e.g. a `bool` where `getDouble` expects a
+  number). Because `onboardingDone` was read near the end, one bad key aborted
+  the whole method and left the flag at its `false` default, so the tour came
+  back every launch even though the write had succeeded. The reads now go
+  through tolerant `_bool`/`_int`/`_double`/`_string` helpers that fall back to
+  the default on a type mismatch, and `onboardingDone` is read first.
