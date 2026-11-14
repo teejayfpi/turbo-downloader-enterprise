@@ -112,6 +112,17 @@ These caused real, user-visible bugs. Do not regress them.
   **retryable** (a signed-in session clears it); elsewhere it stays the generic
   "refused access to this file" with the cookie/region advice. Keep the URL
   threaded through any new HTTP throw site, or the host-aware branch is lost.
+- **The resolved YouTube stream must be fetched with the identity that signed
+  it, or it 403s even when signed in.** `youtube_explode_dart` validates a
+  `googlevideo.com` URL with *its own* client (library browser UA + the session
+  cookie from `YouTubeSession`), but `LocalDownloadManager` then fetched the
+  bytes with the engine's generic UA and **no cookie** — so the session never
+  reached the media bytes and the bot check answered 403, making sign-in look
+  broken. `LocalTask.streamHeaders` (set from `YouTubeSession.streamHeaders()`
+  when the page or stream is a YouTube host) carries the library's browser agent
+  plus the signed-in cookie into every byte request; `fetchHeaders` overlays any
+  explicit task `headers` on top. `streamHeaders` is in-memory only (the stream
+  URL is re-resolved per start), so no cookie is persisted for a media task.
 - **`app.set('trust proxy', 1)` is required behind Render's proxy.**
   `express-rate-limit` otherwise aborts every proxied request with
   `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR`, which shows up as intermittent 502s.
@@ -669,4 +680,17 @@ Changing one without the others silently caps speed.
   widget-test harness has no handler for — the stray `MissingPluginException`
   fails any test that boots the app (e.g. onboarding persistence). On Windows CI
   the ffmpeg plugin does not register that channel, exposing the same throw.
+- **YouTube "The page needs to be reloaded" is the TV player client, not a
+  network drop.** yt-dlp's default client for a signed-in (cookie) session is
+  `tv_downgraded`, which YouTube intermittently answers with an unplayable
+  player response and that exact message, so a video that resolved fine moments
+  ago starts failing for cookie users (yt-dlp issue #17389). `YtdlpEngine` now
+  recognises the text (`looksLikePageNeedsReload`) and, on a YouTube URL, retries
+  the probe and the download **once** with
+  `--extractor-args youtube:player_client=default,web_embedded`
+  (`youtubeClientFallbackArgs`); `default` keeps the normal client set, so the
+  retry only adds the web-embedded fallback. If it still fails, the user sees
+  `pageNeedsReloadMessage` rather than the raw stderr. Both `probeArgs` and
+  `downloadArgs` take an `extraArgs` list placed before the output flags/url, so
+  a retry never has to rebuild the whole vector.
 
