@@ -964,6 +964,43 @@ void main() {
     expect(task.errorDetail, contains('HTTP Error 403'));
   });
 
+  test('a YouTube reload failure is retried and carries advice', () async {
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    manager.retryPolicy = const RetryPolicy(
+      maxAttempts: 2,
+      baseDelay: Duration(milliseconds: 10),
+      maxDelay: Duration(milliseconds: 20),
+    );
+
+    var calls = 0;
+    manager.ytdlpOverride = ({
+      required String url,
+      required String selector,
+      required Directory dir,
+      required String stem,
+      void Function(int, int, int)? onProgress,
+      bool Function()? isCancelled,
+      int limitBps = 0,
+      int concurrentFragments = 1,
+    }) async {
+      calls += 1;
+      throw const YtdlpException(
+        YtdlpEngine.pageNeedsReloadMessage,
+        detail: 'ERROR: [youtube] 2lWZAOZMvxY: The page needs to be reloaded.',
+      );
+    };
+
+    final task = manager.add('https://youtube.com/watch?v=reload',
+        kind: 'media', engine: 'ytdlp', formatSelector: 'best');
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isFailed, isTrue);
+    expect(task.errorKind, 'engine');
+    expect(calls, 2, reason: 'a bad TV-player response is worth a retry');
+    expect(task.errorAdvice, contains('Retry'));
+  });
+
   test('a yt-dlp failure falls back to the built-in engine for a media page',
       () async {
     final data = _blob(300 * 1024);

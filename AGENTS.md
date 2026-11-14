@@ -680,4 +680,17 @@ Changing one without the others silently caps speed.
   widget-test harness has no handler for — the stray `MissingPluginException`
   fails any test that boots the app (e.g. onboarding persistence). On Windows CI
   the ffmpeg plugin does not register that channel, exposing the same throw.
+- **YouTube "The page needs to be reloaded" is the TV player client, not a
+  network drop.** yt-dlp's default client for a signed-in (cookie) session is
+  `tv_downgraded`, which YouTube intermittently answers with an unplayable
+  player response and that exact message, so a video that resolved fine moments
+  ago starts failing for cookie users (yt-dlp issue #17389). `YtdlpEngine` now
+  recognises the text (`looksLikePageNeedsReload`) and, on a YouTube URL, retries
+  the probe and the download **once** with
+  `--extractor-args youtube:player_client=default,web_embedded`
+  (`youtubeClientFallbackArgs`); `default` keeps the normal client set, so the
+  retry only adds the web-embedded fallback. If it still fails, the user sees
+  `pageNeedsReloadMessage` rather than the raw stderr. Both `probeArgs` and
+  `downloadArgs` take an `extraArgs` list placed before the output flags/url, so
+  a retry never has to rebuild the whole vector.
 

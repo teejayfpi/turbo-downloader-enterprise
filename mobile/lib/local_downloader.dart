@@ -1372,10 +1372,17 @@ class LocalDownloadManager extends ChangeNotifier {
       final signIn = YtdlpEngine.looksLikeSignInRequired(raw);
       final transient = YtdlpEngine.looksLikeTransientNetwork(raw);
       final refused = YtdlpEngine.looksLikeAccessDenied(raw);
+      // YouTube's TV client returning an unplayable response ("The page needs
+      // to be reloaded") is transient: the engine already retried once with a
+      // different client, so an automatic backoff retry is the right next step.
+      final reload = YtdlpEngine.looksLikePageNeedsReload(raw);
       final String? advice;
       if (signIn) {
         advice = 'Open Settings → Sign-in & cookies to add your YouTube '
             'cookies, then retry.';
+      } else if (reload) {
+        advice = 'Retry in a moment; if it keeps failing, update yt-dlp in '
+            'Settings.';
       } else if (refused) {
         advice = 'Retry in a moment; if it keeps failing, add cookies in '
             'Settings → Sign-in & cookies or try a different network.';
@@ -1387,7 +1394,7 @@ class LocalDownloadManager extends ChangeNotifier {
         error.message,
         advice: advice,
         detail: error.detail,
-        retryable: transient || refused,
+        retryable: transient || refused || reload,
       );
     }
     return DownloadError.from(error, url: url);
