@@ -131,6 +131,24 @@ void main() {
           reason: 'the tour must be shown only once');
     });
 
+    test('a corrupt preference does not resurrect the tour', () async {
+      // A value stored under the wrong type (a legacy or damaged entry) used to
+      // throw inside _loadPreferences, aborting it before onboardingDone was
+      // read — so the tour reappeared on every launch.
+      SharedPreferences.setMockInitialValues({
+        SettingsStore.kOnboardingDone: true,
+        SettingsStore.kTextScale: true, // expected double
+        SettingsStore.kMaxConcurrent: 'many', // expected int
+      });
+      final state = TurboState();
+      addTearDown(state.dispose);
+      await state.init();
+      expect(state.onboardingDone, isTrue,
+          reason: 'one bad key must not hide the fact that the tour is done');
+      expect(state.textScale, 1.0, reason: 'falls back to the default');
+      expect(state.maxConcurrent, 1);
+    });
+
     test('the first-run sign-in gate is disabled so sign-in is optional', () {
       SharedPreferences.setMockInitialValues({});
       final signedOut = TurboState()..signInSupported = true;

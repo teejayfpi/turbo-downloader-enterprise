@@ -31,12 +31,20 @@ class DownloadSpeed {
   /// Segment ceiling for a range-capable transfer.
   static const int connections = 32;
 
-  /// Connections added per ramp window.
-  static const int rampStep = 2;
+  /// Segments opened before the first ramp evaluation. Wide enough that a fast
+  /// host is productive from the first bytes, not just after the ramp climbs.
+  static const int initialSegments = 8;
 
-  /// Ramp evaluations allowed per transfer, enough to reach [connections] at
-  /// [rampStep] per window.
-  static const int rampSteps = 16;
+  /// How long each ramp window runs before the width is re-evaluated. Short,
+  /// so a fast host reaches [connections] within the first second or two.
+  static const Duration rampWindow = Duration(milliseconds: 400);
+
+  /// Connections added per ramp window.
+  static const int rampStep = 8;
+
+  /// Ramp evaluations allowed per transfer, enough to reach [connections] from
+  /// [initialSegments] at [rampStep] per window.
+  static const int rampSteps = 4;
 
   /// Width for a multi-file download.
   static const int multiFileConnections = 16;
@@ -375,29 +383,35 @@ class TurboState extends ChangeNotifier {
     for (final key in kLegacySpeedKeys) {
       await prefs.remove(key);
     }
-    preferEngine = prefs.getBool('turbo.preferredEngine') ?? true;
-    playSound = prefs.getBool('turbo.playSound') ?? true;
-    local.ytdlp.overridePath = prefs.getString('turbo.ytdlpPath');
+    // Read the flags that decide what the user sees first, and read them with
+    // tolerant accessors. `SharedPreferences.get*` throws when a stored value
+    // has the wrong type (a corrupt or legacy entry), and because a throw here
+    // aborted the whole method, `onboardingDone` was left at its `false`
+    // default — the tour then reappeared on every launch. Reading it first, and
+    // never letting one bad key abort the rest, keeps the tour shown once.
+    onboardingDone = _bool(prefs, SettingsStore.kOnboardingDone, false);
+    preferEngine = _bool(prefs, 'turbo.preferredEngine', true);
+    playSound = _bool(prefs, 'turbo.playSound', true);
+    local.ytdlp.overridePath = _string(prefs, 'turbo.ytdlpPath');
 
-    themeMode = _themeModeFrom(prefs.getString(SettingsStore.kThemeMode));
-    localeCode = prefs.getString(SettingsStore.kLocale);
-    highContrast = prefs.getBool(SettingsStore.kHighContrast) ?? false;
-    reducedMotion = prefs.getBool(SettingsStore.kReducedMotion) ?? false;
-    textScale = prefs.getDouble(SettingsStore.kTextScale) ?? 1.0;
-    maxConcurrent = prefs.getInt(SettingsStore.kMaxConcurrent) ?? 1;
-    wifiOnly = prefs.getBool(SettingsStore.kWifiOnly) ?? false;
-    batteryAware = prefs.getBool(SettingsStore.kBatteryAware) ?? false;
-    scheduleEnabled = prefs.getBool(SettingsStore.kScheduleEnabled) ?? false;
-    scheduleStartMinute = prefs.getInt(SettingsStore.kScheduleStart) ?? 60;
-    scheduleEndMinute = prefs.getInt(SettingsStore.kScheduleEnd) ?? 420;
-    autoRetry = prefs.getBool(SettingsStore.kAutoRetry) ?? true;
-    notifyProgress = prefs.getBool(SettingsStore.kNotifyProgress) ?? false;
-    checkUpdates = prefs.getBool(SettingsStore.kCheckUpdates) ?? true;
-    onboardingDone = prefs.getBool(SettingsStore.kOnboardingDone) ?? false;
-    updateChannel = _channelFrom(prefs.getString(SettingsStore.kUpdateChannel));
+    themeMode = _themeModeFrom(_string(prefs, SettingsStore.kThemeMode));
+    localeCode = _string(prefs, SettingsStore.kLocale);
+    highContrast = _bool(prefs, SettingsStore.kHighContrast, false);
+    reducedMotion = _bool(prefs, SettingsStore.kReducedMotion, false);
+    textScale = _double(prefs, SettingsStore.kTextScale, 1.0);
+    maxConcurrent = _int(prefs, SettingsStore.kMaxConcurrent, 1);
+    wifiOnly = _bool(prefs, SettingsStore.kWifiOnly, false);
+    batteryAware = _bool(prefs, SettingsStore.kBatteryAware, false);
+    scheduleEnabled = _bool(prefs, SettingsStore.kScheduleEnabled, false);
+    scheduleStartMinute = _int(prefs, SettingsStore.kScheduleStart, 60);
+    scheduleEndMinute = _int(prefs, SettingsStore.kScheduleEnd, 420);
+    autoRetry = _bool(prefs, SettingsStore.kAutoRetry, true);
+    notifyProgress = _bool(prefs, SettingsStore.kNotifyProgress, false);
+    checkUpdates = _bool(prefs, SettingsStore.kCheckUpdates, true);
+    updateChannel = _channelFrom(_string(prefs, SettingsStore.kUpdateChannel));
     notifyStyle =
-        _notifyStyleFrom(prefs.getString(SettingsStore.kNotifyComplete));
-    clipboardMonitor = prefs.getBool(SettingsStore.kClipboardMonitor) ?? false;
+        _notifyStyleFrom(_string(prefs, SettingsStore.kNotifyComplete));
+    clipboardMonitor = _bool(prefs, SettingsStore.kClipboardMonitor, false);
 
     _applySpeedMode();
     local.setOffPeakSchedule(
@@ -558,6 +572,8 @@ class TurboState extends ChangeNotifier {
   /// the ramp adapts to the host, so the widest useful setting is always best.
   void _applySpeedMode() {
     local.maxConnections = DownloadSpeed.connections;
+    local.initialSegments = DownloadSpeed.initialSegments;
+    local.rampWindow = DownloadSpeed.rampWindow;
     local.rampStepConnections = DownloadSpeed.rampStep;
     local.maxRampSteps = DownloadSpeed.rampSteps;
   }
@@ -1051,6 +1067,28 @@ class TurboState extends ChangeNotifier {
   UrlValidation validateUrl(String? input) => UrlValidation.check(input);
 
   // ------------------------------------------------------------------ helpers
+
+  /// Reads a preference without throwing when the stored value has the wrong
+  /// type. A single corrupt or legacy entry must never abort the whole load.
+  static bool _bool(SharedPreferences p, String key, bool fallback) {
+    final value = p.get(key);
+    return value is bool ? value : fallback;
+  }
+
+  static int _int(SharedPreferences p, String key, int fallback) {
+    final value = p.get(key);
+    return value is int ? value : fallback;
+  }
+
+  static double _double(SharedPreferences p, String key, double fallback) {
+    final value = p.get(key);
+    return value is num ? value.toDouble() : fallback;
+  }
+
+  static String? _string(SharedPreferences p, String key) {
+    final value = p.get(key);
+    return value is String ? value : null;
+  }
 
   static ThemeMode _themeModeFrom(String? value) => switch (value) {
         'light' => ThemeMode.light,
