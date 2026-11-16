@@ -34,6 +34,11 @@ class _Origin {
   /// a site that gates the file behind a login.
   bool requireCookie;
 
+  /// When true, every request is answered 403, standing in for YouTube's media
+  /// CDN refusing a client with its bot check (it rejects the request whatever
+  /// headers it carries, so a `CONSENT` cookie does not clear it).
+  bool forbid;
+
   HttpServer? _server;
 
   _Origin(
@@ -44,6 +49,7 @@ class _Origin {
     this.rejectDartAgent = false,
     this.etag,
     this.requireCookie = false,
+    this.forbid = false,
   });
 
   /// Replaces the served bytes and their validator, as a redeployed file would.
@@ -74,6 +80,11 @@ class _Origin {
     if (ifRange != null) lastIfRange = ifRange;
     lastCookie = req.headers.value('cookie');
     lastReferer = req.headers.value('referer');
+    if (forbid) {
+      req.response.statusCode = HttpStatus.forbidden;
+      await req.response.close();
+      return;
+    }
     if (requireCookie && (lastCookie == null || lastCookie!.isEmpty)) {
       req.response.statusCode = HttpStatus.forbidden;
       await req.response.close();
@@ -1115,6 +1126,100 @@ void main() {
     expect(task.isCompleted, isTrue, reason: task.error ?? '');
     expect(task.engine, 'ytdlp');
     expect(await File(task.filePath!).readAsBytes(), equals(bytes));
+  });
+
+  test('a YouTube 403 on the built-in engine hands off to yt-dlp', () async {
+    // The origin stands in for the googlevideo CDN refusing the pure-Dart
+    // clients with YouTube's bot check: it 403s every request, exactly as the
+    // CDN does for the clients the built-in extractor uses (a CONSENT cookie
+    // does not clear it, which is why sign-in does not help this path).
+    final origin = _Origin(_blob(64 * 1024), forbid: true)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    manager.ytdlp.setBinaryForTest('/bin/true');
+
+    manager.resolveMediaOverride = (page, {String? formatId}) async =>
+        ResolvedMedia(
+          url: origin.url,
+          title: 'Walled Clip',
+          extension: 'mp4',
+          size: 64 * 1024,
+          qualityLabel: '360p',
+          kind: 'video',
+        );
+
+    final bytes = _blob(256 * 1024);
+    var ytdlpCalls = 0;
+    manager.ytdlpOverride = ({
+      required String url,
+      required String selector,
+      required Directory dir,
+      required String stem,
+      void Function(int, int, int)? onProgress,
+      bool Function()? isCancelled,
+      int limitBps = 0,
+      int concurrentFragments = 1,
+    }) async {
+      ytdlpCalls++;
+      final f = File('${dir.path}/$stem.mp4');
+      await f.writeAsBytes(bytes);
+      return f;
+    };
+
+    final task = manager.add('https://youtube.com/watch?v=walled',
+        kind: 'media');
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(ytdlpCalls, 1,
+        reason: 'a walled built-in fetch must hand the download to yt-dlp');
+    expect(task.isCompleted, isTrue, reason: task.error ?? '');
+    expect(task.engine, 'ytdlp');
+    expect(task.fellBackToBuiltin, isFalse);
+    expect(await File(task.filePath!).readAsBytes(), equals(bytes));
+  });
+
+  test('a 403 on a non-YouTube media page is surfaced, not retried on yt-dlp',
+      () async {
+    final origin = _Origin(_blob(64 * 1024), requireCookie: true)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    manager.ytdlp.setBinaryForTest('/bin/true');
+
+    manager.resolveMediaOverride = (page, {String? formatId}) async =>
+        ResolvedMedia(
+          url: origin.url,
+          title: 'Other Site Clip',
+          extension: 'mp4',
+          size: 64 * 1024,
+          qualityLabel: '360p',
+          kind: 'video',
+        );
+
+    var ytdlpCalls = 0;
+    manager.ytdlpOverride = ({
+      required String url,
+      required String selector,
+      required Directory dir,
+      required String stem,
+      void Function(int, int, int)? onProgress,
+      bool Function()? isCancelled,
+      int limitBps = 0,
+      int concurrentFragments = 1,
+    }) async {
+      ytdlpCalls++;
+      throw const YtdlpException('should not run');
+    };
+
+    final task = manager.add('https://vimeo.com/12345', kind: 'media');
+    await _waitFor(() => task.isCompleted || task.isFailed);
+
+    expect(task.isFailed, isTrue);
+    expect(ytdlpCalls, 0,
+        reason: 'the YouTube-only handoff must not fire for another host');
   });
 
   test('a direct link is never sent through the extractor', () async {
