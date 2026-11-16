@@ -256,6 +256,34 @@ void main() {
       await tester.runAsync(() => relaunch.init());
       expect(relaunch.onboardingDone, isTrue,
           reason: 'a relaunch must skip the tour');
+
+      // The splash is per-launch, the tour is once-per-install: a relaunch
+      // shows the branded launch screen again and then goes straight home.
+      // Unmount first so the new SplashScreen gets a fresh State, as a real
+      // relaunch would (reusing the element would carry over _navigated).
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(
+        ChangeNotifierProvider<TurboState>.value(
+          value: relaunch,
+          child: Consumer<TurboState>(
+            builder: (context, s, _) => MaterialApp(
+              theme: buildTurboTheme(TurboAccents.of(s.accentKey)),
+              home: const SplashScreen(),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byType(SplashScreen), findsOneWidget,
+          reason: 'the splash must be shown on every launch');
+      expect(find.byType(OnboardingScreen), findsNothing);
+
+      await tester.pump(SplashScreen.minimumDisplay);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(HomeShell), findsOneWidget);
+      expect(find.byType(OnboardingScreen), findsNothing,
+          reason: 'the tour must be shown only once');
     });
   });
 }
