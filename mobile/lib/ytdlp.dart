@@ -139,21 +139,38 @@ class YtdlpEngine {
     return null;
   }
 
-  /// The flags that let yt-dlp solve YouTube's signature ("n") challenge. A
-  /// local JS runtime is the fast path. Without one, yt-dlp ships no solver and
-  /// exposes only storyboard images, so fall back to fetching the EJS challenge
-  /// solver as a yt-dlp component (`--remote-components ejs:github`) — a
-  /// one-time download that needs network but no runtime install. Gated on the
-  /// flag being supported so an older yt-dlp build is never handed an
-  /// unrecognised argument and turned into a hard failure.
+  /// The flags that let yt-dlp solve YouTube's signature ("n") challenge.
+  ///
+  /// Since the 2025.11 series yt-dlp needs *two* things, not one: a JavaScript
+  /// runtime to execute the challenge, and the EJS solver script that generates
+  /// the code to run. `--js-runtimes` alone leaves the challenge unsolved — the
+  /// engine logs "n challenge solving failed" and withholds most renditions —
+  /// so whenever a runtime is available the remote solver component is
+  /// requested alongside it. Without a runtime the component is pointless, and
+  /// an older yt-dlp that does not know `--remote-components` is never handed
+  /// the flag, so an unrecognised argument can never turn into a hard failure.
+  @visibleForTesting
+  static List<String> solverArgsFor(String? runtime, {required bool component}) {
+    final args = <String>[];
+    if (runtime != null) args.addAll(['--js-runtimes', runtime]);
+    if (component) args.addAll(['--remote-components', 'ejs:github']);
+    return args;
+  }
+
   Future<List<String>> _solverArgs() async {
-    // Android: the native bridge always passes its bundled quickjs runtime to
-    // yt-dlp, so adding one here would duplicate the flag.
-    if (_isAndroid) return const [];
+    // Android: the native bridge passes its bundled quickjs runtime to yt-dlp
+    // itself, so no `--js-runtimes` is added here. The solver component still
+    // has to be requested from this side.
+    if (_isAndroid) return solverArgsFor(null, component: true);
     final runtime = await jsRuntime();
-    if (runtime != null) return ['--js-runtimes', runtime];
+    if (runtime != null) {
+      return solverArgsFor(
+        runtime,
+        component: await _supportsRemoteComponentsFlag(),
+      );
+    }
     if (await _supportsRemoteComponentsFlag()) {
-      return const ['--remote-components', 'ejs:github'];
+      return solverArgsFor(null, component: true);
     }
     return const [];
   }

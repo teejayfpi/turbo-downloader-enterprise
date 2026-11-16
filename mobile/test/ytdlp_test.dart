@@ -278,15 +278,35 @@ void main() {
       expect(args, isNot(contains('--no-check-certificates')));
       expect(args, contains('--no-warnings'));
       expect(args, contains('--no-playlist'));
-      // The solver is either a local runtime or the fetched EJS component,
-      // never both: --js-runtimes alone is ignored without a runtime present.
-      expect(args.contains('--js-runtimes') && args.contains('--remote-components'),
-          isFalse,
-          reason: 'only one signature solver should be requested');
       if (args.contains('--remote-components')) {
         expect(args[args.indexOf('--remote-components') + 1], 'ejs:github');
       }
     }
+  });
+
+  test('a JS runtime and the EJS solver are requested together', () {
+    // yt-dlp's "n" challenge needs both: the runtime to run the solver and the
+    // solver script itself. `--js-runtimes` alone leaves the challenge
+    // unsolved, so the two must always travel together when a runtime exists.
+    final both = YtdlpEngine.solverArgsFor('node', component: true);
+    expect(both, containsAllInOrder(['--js-runtimes', 'node']));
+    expect(both, containsAllInOrder(['--remote-components', 'ejs:github']));
+
+    // Without a runtime the component is still requested (the engine can pick
+    // a runtime of its own), but no empty `--js-runtimes` is emitted.
+    expect(
+      YtdlpEngine.solverArgsFor(null, component: true),
+      ['--remote-components', 'ejs:github'],
+    );
+
+    // An older yt-dlp that rejects `--remote-components` gets the runtime only.
+    expect(
+      YtdlpEngine.solverArgsFor('deno', component: false),
+      ['--js-runtimes', 'deno'],
+    );
+
+    // Nothing available: no flags at all, so the vector stays valid.
+    expect(YtdlpEngine.solverArgsFor(null, component: false), isEmpty);
   });
 
   test('the url is the last element of both argument vectors', () async {
