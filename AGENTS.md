@@ -112,6 +112,16 @@ These caused real, user-visible bugs. Do not regress them.
   **retryable** (a signed-in session clears it); elsewhere it stays the generic
   "refused access to this file" with the cookie/region advice. Keep the URL
   threaded through any new HTTP throw site, or the host-aware branch is lost.
+- **A built-in YouTube 403 is rescued on yt-dlp, not by asking the user to sign
+  in.** The pure-Dart extractor (`youtube_explode_dart`) resolves YouTube with
+  the `ios`/`androidVr`/`androidSdkless`/`tv` clients, and YouTube bot-walls
+  most of those — a video that `yt-dlp` downloads fine without cookies can still
+  403 the built-in path. So `_runTask` catches a `forbidden` failure from the
+  built-in engine on a YouTube media page and retries it on yt-dlp
+  (`_shouldFallBackToYtdlp`), guarded by `task.fellBackToBuiltin` so the two
+  engines cannot ping-pong a task. Sign-in only helps the cases where a session
+  is genuinely required; it is **not** a fix for the client-level bot wall, and
+  the first-run sign-in gate stays off (see the note below).
 - **The resolved YouTube stream must be fetched with the identity that signed
   it, or it 403s even when signed in.** `youtube_explode_dart` validates a
   `googlevideo.com` URL with *its own* client (library browser UA + the session

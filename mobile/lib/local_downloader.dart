@@ -1322,7 +1322,42 @@ class LocalDownloadManager extends ChangeNotifier {
       unawaited(diagnostics?.warn(
           'engine.fallback', 'built-in extractor failed; using yt-dlp'));
       await _executeYtdlp(task, run);
+    } catch (e) {
+      // The built-in extractor read the page but YouTube's media CDN refused
+      // the bytes with its bot check (a 403). The pure-Dart clients are walled
+      // far more often than yt-dlp's, so a video yt-dlp downloads fine can
+      // still 403 here; hand it to yt-dlp rather than surfacing a refusal the
+      // user can do nothing about.
+      if (!_shouldFallBackToYtdlp(task, run, e)) rethrow;
+      task.engine = 'ytdlp';
+      task.formatSelector = null;
+      unawaited(diagnostics?.warn('engine.fallback',
+          'built-in extractor was refused by YouTube; using yt-dlp'));
+      await _executeYtdlp(task, run);
     }
+  }
+
+  /// True when a failure of the built-in engine on a YouTube media page should
+  /// be retried on yt-dlp instead of surfaced.
+  ///
+  /// A 403 is the only failure this rescues: a missing format or a plain
+  /// resolve failure is already handled by the [MediaResolveException] branch,
+  /// and anything else (a mux error, a disk error) must reach the user
+  /// unchanged. The task must be a YouTube media page, yt-dlp must be able to
+  /// run, and the reverse fallback ([fellBackToBuiltin]) must not already have
+  /// been taken, so the two engines can never bounce a task between them.
+  bool _shouldFallBackToYtdlp(LocalTask task, _Run run, Object error) {
+    if (run.cancelled ||
+        task.kind != 'media' ||
+        !ytdlp.isAvailable ||
+        task.fellBackToBuiltin) {
+      return false;
+    }
+    if (!isYouTubeUrl(task.url) && !isYouTubeMediaUrl(task.fetchUrl)) {
+      return false;
+    }
+    return DownloadError.from(error, url: task.fetchUrl).kind ==
+        DownloadErrorKind.forbidden;
   }
 
   /// Turns a thrown error into an actionable state, and schedules an automatic
