@@ -179,13 +179,22 @@ These caused real, user-visible bugs. Do not regress them.
   `JdkImageTransform` fail with a `jlink` error on `core-for-system-modules.jar`.
   Set `JAVA_HOME` to a JDK 17 before `flutter build`.
 - **Saved files are published per platform** by `lib/file_store.dart`: Android
-  goes through MediaStore (`publishDownload` in `MainActivity.kt`) so the file
-  lands in the public Downloads collection; desktop copies it into the OS
-  Downloads directory (derived from the documents dir, avoiding an extra
-  plugin); anything else falls back to app-private storage. On **Android 9 and
-  below** the Android path first calls `ensureStorage`, which requests legacy
-  `WRITE_EXTERNAL_STORAGE` at runtime; if the user declines, the file stays
-  app-private instead of being lost. Android 10+ needs no permission.
+  goes through MediaStore (`publishDownload` in `MainActivity.kt`); desktop
+  copies it into the OS Downloads directory (derived from the documents dir,
+  avoiding an extra plugin); anything else falls back to app-private storage. On
+  **Android 9 and below** the Android path first calls `ensureStorage`, which
+  requests legacy `WRITE_EXTERNAL_STORAGE` at runtime; if the user declines, the
+  file stays app-private instead of being lost. Android 10+ needs no permission.
+- **Android media must be filed in its own MediaStore collection.** A finished
+  video filed only in `MediaStore.Downloads` never shows up in the gallery or
+  Photos: those apps read `MediaStore.Video`, `Audio`, and `Images`, not the
+  `Downloads` collection. `publish` therefore picks the collection from the
+  MIME type and files under the conventional root (`Movies`/`Music`/`Pictures`)
+  via `RELATIVE_PATH`; non-media keeps the `Download/<Turbo subfolder>` path.
+  Android 9 and below writes to the shared folder directly and is handed to
+  `MediaScannerConnection`, since the legacy path is not indexed automatically.
+  `queryPath` reads the generic `MediaColumns.DATA`, which every collection
+  supports (the collection-specific `…Downloads.DATA` constant does not).
 - **Publishing must never throw.** `getApplicationDocumentsDirectory()` raises
   when no XDG `DOCUMENTS` user dir is configured, which is the norm on servers
   and minimal Linux desktops; `_downloadsDir()` and the last-resort
@@ -197,12 +206,14 @@ These caused real, user-visible bugs. Do not regress them.
   finished segment equals its length; `_fetch`'s `fetchOne` returns early there
   instead of sending `bytes=<end+1>-<end>`, which a server answers with a full
   `200` that is then misread as the remote file changing.
-- **Everything is filed under `Downloads/Turbo/<kind>`.** `FileStore.subfolderFor`
-  maps a filename to a subfolder (`Videos`, `Music`, `Pictures`, `Archives`,
+- **Everything is filed under `Turbo/<kind>`.** `FileStore.subfolderFor` maps a
+  filename to a subfolder (`Videos`, `Music`, `Pictures`, `Archives`,
   `Documents`, `Apps`, `Other`) so media and documents are easy to tell apart.
-  Android passes the folder as MediaStore's `RELATIVE_PATH`; desktop creates the
-  real directories. Add a new kind in `folderNameFor` rather than hard-coding a
-  folder name anywhere else.
+  Desktop creates `Downloads/Turbo/<kind>` as real directories. On Android the
+  media kinds go to the matching MediaStore collection root (`Movies/Turbo`,
+  `Music/Turbo`, `Pictures/Turbo`) so the gallery finds them, and the rest keep
+  `Download/Turbo/<kind>` via `RELATIVE_PATH`. Add a new kind in `folderNameFor`
+  rather than hard-coding a folder name anywhere else.
 - **Finished files can be shared.** `FileStore.share` opens the Android share
   sheet through the `shareFile` method channel, which exposes the file as a
   `content://` URI via the app's `FileProvider` (see `res/xml/file_paths.xml`);
@@ -581,6 +592,14 @@ Changing one without the others silently caps speed.
   `paused`/`detached` so a backgrounded app does not drop the map. This memory
   is an optimisation, never a correctness dependency: a corrupt/unreadable file
   is ignored, and the ramp still adapts from the seeded width.
+- **Downloads run in parallel by default.** `LocalDownloadManager.maxConcurrent`
+  is the number of worker slots (`_pump` starts queued tasks until `_runs`
+  reaches it); it ships at `defaultMaxConcurrent` (3) so a pasted batch or a
+  channel listing overlaps instead of downloading one file at a time, and the
+  Settings slider clamps to `maxMaxConcurrent` (6). Raising the limit only sets
+  the field — the queue is woken by `TurboState.setMaxConcurrent` calling
+  `pump()`, so a change that frees a slot starts the waiting jobs rather than
+  leaving them idle until the next unrelated event.
 - Mobile off-peak scheduling (`LocalDownloader.setOffPeakSchedule`): a daily
   local-time window that gates *starting* work only via `_scheduleHold`; running
   transfers are never paused, so it cannot surprise a user mid-download. The
