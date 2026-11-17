@@ -175,6 +175,24 @@ These caused real, user-visible bugs. Do not regress them.
   fix by bumping `pubspec.yaml`'s `version` and `credits.dart`'s `appVersion`,
   then tagging `v<version>`; the tag triggers `desktop.yml`/`android.yml` to
   rebuild and attach the installers.
+- **A push to `main` publishes a release by itself; the version bump is the
+  release.** `desktop.yml`'s `release` job runs on `push` to `main`, reads
+  `version` from `pubspec.yaml`, and creates/updates tag `v<version>` with the
+  installers (`android.yml` then attaches the APK). So merging the bump *is*
+  shipping it — do not bump the version on a branch that will not be merged, and
+  never merge a bump you do not intend to publish.
+- **Never reuse a release tag for a fix.** Rebuilding the assets under an
+  existing tag (as happened when `v2.4.11` was rebuilt at the same version) does
+  ship the fixed binaries, but the in-app updater compares the *tag* to
+  `appVersion` and only offers a **strictly newer** version, so an installed user
+  is never told to update and stays on the broken build. Every user-facing fix
+  needs a new version, a new tag, and a matching `appVersion`.
+- **A cancelled platform job is retried, not ignored.** The GitHub macOS runner
+  is sometimes cancelled while still *queued* (no runner ever assigned), which
+  drops that platform's asset from the release. The `release` job is built to
+  tolerate it (`fail_on_unmatched_files: false`, hashes only what built), so
+  Windows and Linux still ship — but re-run the failed jobs
+  (`gh run rerun <id> --failed`) so macOS is not left behind.
 - **Build with JDK 17, not 21.** JDK 21 makes the Android Gradle Plugin's
   `JdkImageTransform` fail with a `jlink` error on `core-for-system-modules.jar`.
   Set `JAVA_HOME` to a JDK 17 before `flutter build`.
