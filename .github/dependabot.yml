@@ -24,16 +24,19 @@ updates:
         patterns: ['*']
         update-types: ['minor', 'patch']
     ignore:
-      # A bump whose package needs a newer Dart SDK than the app's 3.5 baseline
-      # (and the pinned Flutter 3.24.5) cannot resolve, so the PR turns every
-      # build red at `flutter pub get`. `flutter_lints` and `app_links` gate
-      # that on a major release; the rest ship it in a minor or patch, so every
-      # update type is ignored for them (omitting `update-types` ignores all).
-      # Lift an entry when the SDK baseline moves.
+      # A bump whose package needs a newer Dart SDK (or a newer `collection`
+      # than `flutter_test` pins) than the app's 3.5 baseline and the pinned
+      # Flutter 3.24.5 cannot resolve, so the PR turns every build red at
+      # `flutter pub get`. `flutter_lints` and `app_links` gate that on a major
+      # release, `http_parser` on a minor one; the rest ship it in a minor or
+      # patch, so every update type is ignored for them (omitting `update-types`
+      # ignores all). Lift an entry when the SDK baseline moves.
       - dependency-name: flutter_lints
         update-types: ['version-update:semver-major']
       - dependency-name: app_links
         update-types: ['version-update:semver-major']
+      - dependency-name: http_parser
+        update-types: ['version-update:semver-minor', 'version-update:semver-patch']
       - dependency-name: shared_preferences
       - dependency-name: shared_preferences_platform_interface
       - dependency-name: path_provider
