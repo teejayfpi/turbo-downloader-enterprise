@@ -154,21 +154,41 @@ class MainActivity : FlutterActivity() {
             if (!dir.exists()) dir.mkdirs()
             val dest = File(dir, filename)
             source.copyTo(dest, overwrite = true)
+            // Legacy storage is not indexed automatically; tell the media
+            // scanner so gallery and music apps pick the file up.
+            scanLegacyFile(dest)
             return dest.absolutePath
         }
 
+        val mime = mimeFor(filename)
+        // Videos, audio, and images go into their own media collections, which
+        // is what the gallery, Photos, and music apps read. Filing a video only
+        // under `Downloads` leaves it invisible to them, which is exactly the
+        // "my download does not show up as media" report. Everything else has
+        // no media collection and belongs in Downloads.
+        val mediaCollection = mediaCollectionFor(mime)
+        val collection = mediaCollection
+            ?: MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+
         val values = ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, filename)
-            put(MediaStore.Downloads.MIME_TYPE, mimeFor(filename))
-            if (relative.isNotEmpty()) {
-                put(MediaStore.Downloads.RELATIVE_PATH, "Download/$relative")
+            put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+            put(MediaStore.MediaColumns.MIME_TYPE, mime)
+            // Media collections file under their conventional root (Movies,
+            // Music, Pictures) so a gallery is not asked to scan the volume
+            // root; everything else keeps the caller's Turbo subfolder under
+            // Downloads.
+            val relativePath = if (mediaCollection != null) {
+                "${mediaRootFor(mime)}/$TURBO_FOLDER"
+            } else {
+                "Download/$relative"
             }
-            put(MediaStore.Downloads.IS_PENDING, 1)
+            if (relativePath.isNotEmpty()) {
+                put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+            }
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
 
         val resolver = applicationContext.contentResolver
-        val collection =
-            MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val item = resolver.insert(collection, values) ?: return null
 
         resolver.openOutputStream(item).use { output ->
@@ -180,10 +200,51 @@ class MainActivity : FlutterActivity() {
         }
 
         values.clear()
-        values.put(MediaStore.Downloads.IS_PENDING, 0)
+        values.put(MediaStore.MediaColumns.IS_PENDING, 0)
         resolver.update(item, values, null, null)
 
         return queryPath(resolver, item) ?: filename
+    }
+
+    /**
+     * The MediaStore collection that owns [mime], or null when it is not media.
+     * Each collection is where the corresponding system app looks: `Video` for
+     * the gallery and movie apps, `Audio` for music players, `Images` for the
+     * photo gallery. A null result means the file belongs in `Downloads`.
+     */
+    private fun mediaCollectionFor(mime: String): Uri? = when {
+        mime.startsWith("video/") ->
+            MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        mime.startsWith("audio/") ->
+            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        mime.startsWith("image/") ->
+            MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        else -> null
+    }
+
+    /**
+     * The conventional top-level folder a media [mime] belongs under, matching
+     * the volume layout Android itself uses: `Movies` for video, `Music` for
+     * audio, `Pictures` for images.
+     */
+    private fun mediaRootFor(mime: String): String = when {
+        mime.startsWith("video/") -> Environment.DIRECTORY_MOVIES
+        mime.startsWith("audio/") -> Environment.DIRECTORY_MUSIC
+        else -> Environment.DIRECTORY_PICTURES
+    }
+
+    /** Asks the legacy media scanner to index a file written outside MediaStore. */
+    private fun scanLegacyFile(file: File) {
+        try {
+            android.media.MediaScannerConnection.scanFile(
+                applicationContext,
+                arrayOf(file.absolutePath),
+                null,
+                null
+            )
+        } catch (_: Exception) {
+            // Indexing is best effort; the file is already saved.
+        }
     }
 
     /**
@@ -219,11 +280,13 @@ class MainActivity : FlutterActivity() {
 
     /** Resolves the on-disk path MediaStore assigned, which the UI can display. */
     private fun queryPath(resolver: ContentResolver, item: Uri): String? {
-        val projection = arrayOf(MediaStore.Downloads.DATA)
+        // The generic column works for every collection (Video, Audio, Images,
+        // Downloads); the collection-specific constants do not.
+        val projection = arrayOf(MediaStore.MediaColumns.DATA)
         return try {
             resolver.query(item, projection, null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
-                    val index = cursor.getColumnIndex(MediaStore.Downloads.DATA)
+                    val index = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
                     if (index >= 0) cursor.getString(index) else null
                 } else {
                     null
@@ -261,5 +324,8 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val STORAGE_REQUEST = 7301
+
+        /** Subfolder all downloads are filed under, matching FileStore.turboFolder. */
+        private const val TURBO_FOLDER = "Turbo"
     }
 }

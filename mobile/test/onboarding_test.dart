@@ -10,6 +10,7 @@ import 'package:turbo_downloader/screens/home_shell.dart';
 import 'package:turbo_downloader/screens/onboarding_screen.dart';
 import 'package:turbo_downloader/screens/splash_screen.dart';
 import 'package:turbo_downloader/screens/youtube_login_screen.dart';
+import 'package:turbo_downloader/local_downloader.dart';
 import 'package:turbo_downloader/services/settings_store.dart';
 import 'package:turbo_downloader/state.dart';
 import 'package:turbo_downloader/theme.dart';
@@ -146,7 +147,7 @@ void main() {
       expect(state.onboardingDone, isTrue,
           reason: 'one bad key must not hide the fact that the tour is done');
       expect(state.textScale, 1.0, reason: 'falls back to the default');
-      expect(state.maxConcurrent, 1);
+      expect(state.maxConcurrent, LocalDownloadManager.defaultMaxConcurrent);
     });
 
     test('the first-run sign-in gate is disabled so sign-in is optional', () {

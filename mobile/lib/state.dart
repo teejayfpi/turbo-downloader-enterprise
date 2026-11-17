@@ -188,8 +188,8 @@ class TurboState extends ChangeNotifier {
 
   // --------------------------------------------------------------- behaviour
 
-  /// How many downloads may run at once.
-  int maxConcurrent = 1;
+  /// How many downloads may run at once. Extra jobs wait in the queue.
+  int maxConcurrent = LocalDownloadManager.defaultMaxConcurrent;
 
   /// Pause new transfers unless the device is on Wi-Fi.
   bool wifiOnly = false;
@@ -399,7 +399,11 @@ class TurboState extends ChangeNotifier {
     highContrast = _bool(prefs, SettingsStore.kHighContrast, false);
     reducedMotion = _bool(prefs, SettingsStore.kReducedMotion, false);
     textScale = _double(prefs, SettingsStore.kTextScale, 1.0);
-    maxConcurrent = _int(prefs, SettingsStore.kMaxConcurrent, 1);
+    maxConcurrent = _int(
+      prefs,
+      SettingsStore.kMaxConcurrent,
+      LocalDownloadManager.defaultMaxConcurrent,
+    );
     wifiOnly = _bool(prefs, SettingsStore.kWifiOnly, false);
     batteryAware = _bool(prefs, SettingsStore.kBatteryAware, false);
     scheduleEnabled = _bool(prefs, SettingsStore.kScheduleEnabled, false);
@@ -593,10 +597,13 @@ class TurboState extends ChangeNotifier {
   }
 
   Future<void> setMaxConcurrent(int value) async {
-    maxConcurrent = value.clamp(1, 6);
+    maxConcurrent = value.clamp(1, LocalDownloadManager.maxMaxConcurrent);
     local.maxConcurrent = maxConcurrent;
     await settings.setInt(SettingsStore.kMaxConcurrent, maxConcurrent);
+    // Waking the queue matters: widening the limit must start the jobs that
+    // were waiting behind it, not leave them idle until the next event.
     local.resumeAll();
+    local.pump();
     _safeNotify();
   }
 

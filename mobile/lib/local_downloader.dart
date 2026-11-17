@@ -400,6 +400,14 @@ class LocalTask {
 class LocalDownloadManager extends ChangeNotifier {
   static const _kTolerance = 1 << 20; // below 1 MiB, segmenting is not worth it
 
+  /// Downloads that may run at once before new work waits in the queue. Chosen
+  /// above one so a pasted batch or a channel listing starts together rather
+  /// than one file at a time; still low enough not to starve the device.
+  static const defaultMaxConcurrent = 3;
+
+  /// Upper bound for [maxConcurrent], mirrored by the Settings slider.
+  static const maxMaxConcurrent = 6;
+
   final Map<String, LocalTask> _byId = {};
   final List<String> _order = [];
   final Map<String, _Run> _runs = {};
@@ -414,7 +422,9 @@ class LocalDownloadManager extends ChangeNotifier {
   int _lastActiveForService = 0;
 
   /// How many downloads may run at once. Surplus tasks wait in the queue.
-  int maxConcurrent = 1;
+  /// Defaults above one so a batch starts together instead of one at a time;
+  /// the user can widen or narrow it in Settings.
+  int maxConcurrent = 3;
 
   /// Automatic retry budget applied to new tasks.
   RetryPolicy retryPolicy = const RetryPolicy();
@@ -1178,6 +1188,10 @@ class LocalDownloadManager extends ChangeNotifier {
     }
     if (_runs.isEmpty) _stopTicker();
   }
+
+  /// Re-evaluates the queue now, so a change that frees a worker slot (raising
+  /// the concurrency limit, for instance) starts the jobs that were waiting.
+  void pump() => _pump();
 
   /// Arms a one-shot timer to re-pump when the current hold is due to lift,
   /// either because the off-peak window opens or because a retry backoff ends.
