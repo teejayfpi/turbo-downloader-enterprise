@@ -5,6 +5,7 @@ import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -236,7 +237,7 @@ class MainActivity : FlutterActivity() {
     /** Asks the legacy media scanner to index a file written outside MediaStore. */
     private fun scanLegacyFile(file: File) {
         try {
-            android.media.MediaScannerConnection.scanFile(
+            MediaScannerConnection.scanFile(
                 applicationContext,
                 arrayOf(file.absolutePath),
                 null,
