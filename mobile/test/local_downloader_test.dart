@@ -709,6 +709,43 @@ void main() {
     }
   });
 
+  test('runs ten downloads at once, each transferring simultaneously',
+      () async {
+    // The requested product behaviour: ten files in flight together, not queued
+    // behind a narrower worker pool.
+    final data = _blob(512 * 1024);
+    final origin = _Origin(data, throttle: 8)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    expect(manager.maxConcurrent, 10,
+        reason: 'the shipped width must allow ten concurrent transfers');
+
+    final tasks = [
+      for (var i = 0; i < 10; i++)
+        manager.add(origin.url, filename: 'f$i.bin', connections: 1),
+    ];
+
+    final overlapped = await _waitFor(
+      () => tasks.where((t) => t.isRunning).length == 10,
+      timeout: const Duration(seconds: 10),
+    );
+    expect(overlapped, isTrue,
+        reason: 'expected ten concurrent transfers, saw '
+            '${tasks.where((t) => t.isRunning).length}');
+
+    final done = await _waitFor(
+      () => tasks.every((t) => t.isCompleted || t.isFailed),
+      timeout: const Duration(seconds: 60),
+    );
+    expect(done, isTrue, reason: 'tasks did not settle');
+    for (final t in tasks) {
+      expect(t.isCompleted, isTrue, reason: t.error ?? '');
+      expect(await File(t.filePath!).readAsBytes(), equals(data));
+    }
+  });
+
   test('a queued download starts as soon as the limit is raised', () async {
     final data = _blob(512 * 1024);
     final origin = _Origin(data, throttle: 6)..start();
