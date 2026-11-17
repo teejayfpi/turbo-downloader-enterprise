@@ -594,9 +594,9 @@ Changing one without the others silently caps speed.
   is ignored, and the ramp still adapts from the seeded width.
 - **Downloads run in parallel by default.** `LocalDownloadManager.maxConcurrent`
   is the number of worker slots (`_pump` starts queued tasks until `_runs`
-  reaches it); it ships at `defaultMaxConcurrent` (3) so a pasted batch or a
+  reaches it); it ships at `defaultMaxConcurrent` (10) so a pasted batch or a
   channel listing overlaps instead of downloading one file at a time, and the
-  Settings slider clamps to `maxMaxConcurrent` (6). Raising the limit only sets
+  Settings slider clamps to `maxMaxConcurrent` (10). Raising the limit only sets
   the field — the queue is woken by `TurboState.setMaxConcurrent` calling
   `pump()`, so a change that frees a slot starts the waiting jobs rather than
   leaving them idle until the next unrelated event.

@@ -47,3 +47,6 @@ build/
 
 # Rendered asset scratch
 client/.asset-tmp
+
+# Agent build artifacts (APK bundles, etc.)
+.agent_tmp/
