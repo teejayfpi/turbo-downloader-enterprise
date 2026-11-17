@@ -8,6 +8,7 @@ import '../contact.dart';
 import '../credits.dart';
 import '../format.dart';
 import '../l10n/strings.dart';
+import '../local_downloader.dart' show LocalDownloadManager;
 import '../services/notifications.dart';
 import '../services/session_store.dart';
 import '../services/sign_in_support.dart';
@@ -87,14 +88,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Slider(
               value: state.maxConcurrent.toDouble(),
               min: 1,
-              max: 6,
-              divisions: 5,
+              max: LocalDownloadManager.maxMaxConcurrent.toDouble(),
+              divisions: LocalDownloadManager.maxMaxConcurrent - 1,
               label: '${state.maxConcurrent}',
               onChanged: (v) => state.setMaxConcurrent(v.round()),
             ),
             const _Hint(
                 'How many downloads run at the same time. Extra jobs wait in '
-                'the queue.'),
+                'the queue. Higher uses more of your connection and battery.'),
           ],
         ),
         const SizedBox(height: 16),

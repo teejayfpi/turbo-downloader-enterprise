@@ -670,6 +670,72 @@ void main() {
     expect(task.error, isNotNull);
   });
 
+  test('runs several downloads at once instead of one at a time', () async {
+    // The regression: every download waited for the one before it. With the
+    // default width above one, a batch must overlap — three throttled
+    // transfers finish in roughly the time of a single one, not three times.
+    final data = _blob(512 * 1024);
+    final origin = _Origin(data, throttle: 4)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    expect(manager.maxConcurrent, greaterThan(1),
+        reason: 'the shipped default must allow overlap');
+
+    final tasks = [
+      manager.add(origin.url, filename: 'a.bin', connections: 1),
+      manager.add(origin.url, filename: 'b.bin', connections: 1),
+      manager.add(origin.url, filename: 'c.bin', connections: 1),
+    ];
+
+    // All three must be in flight together, not queued behind each other.
+    final overlapped = await _waitFor(
+      () => tasks.where((t) => t.isRunning).length == 3,
+      timeout: const Duration(seconds: 5),
+    );
+    expect(overlapped, isTrue,
+        reason: 'expected three concurrent transfers, saw '
+            '${tasks.where((t) => t.isRunning).length}');
+
+    final done = await _waitFor(
+      () => tasks.every((t) => t.isCompleted || t.isFailed),
+      timeout: const Duration(seconds: 30),
+    );
+    expect(done, isTrue, reason: 'tasks did not settle');
+    for (final t in tasks) {
+      expect(t.isCompleted, isTrue, reason: t.error ?? '');
+      expect(await File(t.filePath!).readAsBytes(), equals(data));
+    }
+  });
+
+  test('a queued download starts as soon as the limit is raised', () async {
+    final data = _blob(512 * 1024);
+    final origin = _Origin(data, throttle: 6)..start();
+    addTearDown(origin.stop);
+
+    final manager = await _manager(root);
+    addTearDown(manager.dispose);
+    manager.maxConcurrent = 1;
+
+    final first = manager.add(origin.url, filename: 'first.bin', connections: 1);
+    final second =
+        manager.add(origin.url, filename: 'second.bin', connections: 1);
+
+    // With a width of one the second download has to wait.
+    await _waitFor(() => first.isRunning);
+    expect(second.isRunning, isFalse, reason: 'the limit is one');
+    expect(second.isQueued, isTrue);
+
+    manager.maxConcurrent = 3;
+    manager.pump();
+
+    final both = await _waitFor(() => first.isRunning && second.isRunning,
+        timeout: const Duration(seconds: 5));
+    expect(both, isTrue,
+        reason: 'widening the limit must start the waiting download');
+  });
+
   test('removing a task deletes its partial data', () async {
     final data = _blob(600 * 1024);
     final origin = _Origin(data, throttle: 20)..start();
