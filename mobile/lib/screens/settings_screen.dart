@@ -678,6 +678,12 @@ class _EngineSection extends StatelessWidget {
   final Color accent;
   const _EngineSection({required this.state, required this.accent});
 
+  Future<void> _installEngine(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final message = await state.installEngine();
+    messenger.showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
@@ -755,6 +761,30 @@ class _EngineSection extends StatelessWidget {
               height: 1.6,
             ),
           ),
+          // Desktop ships no engine, so offer the one-tap install of the
+          // official yt-dlp build instead of sending the user to a terminal.
+          if (state.canInstallEngine) ...[
+            const SizedBox(height: 12),
+            if (state.engineInstalling) ...[
+              ClipRRect(
+                borderRadius: TurboRadius.all(TurboRadius.pill),
+                child: LinearProgressIndicator(
+                  value: state.engineInstallProgress,
+                  minHeight: 5,
+                  backgroundColor: p.bgTertiary,
+                  valueColor: AlwaysStoppedAnimation(accent),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+            TurboButton(
+              label: state.engineInstalling
+                  ? 'Installing…'
+                  : 'Install download engine',
+              icon: Icons.download_rounded,
+              onPressed: state.engineInstalling ? null : () => _installEngine(context),
+            ),
+          ],
         ],
         const SizedBox(height: 10),
         TurboButton(

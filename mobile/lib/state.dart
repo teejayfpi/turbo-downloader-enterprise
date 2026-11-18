@@ -19,6 +19,7 @@ import 'services/update_checker.dart';
 import 'services/url_validator.dart';
 import 'services/youtube_browser.dart';
 import 'services/youtube_session.dart';
+import 'services/ytdlp_provisioner.dart';
 
 /// The single, fixed speed profile. Turbo always downloads as fast as the host
 /// allows: the full connection width, opened as quickly as the host proves it
@@ -259,6 +260,50 @@ class TurboState extends ChangeNotifier {
   /// Last engine detection result, for Settings.
   bool ytdlpAvailable = false;
   bool ytdlpHasFfmpeg = false;
+
+  /// Progress of an in-app yt-dlp install, 0..1. Null when idle or the total
+  /// size is unknown. [engineInstalling] is true while it runs.
+  double? engineInstallProgress;
+  bool engineInstalling = false;
+
+  /// True when this platform can install the download engine from inside the
+  /// app (a standalone yt-dlp build is published for it).
+  bool get canInstallEngine => canProvisionYtdlp;
+
+  /// Downloads and installs the yt-dlp engine, then re-detects it. Returns a
+  /// short status for the UI to show.
+  ///
+  /// The asset is verified against the release's published SHA-256 manifest
+  /// before it is installed, so a tampered or truncated download is refused.
+  Future<String> installEngine() async {
+    if (!canProvisionYtdlp) {
+      return 'This platform has no prebuilt engine. Install yt-dlp with your '
+          'package manager, then tap Re-check.';
+    }
+    engineInstalling = true;
+    engineInstallProgress = null;
+    _safeNotify();
+    try {
+      final path = await YtdlpProvisioner().install(onProgress: (p) {
+        engineInstallProgress = p;
+        _safeNotify();
+      });
+      await refreshEngine();
+      return ytdlpAvailable
+          ? 'Download engine installed. YouTube and other platforms now use '
+              'yt-dlp.'
+          : 'The engine was installed to $path but did not run. Try again, or '
+              'install yt-dlp with your package manager.';
+    } on YtdlpInstallException catch (e) {
+      return e.message;
+    } catch (e) {
+      return 'The download engine could not be installed: $e';
+    } finally {
+      engineInstalling = false;
+      engineInstallProgress = null;
+      _safeNotify();
+    }
+  }
 
   /// True when a JavaScript runtime (deno/node/…) is on the machine. yt-dlp
   /// needs one to solve YouTube's signature challenge; without it many videos

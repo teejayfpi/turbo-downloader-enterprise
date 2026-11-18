@@ -122,6 +122,24 @@ These caused real, user-visible bugs. Do not regress them.
   engines cannot ping-pong a task. Sign-in only helps the cases where a session
   is genuinely required; it is **not** a fix for the client-level bot wall, and
   the first-run sign-in gate stays off (see the note below).
+- **That rescue needs yt-dlp to exist, and desktop ships none — so the 403 was
+  surfacing with advice that could not work.** `_shouldFallBackToYtdlp` returns
+  false when `!ytdlp.isAvailable`, and desktop bundles no yt-dlp (Android embeds
+  one), so on a fresh computer a built-in 403 went straight to the user with the
+  "sign in" message even though signing in cannot fix a client-level bot wall.
+  Reproduced on this repo's own live tests: `test/live_media_test.dart` skips
+  with the 403 while `test/live_manager_test.dart` shows yt-dlp listing 48
+  formats for the same video, and `yt-dlp` still 403s the *bytes* from a
+  datacenter IP — so this is about giving the engine a chance, not promising a
+  download. The fix is `YtdlpProvisioner` (`services/ytdlp_provisioner.dart`):
+  it fetches the official standalone build for the platform from the yt-dlp
+  release, verifies it against the release's `SHA2-256SUMS` through
+  `UpdateInstaller.download` (fail-closed), and installs it to
+  `AppDirs.data()/bin`, which `YtdlpEngine.locate()` now searches. Settings →
+  Download engine offers it as "Install download engine". `DownloadError.from`
+  takes `ytdlpAvailable` so a missing engine names that install instead of the
+  dead-end sign-in. Keep the asset mapping, checksum verification, and the
+  provisioned path in sync if yt-dlp renames its assets.
 - **The resolved YouTube stream must be fetched with the identity that signed
   it, or it 403s even when signed in.** `youtube_explode_dart` validates a
   `googlevideo.com` URL with *its own* client (library browser UA + the session

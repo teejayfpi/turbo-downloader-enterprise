@@ -78,6 +78,20 @@ void main() {
     expect(error.retryable, isTrue);
   });
 
+  test('a 403 on YouTube with no yt-dlp names the engine install', () {
+    // The built-in extractor is bot-walled far more often than yt-dlp, so when
+    // the engine is missing the sign-in advice is a dead end: the fix is to
+    // install the engine, which Turbo can do in one tap.
+    final error = DownloadError.from(
+      const HttpException('Server responded 403'),
+      url: 'https://www.youtube.com/watch?v=abc123',
+      ytdlpAvailable: false,
+    );
+    expect(error.kind, DownloadErrorKind.forbidden);
+    expect(error.advice, contains('Download engine'));
+    expect(error.retryable, isTrue);
+  });
+
   test('a 403 on a non-YouTube host keeps the generic cookie advice', () {
     final error = DownloadError.from(
       const HttpException('Server responded 403'),

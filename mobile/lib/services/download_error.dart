@@ -57,7 +57,17 @@ class DownloadError implements Exception {
   /// [url] is the resource that failed. It lets a 403 be explained honestly:
   /// on YouTube that status is the signed-in bot check, not a generic "add
   /// cookies" refusal, so the advice names the in-app sign-in instead.
-  factory DownloadError.from(Object error, {String? context, String? url}) {
+  ///
+  /// [ytdlpAvailable] is false when the yt-dlp engine is not installed, which
+  /// changes the YouTube advice: the built-in pure-Dart extractor is bot-walled
+  /// on many videos that yt-dlp downloads fine, so on desktop the real remedy
+  /// is to install the engine, not to sign in.
+  factory DownloadError.from(
+    Object error, {
+    String? context,
+    String? url,
+    bool ytdlpAvailable = true,
+  }) {
     if (error is DownloadError) return error;
     final text = error.toString();
     final lower = text.toLowerCase();
@@ -94,7 +104,7 @@ class DownloadError implements Exception {
     }
 
     if (error is HttpException) {
-      return _fromHttpText(text, url: url);
+      return _fromHttpText(text, url: url, ytdlpAvailable: ytdlpAvailable);
     }
 
     // A stalled connection is a timeout, not the opaque "stopped
@@ -159,7 +169,11 @@ class DownloadError implements Exception {
     );
   }
 
-  static DownloadError _fromHttpText(String text, {String? url}) {
+  static DownloadError _fromHttpText(
+    String text, {
+    String? url,
+    bool ytdlpAvailable = true,
+  }) {
     final status = int.tryParse(
       RegExp(r'(\d{3})').firstMatch(text)?.group(1) ?? '',
     );
@@ -172,6 +186,24 @@ class DownloadError implements Exception {
         // the page resolves, so match both the page host and the CDN. Point at
         // the in-app sign-in, which is what actually fixes it.
         if (url != null && (isYouTubeUrl(url) || isYouTubeMediaUrl(url))) {
+          // The built-in pure-Dart extractor is walled far more often than
+          // yt-dlp, so when the engine is missing the sign-in advice is a dead
+          // end — the real remedy is to install yt-dlp, which Turbo can do in
+          // one tap. Sign-in only helps once an engine that can use the session
+          // is present.
+          if (!ytdlpAvailable) {
+            return DownloadError(
+              DownloadErrorKind.forbidden,
+              'YouTube refused to serve this download (HTTP 403). This is its '
+              'bot check, and the built-in extractor is blocked on many videos '
+              'the yt-dlp engine downloads fine.',
+              advice: 'Install the download engine in Settings → Download '
+                  'engine, then retry. Signing in also helps for videos that '
+                  'need an account.',
+              detail: text,
+              retryable: true,
+            );
+          }
           return DownloadError(
             DownloadErrorKind.forbidden,
             'YouTube refused to serve this download (HTTP 403). This is its '
