@@ -148,9 +148,12 @@ void main() {
       });
       AppDirs.testOverride = root;
 
-      // No dirOverride, so the real AppDirs path is used.
+      // No dirOverride, so the real AppDirs path is used. The platform flags
+      // are pinned so the expected file name does not depend on the host OS.
       final p = YtdlpProvisioner(
         abiOverride: Abi.linuxX64,
+        isWindows: false,
+        isMacOS: false,
         isLinux: true,
         installer: _RecordingInstaller(),
         latestTagOverride: 'v2026.10.26',
