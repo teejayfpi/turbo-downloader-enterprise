@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'services/network_errors.dart';
 import 'services/youtube_limits.dart';
 import 'services/ytdlp_android.dart';
+import 'services/ytdlp_provisioner.dart';
 
 /// The result of asking yt-dlp to describe a page.
 ///
@@ -307,14 +308,33 @@ class YtdlpEngine {
     }
 
     // Common install locations, including the `yt-dlp[.exe]` a user drops next
-    // to the app or in their home/bin folder.
+    // to the app or in their home/bin folder, then the copy this app installed
+    // itself (Settings → Download engine → Install).
     for (final candidate in _candidates()) {
       if (await _isRunnable(candidate)) {
         _cachedBinary = candidate;
         return _cachedBinary;
       }
     }
+    final provisioned = await _provisionedCandidate();
+    if (provisioned != null && await _isRunnable(provisioned)) {
+      _cachedBinary = provisioned;
+      return _cachedBinary;
+    }
     return _cachedBinary;
+  }
+
+  /// The binary the in-app provisioner would install, when that file exists.
+  ///
+  /// Kept out of [_candidates] (which is synchronous and pure) because it has
+  /// to resolve the app data directory through a platform channel.
+  Future<String?> _provisionedCandidate() async {
+    if (_isAndroid || !canProvisionYtdlp) return null;
+    try {
+      return await YtdlpProvisioner().installedBinary();
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Re-runs detection, e.g. after the user installs yt-dlp or edits the path.

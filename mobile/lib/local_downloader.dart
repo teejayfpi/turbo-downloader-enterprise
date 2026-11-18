@@ -1378,7 +1378,11 @@ class LocalDownloadManager extends ChangeNotifier {
   /// retry with exponential backoff when the failure is transient and attempts
   /// remain.
   Future<void> _handleFailure(LocalTask task, Object error) async {
-    final failure = _classify(error, url: task.fetchUrl);
+    final failure = _classify(
+      error,
+      url: task.fetchUrl,
+      ytdlpAvailable: ytdlp.isAvailable,
+    );
     task.error = failure.message;
     task.errorKind = failure.kind.name;
     task.errorDetail = failure.technicalDetails;
@@ -1402,7 +1406,11 @@ class LocalDownloadManager extends ChangeNotifier {
     if (failure.retryable) onGaveUp?.call(task);
   }
 
-  static DownloadError _classify(Object error, {String? url}) {
+  static DownloadError _classify(
+    Object error, {
+    String? url,
+    bool ytdlpAvailable = true,
+  }) {
     if (error is MediaResolveException) {
       return DownloadError(DownloadErrorKind.media, error.message);
     }
@@ -1446,7 +1454,11 @@ class LocalDownloadManager extends ChangeNotifier {
         retryable: transient || refused || reload,
       );
     }
-    return DownloadError.from(error, url: url);
+    return DownloadError.from(
+      error,
+      url: url,
+      ytdlpAvailable: ytdlpAvailable,
+    );
   }
 
   void _scheduleRetry(Duration delay) {
