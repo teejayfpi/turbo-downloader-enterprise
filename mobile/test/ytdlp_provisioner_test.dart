@@ -81,9 +81,12 @@ void main() {
           contains('/releases/download/v2026.10.26/SHA2-256SUMS'));
       expect(File(path).existsSync(), isTrue);
       expect(await File(path).readAsString(), 'FAKE-BINARY');
-      // A non-Windows install must be executable.
-      final mode = await File(path).stat();
-      expect(mode.mode & 0x49, isNot(0), reason: 'owner/group/other x bits');
+      // A POSIX install must be executable. Windows has no mode bits: a
+      // `.exe` is runnable by its extension, so there is nothing to assert.
+      if (!Platform.isWindows) {
+        final mode = await File(path).stat();
+        expect(mode.mode & 0x49, isNot(0), reason: 'owner/group/other x bits');
+      }
     });
 
     test('a platform with no build fails with install advice', () async {
